@@ -33,7 +33,8 @@ import {
     CPU_ORDER, CPU_STEPS, CUSTOM_STEPS, DEEP_PRESETS, PRESET_ORDER, PRESET_WORDS, cpuOf, deepJob, deepKey, deepResult, deepSettings, durationText,
     estimateSeconds, getOptimiser, latestDeepResult, msPerStartFor, onDeep, onOptimiser, setOptimiser, startDeep, stopDeep,
 } from '/js/mods/pz2qol/kinprogdeep.js';
-import { PROGRAMME_TUNING, TUNE_PREF, applyTuning, tuningChoice, tuningCount, tuningKey } from '/js/mods/pz2qol/kinprogtune.js';
+import { PROGRAMME_TUNING, TUNE_PREF, applyTuning, tuningChoice, tuningCount, tuningGoal, tuningKey } from '/js/mods/pz2qol/kinprogtune.js';
+import { ceilingText, copiesText, speciesStrands } from '/js/mods/pz2qol/kinstrands.js';
 import { getAssignments, onAssignments, toggleAssignment, assignmentStorage } from '/js/mods/pz2qol/kinassign.js';
 import { getStorageCounts, onStorageCounts, requestStorageCounts } from '/js/mods/pz2qol/tradejump.js';
 import { fetchRow } from '/js/mods/pz2qol/storagefetch.js';
@@ -1019,6 +1020,16 @@ function programmeEl(model) {
         statTile('quality', 'Expected young', b.youngQuality, a.youngQuality, 'up'),
         statTile('related', 'Related pairs', b.relatedPairs, a.relatedPairs, 'down'),
         statTile('idle', 'No partner', b.idle, a.idle, 'down')));
+    // the species' ceiling from its best strands, and each mover's copies of them (kinstrands.js)
+    const strands = speciesStrands(model, species, p.info || {});
+    const ceiling = ceilingText(strands);
+    if (ceiling) {
+        wrap.appendChild(h('div.PZ2QoL_bwHint.PZ2QoL_bwCeiling', {
+            text: ceiling,
+            title: 'The best young the strands in the zoo allow: two copies of the best Vitality strand and of the best Longevity strand. V2 L1 on an animal: its copies.',
+        }));
+    }
+    if (tuningGoal(getPref(TUNE_PREF)) === 'ceiling') wrap.appendChild(h('div.PZ2QoL_bwHint', { text: 'Push the ceiling needs Thin out on, or the poorer young stay.' }));
     const plan = runnableMoves(model, r.moves);
     const box = scrollBox('moves');
     const c = box.content;
@@ -1028,11 +1039,13 @@ function programmeEl(model) {
         if (!x) continue;
         const from = x.hab ? placeName(model, x.hab) : x.lt === 'trade' ? placeName(model, TRADE) : 'Elsewhere';
         const runs = plan.some(y => y.id === x.id);
+        const copies = copiesText(strands.copies.get(x.id));
         c.appendChild(h(`div.PZ2QoL_bwMove${runs ? '' : '.held'}${m.to === TRADE ? '.out' : ''}`, { 'data-id': String(x.id) },
             h(`div.PZ2QoL_bwSex.sex_${x.sex}`, { text: sexSymbol(x.sex) }),
             h('div.PZ2QoL_bwMoveText', null,
                 h('div.PZ2QoL_bwMoveName', { text: trunc(x.name || `Animal ${x.id}`, 22) + (runs ? '' : ' · stays (pregnant or busy)') }),
-                h('div.PZ2QoL_bwMoveWhere', { text: `${trunc(from, 18)} → ${trunc(placeName(model, m.to), 18)}` }))));
+                h('div.PZ2QoL_bwMoveWhere', { text: `${trunc(from, 18)} → ${trunc(placeName(model, m.to), 18)}` })),
+            copies ? h('div.PZ2QoL_bwCopies', { text: copies, title: 'Copies of the best Vitality (V) and Longevity (L) strands' }) : null));
     }
     if (r.moves.length > MOVES_SHOWN) c.appendChild(h('div.PZ2QoL_bwHint', { text: `${r.moves.length - MOVES_SHOWN} more moves.` }));
     wrap.appendChild(finishScroll(box, 'moves'));

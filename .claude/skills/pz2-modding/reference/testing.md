@@ -197,6 +197,15 @@ Run all of these before installing a build.
   in prefs `progTune` and counted on the toggle, Deep with its presets and 5 custom steppers, the
   deep line on the plan, Reset. `tests/kinprogtune.test.mjs`: the tuning table, normalize/apply,
   the cache key, Auto mode's options.
+- Breeding goal (2026-10-21): `node --test tests/kinstrands.test.mjs` (`kinstrands.js`: the
+  young's outcome distribution and `youngUpside` on hand examples, copies / carriers / sole carrier
+  / ceiling with a juvenile and an old animal, breeding value, `carrierKeepers`; the default goal
+  gives the same programme plans and Thin out culls as no goal on 10 seeded zoos; the ceiling goal
+  pairs carrier x carrier over an equal-average pair; Thin out's carrier guard, non-carriers then
+  outclassed breeders first; Auto mode holds a carrier the programme would send away).
+  `kinprogtune.test.mjs` covers the `goal` tuning key and `tuningGoal`. Pitfall for hand
+  examples: fertility/immunity spread in the young can fill the best quarter by itself and tie
+  `youngUpside`; give the sexes different F/I letters so every young gets 100% there.
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is

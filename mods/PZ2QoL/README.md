@@ -650,6 +650,17 @@ which male and female in the same habitat are related and would inbreed. Collect
   **Optimiser**: Classic (a few seconds) or Deep (many starts after the Classic plan, in the
   background, with Stop and Continue; presets Quick to Marathon, or your own numbers, and CPU
   use). Kept as your default in every zoo.
+  **Breeding goal** (Breeding window, More options): **Average young** (the default, as above) or
+  **Push the ceiling**. A young's expected Vitality and Longevity are always its parents' average,
+  so pairing alone holds a herd where it is. Each species has a **ceiling**: young with two copies
+  of its best Vitality strand and two of its best Longevity strand. Push the ceiling pairs the
+  carriers of those strands, so some young beat their parents, and Thin out then keeps by what an
+  animal passes on (its better strands and its fertility) instead of its own average: the last
+  two carriers of each best strand stay, animals with neither best strand go first, then breeders
+  outclassed by one of their sex with more copies. It needs **Thin out on** (Auto mode or by
+  hand), or the poorer young stay. Expect the herd's average to dip for a generation while they
+  are culled. The Breeding window shows the ceiling ("Ceiling 87% · best V 5/6 (3 carry) · L 4/6
+  (only Fola)") and each moved animal's copies ("V2 L1").
 - **Thin out** (Species board): picks who to send to the trade centre (to sell, trade or release).
   Each habitat keeps a target number of adults (its room for the species x **Core only** (just the
   breeding core: 1 male, 2 females) / Strict 55% / Lean 70% / Balanced 85% / Full 100%); over-full

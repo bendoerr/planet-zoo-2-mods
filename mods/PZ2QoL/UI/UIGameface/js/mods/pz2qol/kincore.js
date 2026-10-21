@@ -595,6 +595,35 @@ export function predictOffspring(genesA, genesB) {
     return any ? out : null;
 }
 
+// The good alleles (A, B; 0..6) on each of a gene's two strands, or null
+// without data. Size and longevity grades add these up (kinstrands.js).
+export function strandGood(genes, key) {
+    const s = strands(genes, key);
+    return s ? [goodCount(s[0]), goodCount(s[1])] : null;
+}
+
+// The young's four equally likely values of each gene, in twelfths (0..12),
+// by predictOffspring's formulas: { fertility: [4], immunity: [4], size:
+// [4], longevity: [4] } (a gene without data on either side left out), or
+// null. kinstrands.js youngUpside.
+export function offspringTwelfths(genesA, genesB) {
+    if (!genesA || !genesB) return null;
+    const out = {};
+    let any = false;
+    for (const st of STATS) {
+        const a = strands(genesA, st.key);
+        const b = strands(genesB, st.key);
+        if (!a || !b) continue;
+        const values = [];
+        for (const sa of a) {
+            for (const sb of b) values.push(st.hetero ? 2 * diffCount(sa, sb) : goodCount(sa) + goodCount(sb));
+        }
+        out[st.id] = values;
+        any = true;
+    }
+    return any ? out : null;
+}
+
 // One number for ranking mates: mean of the predicted means (0..100).
 export function offspringScore(pred) {
     if (!pred) return null;

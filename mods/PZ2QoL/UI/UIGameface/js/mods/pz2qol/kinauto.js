@@ -557,14 +557,16 @@ async function makePlan(species) {
     const ratio = ratioOf(species);
     const assignments = getAssignments(cur);
     const view = ledgerView(l, cur, parkYears(), Date.now());
-    const input = { model: cur, species, info, destinations: dest, assignments, settings, ratio, view, tradeFree: tradeFree(cur) };
+    // the fine tuning: the programme's options and the Breeding goal Thin out culls for
+    const tune = getPref(TUNE_PREF);
+    const input = { model: cur, species, info, destinations: dest, assignments, settings, ratio, view, tradeFree: tradeFree(cur), tune };
     // Thin out first, then the programme on the zoo as it leaves it
     const prep = prepareAutoRun(input);
     const cpu = safe(() => cpuOf(), 'cpu') || { sliceMs: 16, restMs: 16 };
     const fp = A.prints.get(species);
     const r = await planProgrammeAsync(prep.model, species, info || {}, dest, {
         assignments,
-        options: programmeOptionsFor(prep.settings, ratio, prep.pins, getPref(TUNE_PREF)),
+        options: programmeOptionsFor(prep.settings, ratio, prep.pins, tune),
         sliceMs: cpu.sliceMs,
         restMs: cpu.restMs,
         isCancelled: () => !fresh() || !A.ledger.sp[species] || !A.ledger.sp[species].on,

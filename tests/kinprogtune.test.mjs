@@ -3,7 +3,7 @@
 // cache key, and the engine reads every tuned option.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROGRAMME_TUNING, applyTuning, normalizeTuning, tuningChoice, tuningCount, tuningKey } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogtune.js';
+import { PROGRAMME_TUNING, applyTuning, normalizeTuning, tuningChoice, tuningCount, tuningGoal, tuningKey } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogtune.js';
 import { PROGRAMME_DEFAULTS } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import { programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 
@@ -42,6 +42,17 @@ test('tuningKey is stable and empty for the defaults', () => {
     assert.equal(tuningCount({ spareOut: 'stay', lineBonus: 'off', x: 1 }), 2);
     assert.equal(tuningChoice({}, 'relatedPenalty').id, 'default');
     assert.equal(tuningChoice({ relatedPenalty: 'avoid' }, 'relatedPenalty').label, 'Avoid');
+});
+
+test('Breeding goal: Average young by default, Push the ceiling sets goal', () => {
+    assert.equal(tuningChoice({}, 'goal').label, 'Average young');
+    assert.equal(tuningGoal(null), 'average');
+    assert.equal(tuningGoal({ goal: 'default' }), 'average');
+    assert.equal(tuningGoal({ goal: 'nope' }), 'average');
+    assert.equal(tuningGoal({ goal: 'ceiling' }), 'ceiling');
+    assert.equal(applyTuning({}, { goal: 'ceiling' }).goal, 'ceiling');
+    assert.equal(PROGRAMME_DEFAULTS.goal, 'average');
+    assert.equal(tuningKey({ goal: 'ceiling' }), 'goal=ceiling', 'part of the plans\' cache key');
 });
 
 test('Auto mode applies the tuning on top of its own search budget', () => {

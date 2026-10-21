@@ -12,6 +12,17 @@ export const TUNE_PREF = 'progTune';
 // choice has id 'default' and no patch.
 export const PROGRAMME_TUNING = Object.freeze([
     {
+        // kinstrands.js: pairing can't raise the herd's average Vitality and
+        // Longevity, only stacking the best strands can; Thin out then culls
+        // by the strands an animal passes on
+        key: 'goal', group: 'Goal', label: 'Breeding goal',
+        help: 'Push the ceiling pairs carriers of the best Vitality and Longevity strands; it needs Thin out on, or the poorer young stay.',
+        choices: [
+            { id: 'default', label: 'Average young' },
+            { id: 'ceiling', label: 'Push the ceiling', value: { goal: 'ceiling' } },
+        ],
+    },
+    {
         key: 'moveCost', group: 'Moves', label: 'Cost of a move',
         help: 'How much one move must gain to be made. "Slider" uses the Fewer moves to Best genetics slider.',
         choices: [
@@ -165,4 +176,10 @@ export function tuningKey(tune) {
 
 export function tuningCount(tune) {
     return Object.keys(normalizeTuning(tune)).length;
+}
+
+// The breeding goal the tuning picks: 'average' (the default) or 'ceiling'.
+// Thin out reads it too (cullPlan's goal), so it culls for the same aim.
+export function tuningGoal(tune) {
+    return normalizeTuning(tune).goal === 'ceiling' ? 'ceiling' : 'average';
 }

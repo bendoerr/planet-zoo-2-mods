@@ -135,6 +135,18 @@ Used by the proposal `docs/PROPOSAL-inbreeding-qol.md`.
   B = 7..12; the young get one strand from each parent (4 equal combinations). Fertility and
   immunity = loci where the two strands differ (0..6); size and longevity = count of 'A'/'B'
   alleles in both strands (0..12). Kin's `predictOffspring` mirrors it.
+- Consequence of that rule (**offline**, from the formula): a young's **mean** size (Vitality in
+  game) and longevity always equal its parents' average, so a pair value built on the predicted
+  means (`kinprogramme.js` `youngQuality`) cannot raise them by pairing; it only steers fertility,
+  immunity and conception. Fertility and immunity are not passed on as scores (they depend on how
+  the two inherited strands differ). The herd can only rise by stacking the best strands: per
+  species the best size and longevity strand (A/B letters, 0..6) among animals present and not
+  past breeding, juveniles included; ceiling = (2 × best S + 2 × best L + 12 + 12) / 48. From
+  parents with c1 and c2 copies a young gets two copies with chance c1/2 × c2/2. Mutation
+  (about 1% per letter) is ignored. `kinstrands.js` (copies, carriers, ceiling, `youngUpside`:
+  the best quarter of the 256 equally likely four-gene outcomes) and the Breeding goal "Push the
+  ceiling" (`kinprogtune.js` `goal`; `kinprogramme.js` pair value; `kincull.js` breeding value,
+  carrier guard; `kinautocore.js` keeps the carriers in Auto mode too).
 
 ## UI surfaces and keys
 

@@ -196,3 +196,5 @@ One line per update: date, what changed, why.
 - 2026-10-21: debugging: 3.2.0 player crash (Nexus) in the lister's quick-trade/release probe reading the storage list (`_ProbeTick` -> `GetDataStoreContextAsTable`), open.
 - 2026-10-21: debugging: the 3.2.0 probe crash fixed offline (probe only in debug builds, 1 s / loadingItems guard). animals-and-breeding: exhibit animal UIDs can be GUIDs; Kin keeps the scanned value (`Kin.tExhibitUids`).
 - 2026-10-21: debugging: script profiler is debug-builds-only from 3.2.1. archives-and-build: v3.2.1 tagged.
+- 2026-10-21: animals-and-breeding: pairing can't raise mean Vitality/Longevity (the young's mean is the parents' average); best-strand ceiling and copies; Breeding goal "Push the ceiling" (`kinstrands.js`, tuning `goal`, Thin out by breeding value with a carrier guard).
+- 2026-10-21: archives-and-build: cobra-tools 2026.10.11 writes ppuipkg `file_content` as base64; `ppuipkg_unpack.py` and the build's UI round trip fail after the OVLs are written (check the UI overlay by hand). testing: `kinstrands.test.mjs`.

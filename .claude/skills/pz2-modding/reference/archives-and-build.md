@@ -92,6 +92,11 @@ python tools/build_pz2qol.py --cobra-tools <cobra-tools dir> --python <venv pyth
   expanded). One under `mods/PZ2QoL/Main` fails the check with "Main.ovl round trip mismatch:
   %SystemDrive%". Delete such empty folders under `mods/` before building, and run Python scripts
   from the scratchpad.
+- **Pitfall (2026-10-21):** cobra-tools 2026.10.11 extracts a `.ppuipkg`'s `file_content` as
+  base64, not signed byte values, so `tools/ppuipkg_unpack.py` (and the build's UI round trip)
+  stops with "invalid literal for int()" after the OVLs are written. `Main.ovl` is verified
+  first. Until the unpacker reads base64, check the UI overlay yourself: extract it, base64-decode
+  each `file_content` and compare with `mods/PZ2QoL/UI` byte for byte.
 - `--debug-trace` compiles `tools/trace/pz2_trace.c` with MSVC (`vcvars64.bat`) and adds
   `dbg\cp_<name>.dll`, one per line of `tools/trace/checkpoints.txt`.
   It also adds the 98 `dbg\lg_*.dll` copies of the detailed log (`lg_20`…`lg_7e`, `lg_clr`,

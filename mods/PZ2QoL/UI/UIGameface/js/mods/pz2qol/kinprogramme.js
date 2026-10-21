@@ -7,7 +7,10 @@
 //     formula) x the chance of conception (the game's own probability, by
 //     fertility grade) x how long the pair can breed (fertile years left of
 //     the one that ages out first; old or infertile animals are not
-//     breeders)
+//     breeders). With the goal 'ceiling' the pair's best young instead of
+//     its expected young (kinstrands.js youngUpside): the expected Size and
+//     Longevity are always the parents' average, so only pairs that can
+//     stack the best strands raise them
 //   - relatives living together: a related, fertile male-female pair in one
 //     habitat is a heavy penalty, so the search removes it
 //   - adults over the habitat's room, breeders over the group make-up
@@ -94,8 +97,12 @@ export function programmeLogData(r) {
 // (tests/kinprogramme.test.mjs).
 import { predictOffspring, Sex, fertileNow, ownGrades, relationWord } from './kincore.js';
 import { TRADE, normalizeAssignments, assignedHabitatsOf, habitatAllowedFor } from './kinboardcore.js';
+import { youngUpside } from './kinstrands.js';
 
 export const PROGRAMME_DEFAULTS = Object.freeze({
+    // the breeding goal (kinprogtune.js "Breeding goal"): 'average' pairs for
+    // the best expected young, 'ceiling' for the best young a pair can have
+    goal: 'average',
     moveCost: 0.04,          // per moved animal, in pair-value units (0..1)
     bondBreakCost: 0.15,     // separating two monogamous mates (mourning)
     outsiderCost: 0.02,      // joining a habitat that already has this species
@@ -656,12 +663,13 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
     });
     ctx.canGo = (i, p) => p === ctx.home[i] || (!ctx.pinned[i] && (p === trade || (groupPlace[p] && allowed.has(placeKeys[p]))));
     // the pair's value, male m with female f (indices): -1 = related
+    const young = opts.goal === 'ceiling' ? youngUpside : youngQuality;
     ctx.pv = (m, f) => {
         const k = m * n + f;
         let v = ctx.pvCache[k];
         if (v !== v) {
             const a = breeders[m], b = breeders[f];
-            v = relatedPair(model, a, b) ? -1 : youngQuality(a, b) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
+            v = relatedPair(model, a, b) ? -1 : young(a, b) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
             ctx.pvCache[k] = v;
         }
         return v;
@@ -1974,7 +1982,8 @@ function problemSig(ctx) {
     rows.sort();
     const places = ctx.placeKeys.map((k, p) => `${k}:${ctx.cap[p] == null ? '' : ctx.cap[p]}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}`).sort();
     const r = ctx.rule;
-    const facts = [ratioKey(r), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|');
+    const facts = [ratioKey(r), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
+        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
 }

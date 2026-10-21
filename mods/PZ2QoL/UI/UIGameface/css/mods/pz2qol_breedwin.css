@@ -389,6 +389,9 @@
 .PZ2QoL_bw .PZ2QoL_kb .PZ2QoL_bwMoveText { flex: 1; min-width: 0; flex-direction: column; }
 .PZ2QoL_bwMoveName { font-size: 0.82rem; font-weight: bold; white-space: nowrap; overflow: hidden; }
 .PZ2QoL_bwMoveWhere { font-size: 0.72rem; color: var(--qol-ink-soft); white-space: nowrap; overflow: hidden; }
+/* copies of the best strands ("V2 L1", kinstrands.js) */
+.PZ2QoL_bwCopies { flex-shrink: 0; margin-left: 0.4rem; font-size: 0.72rem; font-weight: bold; white-space: nowrap; color: var(--qol-ink-soft); }
+.PZ2QoL_bwCeiling { font-weight: bold; }
 .PZ2QoL_bwFoot { flex-shrink: 0; margin-top: 0.45rem; }
 
 .PZ2QoL_bwBusy, .PZ2QoL_bwRun {

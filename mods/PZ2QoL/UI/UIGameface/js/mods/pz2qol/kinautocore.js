@@ -16,9 +16,10 @@
 // something changes in the zoo (a birth, a death, the player).
 import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, isBreeder, planProgramme } from './kinprogramme.js';
-import { FILL_STEPS, cullPlan } from './kincull.js';
+import { FILL_STEPS, breedsNow, cullPlan } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
-import { applyTuning } from './kinprogtune.js';
+import { applyTuning, tuningGoal } from './kinprogtune.js';
+import { carrierKeepers, speciesStrands } from './kinstrands.js';
 
 // How often a species' run comes round, in months of the park's calendar
 // (12 a year, 3 a season): game time, so it stops while the game is paused
@@ -131,7 +132,8 @@ export function locksOf(model, species, view) {
 // input: { model, species, info, destinations, assignments, settings
 //          (normalizeSpecies), ratio (the board's make-up choice), view
 //          (kinautoledger ledgerView), tradeFree (places left at the trade
-//          centre, null: unknown) }
+//          centre, null: unknown), tune (the fine tuning, kinprogtune.js:
+//          its Breeding goal also decides how Thin out culls) }
 // prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
@@ -150,7 +152,7 @@ export function prepareAutoRun(input) {
         // programme's last runs), and so does what it must not touch
         const keepIds = new Set(locked);
         for (const id of view.recentFrom.keys()) keepIds.add(id);
-        const c = cullPlan(model, species, info || {}, { options: { fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds } });
+        const c = cullPlan(model, species, info || {}, { options: { fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, goal: tuningGoal(input.tune) } });
         out.thin = c;
         if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin');
     }
@@ -223,6 +225,7 @@ export function finishAutoRun(input, prep, programme) {
         addMove(prep, a, m.to, m.reason || 'breeding programme', 'programme');
     }
     keepLastBreeders(input, out);
+    if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
     if (idle) out.notes.push(`${idle} breeder${idle === 1 ? ' has' : 's have'} no unrelated partner in the zoo: new animals from the market would let ${idle === 1 ? 'it' : 'them'} breed.`);
@@ -255,6 +258,22 @@ function keepLastBreeders(input, out) {
         out.moves.splice(i, 1);
         left[a.sex]++;
         out.held.push({ id: a.id, why: 'the last breeder of its sex stays' });
+    }
+}
+
+// The Breeding goal "Push the ceiling": the last two carriers of each best
+// strand in the habitats (kinstrands.js carrierKeepers, the ones Thin out
+// keeps) are never sent to the trade centre, by Thin out or the programme.
+function keepCarriers(input, out) {
+    const { model, species } = input;
+    if (!model) return;
+    const all = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false);
+    const keep = carrierKeepers(speciesStrands(model, species, input.info || {}), all.filter(a => a.hab), breedsNow);
+    for (let i = out.moves.length - 1; i >= 0; i--) {
+        const m = out.moves[i];
+        if (m.to !== TRADE || !keep.has(m.id)) continue;
+        out.moves.splice(i, 1);
+        out.held.push({ id: m.id, why: keep.get(m.id) });
     }
 }
 
