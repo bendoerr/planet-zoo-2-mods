@@ -13,6 +13,7 @@ import { isListerEnabled, onListerSettingChanged, setListerEnabled } from '/js/m
 import { getPriceBook } from '/js/mods/pz2qol/pricebook.js';
 import { fmtInt, h, icon, setClass, setText, tierOf } from '/js/mods/pz2qol/ui.js';
 import { panelApi, speciesName, trunc } from '/js/mods/pz2qol/kinpanel.js';
+import { toggleGeneNames } from '/js/mods/pz2qol/renamer.js';
 
 const SCORE_STEPS = [0, 50, 60, 70, 80, 90];
 const KEEP_STEPS = [1, 2, 3, 4];
@@ -208,7 +209,14 @@ function buildStorageBar() {
 
     const stats = h('div.PZ2QoL_stats');
     const bar = h('div.PZ2QoL_bar.PZ2QoL_card.storage');
-    bar.appendChild(collapser(bar, 'storage', 'Filters'));
+    // gene names for the animals shown (renamer.js), under the Filters toggle
+    // where the bar has room (it stays two rows high): a card says what would
+    // change; nothing is renamed until you press Rename there
+    const geneNames = h('div.PZ2QoL_chip.PZ2QoL_geneNamesBtn', {
+        title: 'Gene names: rename the animals shown to gene score, breeder score, name, Vitality and Longevity ("7987 Monifa 5858"), so the list sorts by them. Opens a card first; nothing is renamed until you press Rename.',
+        onClick: safe('Gene names', () => toggleGeneNames()),
+    }, h('span', { text: 'Gene names' }));
+    bar.appendChild(h('div.PZ2QoL_barLead', null, collapser(bar, 'storage', 'Filters'), geneNames));
     bar.appendChild(h('div.PZ2QoL_expandOnly', null,
         toggles.map(([key]) => chips[key]), chips.sellable, chips.surplus, chips.minScore, sort, clearChip));
     bar.appendChild(h('div.PZ2QoL_flex1'));

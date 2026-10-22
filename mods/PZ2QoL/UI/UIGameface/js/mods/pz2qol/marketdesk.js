@@ -409,8 +409,8 @@ function chosenRows() {
 function resultsByGuid() {
     const s = getEngineState();
     const m = new Map();
-    // a reprice's runs are shown under My listings
-    if (s && !isRepriceReq(s.req) && s.mode !== 'unlist') for (const r of s.results) m.set(r.guid, r);
+    // a reprice's runs are shown under My listings; renames in their own card
+    if (s && !isRepriceReq(s.req) && s.mode !== 'unlist' && s.mode !== 'rename') for (const r of s.results) m.set(r.guid, r);
     return m;
 }
 
@@ -1382,7 +1382,7 @@ function quickSide(el, s, running) {
             title: !isFranchise() ? 'Franchise only' : busy ? 'A run or market check is going' : 'Opens a confirmation; nothing is sent until you press Confirm there',
         }));
     }
-    if (s && !(isRepriceReq(s.req) || s.mode === 'unlist')) el.appendChild(runCard(s));
+    if (s && !(isRepriceReq(s.req) || s.mode === 'unlist' || s.mode === 'rename')) el.appendChild(runCard(s));
 }
 
 function renderSide() {

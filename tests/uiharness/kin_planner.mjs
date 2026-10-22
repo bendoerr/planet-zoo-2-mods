@@ -306,7 +306,7 @@ export async function hud(page, ctx) {
     for (const label of ['New inbreeding risks', 'Close kin too', 'Covered pairs', 'Pair bonds count as protection', "Species names in the game's language"]) {
         if (!facts.settings.switches.includes(label)) problems.push(`settings switch "${label}" missing: ${facts.settings.switches}`);
     }
-    if (facts.settings.thresholds.join(' ') !== '1/8 1/16* 1/32') problems.push(`thresholds: ${facts.settings.thresholds}`);
+    if (facts.settings.thresholds.join(' ') !== '1/4 1/8 1/16* 1/32') problems.push(`thresholds: ${facts.settings.thresholds}`);
     // boxed with no destination (kinboxed.js): switch, delay (10 s default), trade centre
     for (const label of ['Boxed with nowhere to go', 'Trade centre too']) {
         if (!facts.settings.switches.includes(label)) problems.push(`settings switch "${label}" missing: ${facts.settings.switches}`);

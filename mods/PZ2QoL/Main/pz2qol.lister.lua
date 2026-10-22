@@ -35,6 +35,11 @@
 --  Cancel (AnimalStorage_Cancel("Trade") -> StorageUICancelAnimalAuction(),
 --  no arguments, acts on the selection); its row's auctionTimerSeconds
 --  dropping to <= 0 confirms it.
+--  A job in mode "rename" (the storage bar's Gene names) gives each animal
+--  a new name through the game's own call for the name field,
+--  StorageUIRenameAnimal(row id, name); no selection; its row showing the
+--  new name confirms it. A server error or a name that does not show
+--  stops the run.
 --  Protocol: docs/DESIGN-market-desk.md. Offline: the DataStore shapes read
 --  here come from the decompiled game and its UI code; the trace marks
 --  lister_* are there to prove them in game.
@@ -109,6 +114,17 @@ Lister.sCancelNative = "StorageUICancelAnimalAuction"
 Lister.nUnlistTimeout = 30   -- s for the row to show it off the market
 Lister.nUnlistFirstLook = 1  -- s after the call before the list is read (as after a quick send)
 Lister.nUnlistErrWait = 5    -- s: a database error during the wait shortens it to this
+-- Renaming (mode "rename"): the storage name field's commit,
+-- AnimalStorage_InputFieldCommit(id, name), is a one-line pass-through to
+-- StorageUIRenameAnimal(id, name) (animalstoragehubmode.lua OnRenameAnimal,
+-- 1.0.5); the field sends the row's `id` (AnimalStorageInfoPanel.js
+-- onInputCommit), as nativeId reads it. Its request type and answer are
+-- unknown: the row decides. **offline**
+Lister.sRenameNative = "StorageUIRenameAnimal"
+Lister.nRenameTimeout = 20   -- s for the row to show the new name
+Lister.nRenameFirstLook = 0.5 -- s after the call before the row is read
+Lister.nRenameErrWait = 3    -- s: a database error during the wait shortens it to this
+Lister.nNameBytes = 120      -- the longest name a job may carry (30 characters of UTF-8)
 -- s: the engine's last selected animal still counts as "the data before the
 -- select" at the next run's first animal (a take-off, then a quick trade)
 Lister.nLastSelFresh = 60
@@ -676,6 +692,27 @@ local function isListed(tRow)
 	return n ~= nil and n > 0
 end
 
+-- A row's name as text: the literal of "[STRING_LITERAL:Value=|...|]" (a
+-- name the player gave), else the value itself (the game's own name key).
+local function nameText(v)
+	if type(v) ~= "string" then
+		return nil
+	end
+	return string.match(v, "^%[STRING_LITERAL:Value=|(.*)|%]$") or v
+end
+Lister.NameText = nameText
+
+-- The key of a row of this species and sex that shows this name, if any.
+local function namedRow(tList, sName, vSpecies, vGender)
+	for k, tRow in pairs(tList) do
+		if type(tRow) == "table" and nameText(tRow.name) == sName
+			and (vSpecies == nil or tRow.species == vSpecies) and (vGender == nil or tRow.gender == vGender) then
+			return rowKey(k, tRow)
+		end
+	end
+	return nil
+end
+
 local function onlySelected(tSel, sKey)
 	return tSel ~= nil and #tSel == 1 and tSel[1] == sKey
 end
@@ -1148,10 +1185,11 @@ end
 -- quick trade, quick release, rehome); it never sends anything.
 -- "quicktrade" / "release" (Phase 2, docs/PLAN-desk-quick-release.md 4.3):
 -- the desk's Quick trade / Quick release, one animal at a time (_QuickSend).
-Lister.tJobModes = { list = true, check = true, quicktrade = true, release = true, unlist = true }
+Lister.tJobModes = { list = true, check = true, quicktrade = true, release = true, unlist = true, rename = true }
 
 -- "v1 <paceMs>[ <mode>]\n<guid> <key> <price> <hours>\n..." -> tAnimals,
 -- nPaceMs, sMode (or nil, sError). A GUID listed twice is listed once.
+-- Mode "rename": "<guid> <key> <name>" per animal, the name percent-encoded.
 local function parseJob(sJob)
 	if type(sJob) ~= "string" then
 		return nil, "No job was sent."
@@ -1189,6 +1227,17 @@ local function parseJob(sJob)
 					sMode = sWord
 				end
 				nPace = tonumber(sPace)
+			elseif sMode == "rename" then
+				local sGuid, sKey, sEnc = string.match(sLine, "^(%S+)%s+(%S+)%s+(%S+)$")
+				local sName = sEnc and string.gsub(sEnc, "%%(%x%x)", function(sHex) return string.char(tonumber(sHex, 16)) end) or nil
+				if sGuid == nil or not string.match(sGuid, "^[%w_%.:%-]+$") or sName == nil or sName == ""
+					or #sName > Lister.nNameBytes or string.find(sName, "|", 1, true) or string.find(sName, "%c") then
+					return nil, "Bad job line " .. nLine .. "."
+				end
+				if not tSeen[sGuid] then
+					tSeen[sGuid] = true
+					tAnimals[#tAnimals + 1] = { sGuid = sGuid, sHint = sKey ~= "-" and sKey or nil, sName = sName, vHours = "-" }
+				end
 			else
 				local sGuid, sKey, sPrice, sHours = string.match(sLine, "^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)$")
 				local nPrice = sPrice ~= "-" and toNumber(sPrice) or nil
@@ -1208,7 +1257,8 @@ local function parseJob(sJob)
 		return nil, "Unknown job format (expected v1)."
 	end
 	if #tAnimals == 0 then
-		return nil, sMode == "check" and "No animals to check." or sMode == "unlist" and "No listings to take off." or "No animals to list."
+		return nil, sMode == "check" and "No animals to check." or sMode == "unlist" and "No listings to take off."
+			or sMode == "rename" and "No animals to rename." or "No animals to list."
 	end
 	return tAnimals, nPace, sMode, tOpts
 end
@@ -1341,7 +1391,8 @@ end
 -- The run
 -----------------------------------------------------------------------
 local tResultMarks = { listed = "lister_listed", refused = "lister_refused", timeout = "lister_timeout", skipped = "lister_skip", checked = "lister_checked",
-	traded = "lister_quick_traded", released = "lister_quick_released", unconfirmed = "lister_quick_unconfirmed", unlisted = "lister_unlisted" }
+	traded = "lister_quick_traded", released = "lister_quick_released", unconfirmed = "lister_quick_unconfirmed", unlisted = "lister_unlisted",
+	renamed = "lister_renamed" }
 
 local tSkipText = {
 	gone = "No longer in storage (sold, moved or filtered out).",
@@ -1360,6 +1411,7 @@ local tSkipText = {
 	nopage = "No fresh report from the page for it; nothing was sent.",
 	rehome = "The game offers only Rehome for it.",
 	notlisted = "Not on the market (any more): sold, expired or already taken off.",
+	named = "It has this name already.",
 }
 
 -- The steps the page watches the selection in.
@@ -1382,7 +1434,7 @@ end
 
 Lister._Begin = function(self, tRun)
 	local tJob = tRun.tAnimals[tRun.nIndex]
-	tRun.tCur = { sGuid = tJob.sGuid, sHint = tJob.sHint, nPrice = tJob.nPrice, vHours = tJob.vHours }
+	tRun.tCur = { sGuid = tJob.sGuid, sHint = tJob.sHint, nPrice = tJob.nPrice, vHours = tJob.vHours, sName = tJob.sName }
 	tRun.tResults[tRun.nIndex].status = "working"
 	log("animal", runFields(tRun, { n = #tRun.tAnimals, hint = tJob.sHint, jobPrice = tJob.nPrice or "-", jobHours = tJob.vHours }))
 	self:_SetStep(tRun, "server")
@@ -1398,6 +1450,15 @@ Lister._Summary = function(self, tRun)
 			end
 		end
 		return tQ.sVerb .. " " .. nDone .. " of " .. #tRun.tResults .. "."
+	end
+	if tRun.sMode == "rename" then
+		local nDone = 0
+		for _, r in ipairs(tRun.tResults) do
+			if r.status == "renamed" then
+				nDone = nDone + 1
+			end
+		end
+		return "Renamed " .. nDone .. " of " .. #tRun.tResults .. "."
 	end
 	if tRun.sMode == "unlist" then
 		local nOff = 0
@@ -1466,7 +1527,7 @@ Lister._Result = function(self, tRun, sStatus, sKind, sDetail)
 		self.nLastServer = now()
 		if tRun.nIndex <= #tRun.tAnimals then
 			tRun.nPauseStart = self.nLastServer
-			return self:_SetStep(tRun, "pause", tRun.sMode == "unlist" and "Pausing before the next one." or "Pausing between listings.")
+			return self:_SetStep(tRun, "pause", (tRun.sMode == "unlist" or tRun.sMode == "rename") and "Pausing before the next one." or "Pausing between listings.")
 		end
 	elseif tCur ~= nil and tRun.sMode == "check" and tCur.nSelectedAt ~= nil and tRun.nIndex <= #tRun.tAnimals then
 		-- a check sends nothing: its own short pause between two selects
@@ -1636,6 +1697,22 @@ Lister._End = function(self, tRun, sPhase, sMessage)
 		else
 			tRes.status, tRes.kind = "unconfirmed", "unconfirmed"
 			tRes.detail = (sPhase == "closed" and "Animal Storage was closed" or "Stopped") .. " before it was confirmed: check storage."
+		end
+		tRun.nIndex = tRun.nIndex + 1
+		self.nLastServer = now()
+		tRun.tCur = nil
+		tCur = nil
+	end
+	if tCur ~= nil and tCur.bSent and tRun.sMode == "rename" then
+		-- a new name was asked for: one last look at its row
+		local tRes = tRun.tResults[tRun.nIndex]
+		local bOk, tRow = pcall(rowOf, tCur.sKey, nil)
+		if bOk and tRow ~= nil and nameText(tRow.name) == tCur.sName then
+			tRes.status, tRes.kind, tRes.detail = "renamed", nil, ""
+			mark("lister_renamed")
+		else
+			tRes.status, tRes.kind = "stopped", "stopped"
+			tRes.detail = (sPhase == "closed" and "Animal Storage was closed" or "Stopped") .. " while waiting; it may still get the new name."
 		end
 		tRun.nIndex = tRun.nIndex + 1
 		self.nLastServer = now()
@@ -2177,6 +2254,15 @@ Lister._Step = function(self, tRun, t)
 			-- Phase 0a: does the row's source text tell the quick-only animals apart?
 			source = tRow and tRow.source }))
 		tCur.sSource = tRow and type(tRow.source) == "string" and tRow.source or nil
+		if tRun.sMode == "rename" then
+			-- no selection and none of the market's rules: the name only
+			if tRow ~= nil and nameText(tRow.name) == tCur.sName then
+				return self:_Skip(tRun, "named")
+			end
+			tCur.sKey = sKey
+			tCur.vSpecies, tCur.vGender = tRow and tRow.species, tRow and tRow.gender
+			return self:_SetStep(tRun, "send", "Renaming it.")
+		end
 		if tRun.sMode == "unlist" then
 			-- only a listing still on the market is taken off
 			if tRow == nil or not isListed(tRow) then
@@ -2427,6 +2513,9 @@ Lister._Step = function(self, tRun, t)
 		if self:_Q(tRun) ~= nil then
 			return self:_QuickSend(tRun, tCur, t)
 		end
+		if tRun.sMode == "rename" then
+			return self:_RenameSend(tRun, tCur, t)
+		end
 		if tRun.sMode == "unlist" then
 			return self:_UnlistSend(tRun, tCur, t)
 		end
@@ -2497,6 +2586,9 @@ Lister._Step = function(self, tRun, t)
 	end
 	if tRun.sStep == "unconfirm" then
 		return self:_UnlistConfirm(tRun, tCur, t)
+	end
+	if tRun.sStep == "renamed" then
+		return self:_RenameConfirm(tRun, tCur, t)
 	end
 	if tRun.sStep == "confirm" then
 		if t - tCur.nLastPoll < self.nConfirmPoll then
@@ -2766,6 +2858,90 @@ Lister._UnlistConfirm = function(self, tRun, tCur, t)
 	end
 end
 
+-- A new name (mode "rename"), in one tick: idle, the key still this animal
+-- (_Holds), then exactly what the name field's commit passes on: the row's
+-- id and the name.
+Lister._RenameSend = function(self, tRun, tCur, t)
+	local bBusy, sWhy = self:_Busy()
+	if bBusy and sWhy == "requests" and (tRun.bRequestsIgnored or t - tRun.nStepStart > self.nRequestsGrace) then
+		if not tRun.bRequestsIgnored then
+			tRun.bRequestsIgnored = true
+			mark("lister_busy_requests_ignored")
+		end
+		bBusy = false
+	end
+	if bBusy then
+		self:_MarkBusy(tRun, sWhy)
+		if t - tRun.nStepStart > self.nServerTimeout then
+			return self:_Skip(tRun, "busy", "The game stayed busy with another server request; not renamed.")
+		end
+		tRun.sMessage = "Waiting for the game's other server requests."
+		return
+	end
+	local bHolds, sNotWhy = self:_Holds(tCur.sGuid, tCur.sKey, self:_List())
+	if not bHolds then
+		log("changed", runFields(tRun, { why = "key", detail = sNotWhy, key = tCur.sKey }))
+		return self:_Skip(tRun, sNotWhy == "ambiguous" and "ambiguous" or "changed", "The storage list changed just before renaming; not renamed.")
+	end
+	local fn = hubFn(self.sRenameNative)
+	if fn == nil then
+		return self:_StopRun(tRun, "skipped", "error", "This game version has no api.planetHub." .. self.sRenameNative .. ".", "Stopped: this game version can't rename from the mod.")
+	end
+	local sId = nativeId(tCur.sKey)
+	-- counts as sent even if the call raises (then the row still decides)
+	tCur.bSent = true
+	tCur.nSentAt = t
+	tCur.nLastPoll = t
+	tCur.nDeadline = t + self.nRenameTimeout
+	mark("lister_rename_send")
+	log("send_rename", runFields(tRun, { key = tCur.sKey, id = sId, name = tCur.sName }))
+	local bOk, sErr = pcall(fn, sId, tCur.sName)
+	if not bOk then
+		mark("lister_rename_call_error")
+		return self:_StopRun(tRun, "unconfirmed", "error", "The game's rename call failed: " .. tostring(sErr),
+			"Stopped: the game's rename call failed; check storage. Nothing more was sent.")
+	end
+	return self:_SetStep(tRun, "renamed", "Waiting for the new name to show.")
+end
+
+-- Renamed when its row shows the new name: by its key, else a row of the
+-- same species and sex with that name (the list may be re-sorted by name).
+-- A server error only shortens the wait (its request type is unknown; the
+-- row decides). Not shown by the deadline: the run stops, nothing more is sent.
+Lister._RenameConfirm = function(self, tRun, tCur, t)
+	if t - tCur.nSentAt < self.nRenameFirstLook and t < tCur.nDeadline then
+		return
+	end
+	if t - tCur.nLastPoll < self.nConfirmPoll and t < tCur.nDeadline then
+		return
+	end
+	tCur.nLastPoll = t
+	local ctx = context("hubAnimalsData", "network")
+	if not (ctx ~= nil and element(ctx, "loadingItems") == true) then
+		local tRow = rowOf(tCur.sKey, nil)
+		local bShown = tRow ~= nil and nameText(tRow.name) == tCur.sName
+		if not bShown then
+			local tList = self:_List()
+			bShown = tList ~= nil and namedRow(tList, tCur.sName, tCur.vSpecies, tCur.vGender) ~= nil
+		end
+		if bShown then
+			log("renamed", runFields(tRun, { ms = toInteger((t - tCur.nSentAt) * 1000), key = tCur.sKey,
+				err = tCur.tError ~= nil and (tCur.tError.sName or tCur.tError.nError) or nil }))
+			return self:_Result(tRun, "renamed", nil, "")
+		end
+	end
+	if t >= tCur.nDeadline then
+		mark("lister_rename_timeout")
+		local tE = tCur.tError
+		if tE ~= nil then
+			return self:_StopRun(tRun, "refused", "refused", "Refused by the server (" .. tostring(tE.sName or ("code " .. tostring(tE.nError))) .. ").",
+				"Stopped: the server refused a new name. Nothing more was sent.")
+		end
+		return self:_StopRun(tRun, "unconfirmed", "unconfirmed", "The new name did not show within " .. secs(t - tCur.nSentAt) .. " s.",
+			"Stopped: a new name did not show; check storage. Nothing more was sent.")
+	end
+end
+
 -- Every frame while Animal Storage is open (its Advance).
 Lister.Tick = function(self)
 	local tRun = self.tRun
@@ -2825,6 +3001,13 @@ Lister.OnServerError = function(self, nError, sName, nRequestType)
 		mark("lister_unlist_server_error")
 		log("unlist_server_error", runFields(tRun, { code = nError, name = sName or "?", req = nRequestType, afterSend = secs(now() - tCur.nSentAt) }))
 	end
+	if tRun ~= nil and tCur ~= nil and tCur.bSent and tRun.sStep == "renamed" then
+		-- a rename: its request type is unknown; an error only shortens the wait
+		tCur.tError = tCur.tError or { nError = nError, sName = sName, nTime = now() }
+		tCur.nDeadline = math.min(tCur.nDeadline or now(), now() + self.nRenameErrWait)
+		mark("lister_rename_server_error")
+		log("rename_server_error", runFields(tRun, { code = nError, name = sName or "?", req = nRequestType, afterSend = secs(now() - tCur.nSentAt) }))
+	end
 	if tRun ~= nil and tCur ~= nil and tCur.bSent and tRun.sStep == "gone" then
 		tCur.tError = tCur.tError or { nError = nError, sName = sName, nTime = now() }
 		tCur.nDeadline = math.min(tCur.nDeadline or now(), now() + self.nQuickErrWait)
@@ -2850,8 +3033,8 @@ Lister.OnServerError = function(self, nError, sName, nRequestType)
 		sIgnored = "between"
 	elseif not tCur.bSent then
 		sIgnored = "notsent"
-	elseif tRun.sMode == "unlist" then
-		sIgnored = "unlist"
+	elseif tRun.sMode == "unlist" or tRun.sMode == "rename" then
+		sIgnored = tRun.sMode
 	elseif tCur.tError ~= nil then
 		sIgnored = "second"
 	elseif toNumber(nRequestType) ~= self.nListingRequest then
@@ -2907,6 +3090,8 @@ Lister.Hello = function(self, oUI, sReq)
 		check = true,
 		-- taking listings off the market (the desk's My listings)
 		unlist = hubFn(self.sCancelNative) ~= nil,
+		-- new names from the storage bar's Gene names
+		rename = hubFn(self.sRenameNative) ~= nil,
 	}))
 	-- a page that (re)loads during a quick run stops it; it never restarts
 	local tRun = self.tRun
@@ -3052,10 +3237,14 @@ Lister.Start = function(self, oUI, sReq, sJob)
 	local tQ = self.tQuickModes[sMode]
 	if sMode ~= "check" and self:_Online() == false then
 		return self:_Refuse(oUI, sReq, tQ ~= nil and "Quick trade and release from the desk need an online Franchise."
-			or sMode == "unlist" and "Taking listings off the market needs an online Franchise." or "Listing on the market needs an online Franchise.")
+			or sMode == "unlist" and "Taking listings off the market needs an online Franchise."
+			or sMode == "rename" and "Renaming in Animal Storage needs an online Franchise." or "Listing on the market needs an online Franchise.")
 	end
 	if tQ ~= nil and hubFn(tQ.sNative) == nil then
 		return self:_Refuse(oUI, sReq, "This game version has no api.planetHub." .. tQ.sNative .. ".")
+	end
+	if sMode == "rename" and hubFn(self.sRenameNative) == nil then
+		return self:_Refuse(oUI, sReq, "This game version has no api.planetHub." .. self.sRenameNative .. ".")
 	end
 	if sMode == "unlist" then
 		if hubFn(self.sCancelNative) == nil then
@@ -3084,7 +3273,7 @@ Lister.Start = function(self, oUI, sReq, sJob)
 	local nRunPace = nil
 	if sMode == "check" then
 		nRunPace = self:_ClampCheckPace(vPace)
-	elseif tQ ~= nil or sMode == "unlist" then
+	elseif tQ ~= nil or sMode == "unlist" or sMode == "rename" then
 		-- the desk's pace, at least 1 s; the listing pace is left alone
 		nRunPace = self:_ClampPace(vPace)
 	else
@@ -3111,6 +3300,9 @@ Lister.Start = function(self, oUI, sReq, sJob)
 		tRun.sPage = pageOf(sReq)
 		mark("lister_unlist_start")
 	end
+	if sMode == "rename" then
+		mark("lister_rename_start")
+	end
 	if sOnRefused ~= nil then
 		tRun.sOnRefused = sOnRefused
 		tRun.nRefusedMax = tOpts.nRefusedMax
@@ -3119,7 +3311,7 @@ Lister.Start = function(self, oUI, sReq, sJob)
 	end
 	log("start", { run = tRun.nId, req = sReq, n = #tAnimals, mode = sMode, paceMs = tRun.nPaceMs or self.nPaceMs, online = self:_Online(), releaseable = tRun.vReleaseable })
 	for i, tJob in ipairs(tAnimals) do
-		log("job", { run = tRun.nId, i = i, guid = tJob.sGuid, hint = tJob.sHint, price = tJob.nPrice or "-", hours = tJob.vHours })
+		log("job", { run = tRun.nId, i = i, guid = tJob.sGuid, hint = tJob.sHint, price = tJob.nPrice or "-", hours = tJob.vHours, name = tJob.sName })
 	end
 	self.bFlagMarked = nil
 	trace("run " .. tRun.nId .. ": " .. #tAnimals .. " animals")

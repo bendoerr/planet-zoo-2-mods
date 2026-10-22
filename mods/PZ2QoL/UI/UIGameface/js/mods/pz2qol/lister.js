@@ -1296,6 +1296,17 @@ function engineRunBlock(s) {
                 h('div.PZ2QoL_pill.ok', { text: `${tl.checked}/${tl.total} checked` })),
             h('div.PZ2QoL_listerStatus.clamp', { text: 'Market desk: reading what the game allows for each animal. Nothing is sold or listed.' }));
     }
+    // the storage bar's Gene names (renamer.js has its own card)
+    if (s.mode === 'rename') {
+        const running = s.phase === 'running';
+        const n = s.results.filter(r => r.status === 'renamed').length;
+        return h(`div.PZ2QoL_run.${running ? 'running' : s.phase === 'done' ? 'done' : 'stopped'}`, null,
+            h('div.PZ2QoL_runHead', null,
+                h('div.PZ2QoL_runTitle', { text: running ? 'Renaming…' : s.phase === 'done' ? 'Renamed' : 'Renaming stopped' }),
+                h('div.PZ2QoL_flex1'),
+                h('div.PZ2QoL_pill.ok', { text: `${n}/${tl.total} renamed` })),
+            h('div.PZ2QoL_listerStatus.clamp', { text: s.message || 'Gene names: one animal at a time; its card shows each one.', title: s.message || '' }));
+    }
     // the desk's Quick trade / Quick release (docs/PLAN-desk-quick-release.md 4)
     if (s.mode === 'quicktrade' || s.mode === 'release') {
         const running = s.phase === 'running';

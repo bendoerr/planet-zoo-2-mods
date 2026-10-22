@@ -730,3 +730,17 @@
 
 .PZ2QoL_listerStatus.clamp { max-height: 2.9rem; overflow: hidden; text-overflow: ellipsis; }
 .PZ2QoL_runSkip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------- Gene names (renamer.js) */
+
+.PZ2QoL_barLead { flex-shrink: 0; flex-direction: column; align-items: flex-start; justify-content: center; }
+.PZ2QoL_bar .PZ2QoL_chip.PZ2QoL_geneNamesBtn { height: 1.35rem; margin: 0.1rem 0 0 0.25rem; padding: 0 0.55rem; font-size: 0.72rem; }
+.PZ2QoL_bar.collapsed .PZ2QoL_geneNamesBtn { display: none; }
+.PZ2QoL_rename { padding: 0.6rem 0.8rem 0.7rem 0.8rem; z-index: 2; }
+.PZ2QoL_renameBody { flex-direction: column; }
+.PZ2QoL_renameText { font-size: 0.86rem; margin-bottom: 0.2rem; }
+.PZ2QoL_renameSoft { font-size: 0.74rem; line-height: 1rem; color: var(--qol-ink-soft); margin-top: 0.15rem; }
+.PZ2QoL_renameRow { font-size: 0.8rem; line-height: 1.1rem; margin-top: 0.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.PZ2QoL_renameNote { font-size: 0.78rem; line-height: 1.05rem; color: #9A6414; margin-bottom: 0.3rem; }
+.PZ2QoL_renameBtns { flex-direction: row; justify-content: flex-end; margin-top: 0.5rem; }
+.PZ2QoL_renameBtns > .PZ2QoL_btn + .PZ2QoL_btn { margin-left: 0.4rem; }

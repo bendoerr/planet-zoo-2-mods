@@ -16,7 +16,7 @@ What's in the toolbox:
 |---|---|
 | **Scores** | Gene, breeder and value badges on every Market and Storage row |
 | **Market** | Quick filters (Top genes, Breeders, Long-lived, Ending ≤1h, Cash, CC), Dim below a gene score |
-| **Animal Storage** | Filters (Pregnant, Alpha, Adults / Fertile adults / Juveniles, Sellable, Not listed, Has pair, Surplus, Gene ≥, Kin), lister on/off, sort by score, summary line, Find a habitat |
+| **Animal Storage** | Filters (Pregnant, Alpha, Adults / Fertile adults / Juveniles, Sellable, Not listed, Has pair, Surplus, Gene ≥, Kin), lister on/off, sort by score, summary line, Find a habitat, Gene names |
 | **Zoo Animals list** | Filter bar (habitat, sex, age, pregnant, alpha, contraception, unhappy, gene and fertility minimums, Kin) and sort by gene, breeder or welfare |
 | **Kin (inbreeding)** | Risk badges in every animal screen, alerts, Kin planner, Find a mate, Compare Mates and Genealogy additions, fertility over a life |
 | **Species board** | Plan moves by drag and drop, Suggest fixes, Breeding programme, Thin out, habitat assignments, Execute plan one move at a time, Auto mode per species |
@@ -436,6 +436,22 @@ animals (a setting, on by default).
 - A summary line: counts, sexes, pregnant, species, breeding pairs, average gene score.
 - Safety: changing a filter clears the selection, and "select all" only selects the rows you can
   see, so a bulk trade or release never includes hidden animals.
+
+**Gene names** (the small button under **Filters** in the storage toolbar; online Franchise).
+Renames the animals the storage list shows so their names carry their genes, and the list sorts
+by them:
+- The name: gene score and breeder score, the name, Vitality and Longevity, two digits each:
+  **"7987 Monifa 5858"** is gene score 79, breeder score 87, V 58, L 58. G and B are the badges'
+  scores; V and L are rounded down, as the game shows them; 100 shows as 99.
+- Left as they are: names already in that shape ("dddd name dddd"), animals without Vitality
+  (exhibit animals, fish), and names the mod can't read. A long name is cut so the whole name fits
+  the game's 30 characters.
+- The button opens a card first: how many get a gene name, a few examples, and **Rename N**.
+  Nothing is renamed until you press it. Narrow the list with the storage filters (a species,
+  Adults...) to rename only those.
+- One animal at a time, through the game's own rename (the same call as typing a name in the
+  info panel), at the listing pace; each new name must show in its row. A name that does not
+  show, or a server refusal, stops the run; **Stop** stops it too.
 
 **Error banner** at the top of the screen. It shows:
 - **Franchise server errors**, with names and hints, e.g. "Server error: NotEnoughCC: Not enough

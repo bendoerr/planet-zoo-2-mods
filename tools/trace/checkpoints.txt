@@ -764,8 +764,17 @@ lister_unlisted
 lister_unlist_gone
 lister_unlist_timeout
 lister_unlist_server_error
+lister_rename_start
+lister_rename_send
+lister_renamed
+lister_rename_call_error
+lister_rename_timeout
+lister_rename_server_error
 lister_skip_notlisted
+lister_skip_named
 js_reprice_start
+js_rename_open
+js_rename_start
 js_reprice_done
 js_reprice_left
 js_reprice_stop

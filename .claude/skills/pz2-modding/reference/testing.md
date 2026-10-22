@@ -312,6 +312,20 @@ Run all of these before installing a build.
   step 7 (the action switch, the money, the New price column, the red sheet, take-off then quick
   job, a stop leaving one with "Quick trade the 1 again"; the fake listing run sends verdicts with
   quick prices). Screenshots `mrp_7_quick`, `mrp_8_quick_sheet`, `mrp_9_quick_left`.
+- Gene names (2026-10-22, the storage bar's button): `node --test tests/renamecore.test.mjs` (the name from G, B, V, L
+  with 32-bit genes (the developer's "7987 Monifa 5858" / "7778 Olabisi 7550"), V and L rounded down, 100 as 99, the
+  30-character cut and no `|`, shoals / exhibit animals / no name left alone, the "dddd name dddd" pattern, the plan's
+  counts, the job text (percent-encoded names), the summary). Lua `test_lister.lua` section 24 (mode `rename`: caps,
+  refused without the native / offline / with a `|` or no name, the name decoded; three renamed with the row's `id`
+  (`bIdOther`) and the name, nothing selected or listed, the pace; already named skipped; fingerprint-token animals
+  (their look changes with the name); the list re-sorted after a rename; a name that never shows stops the run after
+  20 s; a server error shortens the wait and stops it as refused, but a name that shows despite an error counts; gone
+  skipped; Stop while waiting). Harness `desk_rename.mjs`: the chip under Filters with the bar still <= 90 px, the
+  card's plan (count, "Left as they are", examples, Rename N), nothing sent before Rename, one rename job, the rows
+  renamed, the summary, closed and reopened with nothing left. Pitfalls: the harness `translate` doesn't resolve
+  `[STRING_LITERAL:...]` (the page reads such names itself); a hello sent before a scenario's fake engine is in place
+  comes back empty (`engineCaps` returns the in-flight ask), so ask once more; playwright-core 1.48 can't launch
+  current Edge (`--headless=old` is gone): use 1.55.0 in the work folder.
 - "Find a habitat": `node --test tests/storagesend.test.mjs` (`storagesendcore.js`: ranking, skip
   reasons, the one-at-a-time run with fake game and clock: pauses, 8 s after a refusal online, busy
   wait, Stop); Lua `tests/lua/test_storagesend.lua` (same `lua.exe` command; arm/take/disarm/expiry/

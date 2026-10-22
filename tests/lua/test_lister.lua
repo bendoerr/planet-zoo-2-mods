@@ -2756,6 +2756,162 @@ do
 	oStorage:TransitionOut()
 end
 
+-----------------------------------------------------------------------
+-- 24. New names (mode "rename", the storage bar's Gene names): the game's
+-- own call for the name field, StorageUIRenameAnimal(row id, name); no
+-- selection; the row showing the name decides; already named: skipped; a
+-- name that never shows or a server refusal stops the run
+-----------------------------------------------------------------------
+do
+	local function pct(s)
+		return (string.gsub(s, "[^%w%-_%.!~%*'%(%)]", function(c) return string.format("%%%02X", string.byte(c)) end))
+	end
+	local function literal(s) return "[STRING_LITERAL:Value=|" .. s .. "|]" end
+	-- the native: the row shows the new name ~0.3 s later
+	local nRenameDelay = 0.3
+	planetHub.StorageUIRenameAnimal = function(sId, sName)
+		local g = guidForNative(sId)
+		record("Rename", sId, sName, g)
+		local a = g and tAnimals[g]
+		if a == nil then return end
+		if a.renameOutcome == "stay" then return end
+		if type(a.renameOutcome) == "function" then return a.renameOutcome(g, sName) end
+		after(nRenameDelay, function() a.name = literal(sName) end)
+	end
+	local nN = 0
+	-- tSpec: { guid, row fields (name, renameOutcome...), new name }
+	local function renameRun(tSpec, tOpt)
+		tOpt = tOpt or {}
+		reset()
+		oStorage:TransitionIn()
+		for k, v in pairs(tOpt.native or {}) do tNative[k] = v end
+		for _, a in ipairs(tSpec) do
+			local tA = a[2] or {}
+			tA.species = tA.species or "Lion"
+			tA.name = tA.name or ("[AnimalNames_African_Female_" .. tostring(a[1]) .. "]")
+			addAnimal(a[1], tA)
+			tAnimals[a[1]].renameOutcome = tA.renameOutcome
+		end
+		local tLines = {}
+		for _, a in ipairs(tSpec) do tLines[#tLines + 1] = (a.token or gs(a[1])) .. " " .. (keyOf(a[1]) or "-") .. " " .. pct(a[3]) end
+		nN = nN + 1
+		local sR = "RN" .. nN
+		fire("PZ2QoL_ListerStart", sR, "v1 " .. (tOpt.pace or 1000) .. " rename\n" .. table.concat(tLines, "\n"))
+		return sR
+	end
+
+	-- caps, refusals
+	reset()
+	oStorage:TransitionIn()
+	addAnimal(5000)
+	fire("PZ2QoL_ListerHello", "hr1")
+	local tC = sent("PZ2QoL_ListerCaps")
+	check(tC[#tC] and decode(tC[#tC].tArgs[2]).rename == true, "rename: caps say so")
+	local fnRename = planetHub.StorageUIRenameAnimal
+	planetHub.StorageUIRenameAnimal = nil
+	fire("PZ2QoL_ListerHello", "hr2")
+	tC = sent("PZ2QoL_ListerCaps")
+	check(decode(tC[#tC].tArgs[2]).rename == false and decode(tC[#tC].tArgs[2]).ok == true, "rename: no native, caps false (listing still ok)")
+	fire("PZ2QoL_ListerStart", "RN901", "v1 1000 rename\n5000 animal_1 7987%20Monifa%205858")
+	check(Lister.tRun == nil and lastState().refused == true and string.find(lastState().message, "StorageUIRenameAnimal", 1, true), "rename: no native, refused")
+	planetHub.StorageUIRenameAnimal = fnRename
+	tNative.nHubType = 1
+	fire("PZ2QoL_ListerStart", "RN902", "v1 1000 rename\n5000 animal_1 7987%20Monifa%205858")
+	check(Lister.tRun == nil and lastState().refused == true and string.find(lastState().message, "online Franchise", 1, true), "rename: offline, refused")
+	tNative.nHubType = 2
+	-- a name with "|" (the game's field refuses it), or none: a bad job
+	fire("PZ2QoL_ListerStart", "RN903", "v1 1000 rename\n5000 animal_1 7987%7CMonifa")
+	check(Lister.tRun == nil and lastState().refused == true and string.find(lastState().message, "Bad job line", 1, true), "rename: a | in the name, refused")
+	fire("PZ2QoL_ListerStart", "RN904", "v1 1000 rename\n5000 animal_1")
+	check(Lister.tRun == nil and lastState().refused == true, "rename: no name, refused")
+	local tJ = Lister.ParseJob("v1 1500 rename\n5000 animal_1 7987%20Monifa%205858")
+	check(tJ and tJ[1].sName == "7987 Monifa 5858" and tJ[1].sHint == "animal_1", "rename: the name decoded")
+
+	-- A. three renamed, one call each with the row's id (not the key) and the
+	-- name, nothing selected or listed, a pause between them
+	renameRun({ { 5001, nil, "7987 Monifa 5858" }, { 5002, nil, "7778 Olabisi 7550" }, { 5003, nil, "6060 Kito 4141" } }, { native = { bIdOther = true } })
+	check(runToEnd(60), "rename: finished")
+	local s = lastState()
+	local tR = calls("Rename")
+	check(#tR == 3 and #tAuctions == 0 and #calls("SelectItem") == 0, "rename: three calls, nothing selected or listed (" .. #tR .. ")")
+	check(tR[1] and tR[1].tArgs[1] == "id_5001" and tR[1].tArgs[2] == "7987 Monifa 5858" and tR[1].tArgs[3] == 5001 and tR[2].tArgs[3] == 5002 and tR[3].tArgs[3] == 5003, "rename: the row's id and the name")
+	check(tAnimals[5002].name == literal("7778 Olabisi 7550"), "rename: the row shows it")
+	check(s.mode == "rename" and s.phase == "done" and s.message == "Renamed 3 of 3." and s.results[1].status == "renamed" and s.results[3].status == "renamed", "rename: done (" .. tostring(s.message) .. ")")
+	check(tR[2].t - tR[1].t >= 1.0 + nRenameDelay, "rename: the pace between two")
+	check(countMarks("lister_rename_start") == 1 and countMarks("lister_rename_send") == 3 and countMarks("lister_renamed") == 3, "rename: marked")
+
+	-- B. one has the name already: skipped, no call; the next goes
+	renameRun({ { 5011, { name = literal("7987 Monifa 5858") }, "7987 Monifa 5858" }, { 5012, nil, "5050 Nala 5050" } })
+	check(runToEnd(60), "rename named: finished")
+	s = lastState()
+	check(s.results[1].status == "skipped" and s.results[1].kind == "named" and s.results[2].status == "renamed" and #calls("Rename") == 1, "rename: already named, skipped (" .. tostring(s.results[1].kind) .. ")")
+
+	-- C. an animal the game gives no id: found by its unique look, renamed;
+	-- its look changes with the name, the row still decides
+	reset()
+	oStorage:TransitionIn()
+	addAnimal(5021, { species = "Lion", name = "Solo", gender = 1, aidFn = function() return nil end })
+	addAnimal(5022, { species = "Lion", name = "Other", gender = 0, aidFn = function() return nil end })
+	fire("PZ2QoL_ListerResolve", "rr24", "animal_1,animal_2")
+	local tIds = sent("PZ2QoL_ListerIds")
+	local r = decode(tIds[#tIds].tArgs[2])
+	check(r.via.animal_1 == "fp" and r.via.animal_2 == "fp", "rename fp: fingerprint tokens")
+	fire("PZ2QoL_ListerStart", "RN920", "v1 1000 rename\n" .. r.ids.animal_1 .. " animal_1 " .. pct("8080 Solo 6666") .. "\n" .. r.ids.animal_2 .. " animal_2 " .. pct("7070 Other 5858"))
+	check(runToEnd(60), "rename fp: finished")
+	s = lastState()
+	check(s.results[1].status == "renamed" and s.results[2].status == "renamed" and tAnimals[5021].name == literal("8080 Solo 6666") and tAnimals[5022].name == literal("7070 Other 5858"), "rename fp: both renamed, each its own name")
+
+	-- D. the list re-sorts by name after the rename (keys move): still renamed
+	renameRun({ { 5031, { renameOutcome = function(g, sName)
+		after(0.3, function()
+			tAnimals[g].name = literal(sName)
+			reshuffle({ 5032, 5031 })
+		end)
+	end }, "9999 Zed 9999" }, { 5032, nil, "1111 Amy 1111" } })
+	check(runToEnd(60), "rename resort: finished")
+	s = lastState()
+	check(s.results[1].status == "renamed" and s.results[2].status == "renamed" and tAnimals[5032].name == literal("1111 Amy 1111"), "rename: re-sorted list, both renamed, the right animals")
+
+	-- E. the name never shows: the run stops after the wait, nothing more sent
+	renameRun({ { 5041, { renameOutcome = "stay" }, "1234 Stay 5678" }, { 5042, nil, "2222 Next 2222" } })
+	check(runToEnd(60), "rename stays: finished")
+	s = lastState()
+	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[2].status == "pending" and #calls("Rename") == 1, "rename: no new name, stopped, the rest not sent (" .. tostring(s.results[1].status) .. ")")
+	check(countMarks("lister_rename_timeout") == 1, "rename: timeout marked")
+
+	-- F. a server error and no new name: refused, stopped soon (the error shortens the wait)
+	renameRun({ { 5051, { renameOutcome = function() after(0.2, function() serverError(5, 33) end) end }, "1234 Err 5678" }, { 5052, nil, "2222 Next 2222" } })
+	local nT0 = nClock
+	check(runToEnd(60), "rename error: finished")
+	s = lastState()
+	check(s.phase == "stopped" and s.results[1].status == "refused" and string.find(s.results[1].detail, "NotAllowed", 1, true) and nClock - nT0 < 10 and #calls("Rename") == 1, "rename: refused, stopped (" .. tostring(s.results[1].detail) .. ", " .. tostring(nClock - nT0) .. " s)")
+	-- ... an error but the name shows: renamed, the run goes on
+	renameRun({ { 5053, { renameOutcome = function(g, sName) after(0.2, function() serverError(255, 42) end) after(0.4, function() tAnimals[g].name = literal(sName) end) end }, "1234 Ok 5678" }, { 5054, nil, "2222 Next 2222" } })
+	check(runToEnd(60), "rename error but named: finished")
+	s = lastState()
+	check(s.results[1].status == "renamed" and s.results[2].status == "renamed", "rename: shown despite an error: renamed")
+
+	-- G. the animal left storage before its turn: skipped gone, the next goes
+	renameRun({ { 5061, nil, "1234 Gone 5678" }, { 5062, nil, "2222 Next 2222" } })
+	reshuffle({ 5062 })
+	check(runToEnd(60), "rename gone: finished")
+	s = lastState()
+	check(s.results[1].status == "skipped" and s.results[1].kind == "gone" and s.results[2].status == "renamed", "rename: gone, skipped (" .. tostring(s.results[1].kind) .. ")")
+
+	-- H. Stop while waiting for the name: stopped, the rest stay to do
+	renameRun({ { 5071, { renameOutcome = "stay" }, "1234 Wait 5678" }, { 5072, nil, "2222 Next 2222" } })
+	tickUntil(function() return #calls("Rename") == 1 end, 30)
+	seconds(2)
+	fire("PZ2QoL_ListerStop")
+	s = lastState()
+	check(Lister.tRun == nil and s.phase == "stopped" and s.results[1].status == "stopped" and string.find(s.results[1].detail, "may still get the new name", 1, true) and s.results[2].status == "pending", "rename: Stop ends it, the rest stay")
+
+	-- the row's name as text
+	check(Lister.NameText(literal("7987 Monifa 5858")) == "7987 Monifa 5858" and Lister.NameText("[AnimalNames_X_00001]") == "[AnimalNames_X_00001]" and Lister.NameText(nil) == nil, "rename: a row's name as text")
+	check(#tAuctions == 0, "rename: never listed anything")
+	oStorage:TransitionOut()
+end
+
 local tKnown = {}
 local f = io.open(sModDir .. "../../../tools/trace/checkpoints.txt", "r")
 check(f ~= nil, "checkpoints.txt found")
