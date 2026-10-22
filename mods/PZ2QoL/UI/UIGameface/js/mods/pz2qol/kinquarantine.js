@@ -44,6 +44,8 @@ export function passedQuarantine(model, ids) {
 }
 
 function onModel(model) {
+    // no park model (the hub, a park loading): nothing to check, nothing forgotten
+    if (!model) return;
     if (getKinSettings().quarantineSick === false) return;
     const ids = quarantinedForTrade();
     // gone from the zoo (sent on by hand, or died): forget it
