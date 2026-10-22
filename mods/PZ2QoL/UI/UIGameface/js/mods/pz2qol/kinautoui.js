@@ -11,6 +11,7 @@ import {
 import { EVERY_CHOICES, SPECIES_DEFAULTS, dueText, everyText, everyWords, realTimeText, sexMark } from '/js/mods/pz2qol/kinautocore.js';
 import { refusedMoves } from '/js/mods/pz2qol/kinautoledger.js';
 import { PROGRAMME_STEPS, RATIO_CHOICES } from '/js/mods/pz2qol/kinprogramme.js';
+import { TUNE_PREF, tuningGoal } from '/js/mods/pz2qol/kinprogtune.js';
 import { FILL_STEPS } from '/js/mods/pz2qol/kincull.js';
 import { TRADE } from '/js/mods/pz2qol/kinboardcore.js';
 import { getKinModel } from '/js/mods/pz2qol/kin.js';
@@ -265,7 +266,11 @@ function panelEl(model, species, H) {
         // slider needs its two end labels; these would repeat them)
         h('div.PZ2QoL_apRow', null,
             seg(PROGRAMME_STEPS.map((p, k) => ({ id: k, label: p.label, title: p.cost ? `Each move costs ${p.cost} (in expected-young units)` : 'Moves cost nothing; only the young count' })), s.step, v => set({ step: v }), 'step')),
-        para('Classic optimiser, the same plan the Breeding programme shows for these settings. Pregnant females, animals on the move, and the ones you mark "hands off" stay where they are.', 'soft')));
+        para('Classic optimiser, the same plan the Breeding programme shows for these settings. Pregnant females, animals on the move, and the ones you mark "hands off" stay where they are.', 'soft'),
+        // the Breeding goal (kinprogtune.js): each run reads it, for the programme and Thin out
+        tuningGoal(getPref(TUNE_PREF)) === 'ceiling'
+            ? para(`Breeding goal: Push the ceiling (the Breeding window's More options).${s.thin ? '' : ' Turn Thin out on, or the poorer young stay.'}`, s.thin ? 'soft' : '')
+            : null));
     // thin out
     c.appendChild(section('Thin out',
         h('div.PZ2QoL_apRow', null,

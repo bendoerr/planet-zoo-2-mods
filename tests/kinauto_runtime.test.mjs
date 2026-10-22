@@ -353,6 +353,34 @@ test('an Undo the game refuses is not marked undone, and the animal is not held'
     assert.ok(!l.manual[e.g], 'not held as moved by the player');
 });
 
+test('the Breeding goal set in the Breeding window reaches Auto mode\'s Thin out and programme', async () => {
+    const prefs = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/prefs.js');
+    const moveMod = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinmoves.js');
+    const A = auto._autopilotInternals();
+    // one run with the tuning as the Breeding window keeps it (prefs progTune)
+    const planWith = async tune => {
+        prefs.setPref('progTune', tune);
+        assert.equal(auto.setSpeciesAuto('Lion', { on: true, thin: true, every: 3 }), true);
+        A.ledger.sp.Lion.next = 0;
+        A.pausedUntil.clear();
+        publish();
+        await sleep(50);
+        settle();
+        assert.ok(await until(() => auto.getSpeciesAuto('Lion').plan), `a plan with ${JSON.stringify(tune)}`);
+        const plan = auto.getSpeciesAuto('Lion').plan;
+        // off: the run stops after the move in progress, the plan is dropped
+        auto.setSpeciesAuto('Lion', { on: false });
+        assert.ok(await until(() => !A.acting && !A.planning && !moveMod.getPlanRun().running, 40000), 'the run ended');
+        return plan;
+    };
+    const ceil = await planWith({ goal: 'ceiling' });
+    assert.equal(ceil.programme && ceil.programme.goal, 'ceiling', 'the programme planned for the ceiling');
+    assert.ok(ceil.thin && ceil.thin.strands, 'Thin out culled for the ceiling');
+    const avg = await planWith(undefined);
+    assert.ok(avg.programme && !('goal' in avg.programme), 'the default: no goal');
+    assert.ok(avg.thin && !avg.thin.strands, 'the default Thin out');
+});
+
 // the mod's own modules keep timers of their own (the scan, the board):
 // the fake game ends here
 after(() => setTimeout(() => process.exit(process.exitCode || 0), 50));

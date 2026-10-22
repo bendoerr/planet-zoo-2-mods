@@ -660,7 +660,8 @@ which male and female in the same habitat are related and would inbreed. Collect
   outclassed by one of their sex with more copies. It needs **Thin out on** (Auto mode or by
   hand), or the poorer young stay. Expect the herd's average to dip for a generation while they
   are culled. The Breeding window shows the ceiling ("Ceiling 87% · best V 5/6 (3 carry) · L 4/6
-  (only Fola)") and each moved animal's copies ("V2 L1").
+  (only Fola)") and each moved animal's copies ("V2 L1"); Auto mode's panel names the goal, and
+  its runs' log gives Thin out's reasons ("carries neither best strand", "outclassed by …").
 - **Thin out** (Species board): picks who to send to the trade centre (to sell, trade or release).
   Each habitat keeps a target number of adults (its room for the species x **Core only** (just the
   breeding core: 1 male, 2 females) / Strict 55% / Lean 70% / Balanced 85% / Full 100%); over-full

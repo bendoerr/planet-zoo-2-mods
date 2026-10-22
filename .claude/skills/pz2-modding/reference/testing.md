@@ -203,7 +203,9 @@ Run all of these before installing a build.
   gives the same programme plans and Thin out culls as no goal on 10 seeded zoos; the ceiling goal
   pairs carrier x carrier over an equal-average pair; Thin out's carrier guard, non-carriers then
   outclassed breeders first; Auto mode holds a carrier the programme would send away).
-  `kinprogtune.test.mjs` covers the `goal` tuning key and `tuningGoal`. Pitfall for hand
+  `kinprogtune.test.mjs` covers the `goal` tuning key and `tuningGoal`; `kinauto_runtime.test.mjs`
+  (last test) sets prefs `progTune` and checks a real Auto mode run planned with it (the plan's
+  `programme.goal`, `thin.strands`) and without it. Pitfall for hand
   examples: fertility/immunity spread in the young can fill the best quarter by itself and tie
   `youngUpside`; give the sexes different F/I letters so every young gets 100% there.
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:

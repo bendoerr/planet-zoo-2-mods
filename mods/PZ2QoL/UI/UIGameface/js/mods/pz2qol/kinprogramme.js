@@ -1905,7 +1905,9 @@ function* programmeSteps(model, species, info, destinations, assignments, option
         };
         moves.push(...youngBackMoves(model, all, habitats, endOf, roomOf));
     }
-    return {
+    // the breeding goal it planned for, only when it is not the default
+    // (Auto mode's runtime test checks the tuning reached it)
+    return Object.assign(opts.goal === 'ceiling' ? { goal: 'ceiling' } : {}, {
         system: ctx.rule.system,
         rule: ctx.rule,
         moves,
@@ -1938,7 +1940,7 @@ function* programmeSteps(model, species, info, destinations, assignments, option
         staying: Object.fromEntries(ctx.fixedAdults),
         targets: Object.fromEntries(Array.from(ctx.capacity, ([k, cap]) => [k, groupTarget(ctx.rule, cap - (ctx.fixedAdults.get(k) || 0))])),
         habitats,
-    };
+    });
 }
 
 // info: { social: {min,max}, fertilityAges: {maturity, infertility},
