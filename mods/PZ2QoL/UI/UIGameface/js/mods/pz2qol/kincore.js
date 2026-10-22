@@ -602,6 +602,11 @@ export function strandGood(genes, key) {
     return s ? [goodCount(s[0]), goodCount(s[1])] : null;
 }
 
+// A gene's two strands as arrays of 6 letters, or null (kinstrands.js).
+export function geneStrands(genes, key) {
+    return strands(genes, key);
+}
+
 // The young's four equally likely values of each gene, in twelfths (0..12),
 // by predictOffspring's formulas: { fertility: [4], immunity: [4], size:
 // [4], longevity: [4] } (a gene without data on either side left out), or

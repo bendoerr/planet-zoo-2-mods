@@ -45,6 +45,7 @@ const TICK_MS = 2000;           // markKinActive + "updated N s ago"
 const MATE_LIMIT = 24;          // mate rows before "Show all"
 const CONTRA_PENDING_MS = 6000; // a contraception click waits this long for the scan
 const THRESHOLDS = [
+    { value: 1 / 4, label: '1/4', tip: 'Only what the game itself calls related (parent and young, siblings and half-siblings) and closer' },
     { value: 1 / 8, label: '1/8', tip: 'Only half-siblings, grandparents, full aunts and uncles and closer' },
     { value: 1 / 16, label: '1/16', tip: 'Also first cousins, great-grandparents, half aunts and uncles (default)' },
     { value: 1 / 32, label: '1/32', tip: 'Also half cousins and other more distant relatives' },

@@ -147,6 +147,28 @@ Used by the proposal `docs/PROPOSAL-inbreeding-qol.md`.
   the best quarter of the 256 equally likely four-gene outcomes) and the Breeding goal "Push the
   ceiling" (`kinprogtune.js` `goal`; `kinprogramme.js` pair value; `kincull.js` breeding value,
   carrier guard; `kinautocore.js` keeps the carriers in Auto mode too).
+- Inheritance facts from 565 parent/young trios in one player's Franchise saves (**offline**,
+  1.0.5, 2026-10-21, records read from the saves): strand A always comes from the mother, strand B from
+  the father; whole strands, no crossover; genes assort independently. Mutation is **1.00% per
+  letter**, independent, to a uniformly random other letter (338 of 33,900 letters); a 5/6 strand
+  becomes 6/6 about once in 150 transmissions, a 6/6 strand loses a letter 3.9% of the time.
+  Inbred young lose nothing beyond what the strands predict: observed minus predicted young
+  Fertility and Immunity is ~0 at every kinship level, and lifespan is unchanged. So a kin rule
+  judged by the young's predicted genes loses nothing (`kinprogramme.js` `relatedBy`, tuning
+  "Who counts as related": the game's own rule always, other close kin only when the young's
+  expected Fertility or Immunity is under 50%).
+- Longevity sets lifespan: death age = species min + (max − min) × L/12 (**offline**, residual sd
+  0.4–1.2 y in 10 species). Most species stay fertile until death (`InfertileWhenElderly` 0 except
+  hyena and lion, `animals.fdb`, **offline**).
+- `animals.fdb` `Social_MatingRules` (**offline**): only the leader male mates in the harem species
+  (warthog, springbok, wildebeest, zebra, ostrich, nyala, sable, gazelle, lion), only the leader
+  female in meerkat and hyena. Extra adults of that sex breed nothing. Cycle = gestation +
+  interbirth (1 y most species, 2 y zebra and aardvark).
+- A simulation of real herds 23–35 points below their ceilings: breeding for the young's best
+  quarter plus a keep value without Immunity lowered the four-gene mean by 2–8 points over 20
+  years (Immunity fell to 54–72%). Push the ceiling therefore waits until a herd is within 5 points
+  (`kinstrands.js` `ceilingWaiting`) and its keep value counts the young's Immunity with the herd
+  (`youngImmunity`).
 
 ## UI surfaces and keys
 

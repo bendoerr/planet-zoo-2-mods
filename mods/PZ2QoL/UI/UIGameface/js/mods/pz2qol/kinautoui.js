@@ -135,6 +135,15 @@ function para(text, cls = '') {
     return h(`div.PZ2QoL_apText${cls ? '.' + cls : ''}`, { text });
 }
 
+// The Breeding goal Push the ceiling, and whether the last plan waited (the
+// herd far below its ceiling: it bred for the average young).
+function goalPara(sa, s) {
+    const w = sa.plan && sa.plan.programme && sa.plan.programme.ceilingWait;
+    const pc = v => `${Math.floor(v * 100 + 1e-9)}%`;
+    const wait = w ? ` Waiting: herd ${pc(w.mean)}, ceiling ${pc(w.ceiling)}; it breeds for the average young until within 5 points.` : '';
+    return para(`Breeding goal: Push the ceiling (the Breeding window's More options).${wait}${s.thin ? '' : ' Turn Thin out on, or the poorer young stay.'}`, s.thin ? 'soft' : '');
+}
+
 function entryText(model, e) {
     const sym = e.sex === 0 ? '♂' : e.sex === 1 ? '♀' : '';
     const to = e.a === 'trade' ? 'Trade centre' : e.to || 'another habitat';
@@ -268,9 +277,7 @@ function panelEl(model, species, H) {
             seg(PROGRAMME_STEPS.map((p, k) => ({ id: k, label: p.label, title: p.cost ? `Each move costs ${p.cost} (in expected-young units)` : 'Moves cost nothing; only the young count' })), s.step, v => set({ step: v }), 'step')),
         para('Classic optimiser, the same plan the Breeding programme shows for these settings. Pregnant females, animals on the move, and the ones you mark "hands off" stay where they are.', 'soft'),
         // the Breeding goal (kinprogtune.js): each run reads it, for the programme and Thin out
-        tuningGoal(getPref(TUNE_PREF)) === 'ceiling'
-            ? para(`Breeding goal: Push the ceiling (the Breeding window's More options).${s.thin ? '' : ' Turn Thin out on, or the poorer young stay.'}`, s.thin ? 'soft' : '')
-            : null));
+        tuningGoal(getPref(TUNE_PREF)) === 'ceiling' ? goalPara(sa, s) : null));
     // thin out
     c.appendChild(section('Thin out',
         h('div.PZ2QoL_apRow', null,

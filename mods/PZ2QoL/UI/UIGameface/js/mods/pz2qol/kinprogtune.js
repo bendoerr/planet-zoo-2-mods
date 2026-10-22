@@ -16,7 +16,7 @@ export const PROGRAMME_TUNING = Object.freeze([
         // Longevity, only stacking the best strands can; Thin out then culls
         // by the strands an animal passes on
         key: 'goal', group: 'Goal', label: 'Breeding goal',
-        help: 'Push the ceiling pairs carriers of the best Vitality and Longevity strands; it needs Thin out on, or the poorer young stay.',
+        help: 'Push the ceiling pairs carriers of the best Vitality and Longevity strands once a herd is within 5 points of its ceiling (until then it breeds for the average young); it needs Thin out on, or the poorer young stay.',
         choices: [
             { id: 'default', label: 'Average young' },
             { id: 'ceiling', label: 'Push the ceiling', value: { goal: 'ceiling' } },
@@ -64,6 +64,15 @@ export const PROGRAMME_TUNING = Object.freeze([
             { id: 'default', label: 'Never' },
             { id: 'avoid', label: 'Avoid', value: { relatedPenalty: 0.5 } },
             { id: 'allow', label: 'Allow', value: { relatedPenalty: 0 } },
+        ],
+    },
+    {
+        // kinprogramme.js relatedBy; Thin out follows it too (tuningCull)
+        key: 'kinRule', group: 'Groups', label: 'Who counts as related',
+        help: 'Family tree: close kin as set in the Kin settings. By the young\'s genes: parents, young and siblings always; other close kin only when their young\'s Fertility or Immunity would be under 50%.',
+        choices: [
+            { id: 'default', label: 'Family tree' },
+            { id: 'genes', label: 'By the young\'s genes', value: { kinRule: 'genes' } },
         ],
     },
     {
@@ -179,7 +188,12 @@ export function tuningCount(tune) {
 }
 
 // The breeding goal the tuning picks: 'average' (the default) or 'ceiling'.
-// Thin out reads it too (cullPlan's goal), so it culls for the same aim.
 export function tuningGoal(tune) {
     return normalizeTuning(tune).goal === 'ceiling' ? 'ceiling' : 'average';
+}
+
+// What Thin out (cullPlan) takes from the tuning, so it culls for the same
+// aim as the programme: the breeding goal and who counts as related.
+export function tuningCull(tune) {
+    return { goal: tuningGoal(tune), kinRule: normalizeTuning(tune).kinRule === 'genes' ? 'genes' : 'pedigree' };
 }

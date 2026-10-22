@@ -653,15 +653,24 @@ which male and female in the same habitat are related and would inbreed. Collect
   **Breeding goal** (Breeding window, More options): **Average young** (the default, as above) or
   **Push the ceiling**. A young's expected Vitality and Longevity are always its parents' average,
   so pairing alone holds a herd where it is. Each species has a **ceiling**: young with two copies
-  of its best Vitality strand and two of its best Longevity strand. Push the ceiling pairs the
-  carriers of those strands, so some young beat their parents, and Thin out then keeps by what an
-  animal passes on (its better strands and its fertility) instead of its own average: the last
-  two carriers of each best strand stay, animals with neither best strand go first, then breeders
-  outclassed by one of their sex with more copies. It needs **Thin out on** (Auto mode or by
-  hand), or the poorer young stay. Expect the herd's average to dip for a generation while they
-  are culled. The Breeding window shows the ceiling ("Ceiling 87% · best V 5/6 (3 carry) · L 4/6
-  (only Fola)") and each moved animal's copies ("V2 L1"); Auto mode's panel names the goal, and
-  its runs' log gives Thin out's reasons ("carries neither best strand", "outclassed by …").
+  of its best Vitality strand and two of its best Longevity strand. The last two carriers of each
+  best strand always stay (one of each sex where possible). While a herd's average is more than
+  5 points below its ceiling, Push the ceiling **waits** and breeds for the average young (far
+  from the ceiling, spreading good strands is what holds a herd back, and stacking them only cost
+  Immunity in a simulation of real herds). Within 5 points it pairs the carriers, so some young beat
+  their parents, and Thin out keeps by what an animal passes on (its better strands, its fertility
+  and the Immunity its young would have with the herd) instead of its own average: animals with
+  neither best strand go first, then breeders outclassed by one of their sex with more copies. It
+  needs **Thin out on** (Auto mode or by hand), or the poorer young stay. The Breeding window
+  shows the ceiling ("Ceiling 87% · best V 5/6 (3 carry) · L 4/6 (only Fola)"), each moved animal's
+  copies ("V2 L1") and whether the goal waits; Auto mode's panel names the goal, and its runs' log
+  gives Thin out's reasons ("carries neither best strand", "outclassed by …").
+  **Who counts as related** (More options): **Family tree** (the default: close kin as set in the
+  Kin settings, 1/4 to 1/32) or **By the young's genes**: parents, young and siblings never breed
+  together; other close kin only count as related when their young's expected Fertility or
+  Immunity would be under 50%. In this game an inbred young loses nothing beyond what its strands
+  predict (checked on 562 parent and young trios), so by genes keeps herds breeding that the family
+  tree would leave without partners. Thin out follows the same rule.
 - **Thin out** (Species board): picks who to send to the trade centre (to sell, trade or release).
   Each habitat keeps a target number of adults (its room for the species x **Core only** (just the
   breeding core: 1 male, 2 females) / Strict 55% / Lean 70% / Balanced 85% / Full 100%); over-full

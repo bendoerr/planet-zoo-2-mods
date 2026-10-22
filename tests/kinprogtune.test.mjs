@@ -3,7 +3,7 @@
 // cache key, and the engine reads every tuned option.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROGRAMME_TUNING, applyTuning, normalizeTuning, tuningChoice, tuningCount, tuningGoal, tuningKey } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogtune.js';
+import { PROGRAMME_TUNING, applyTuning, normalizeTuning, tuningChoice, tuningCount, tuningCull, tuningGoal, tuningKey } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogtune.js';
 import { PROGRAMME_DEFAULTS } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import { programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 
@@ -53,6 +53,15 @@ test('Breeding goal: Average young by default, Push the ceiling sets goal', () =
     assert.equal(applyTuning({}, { goal: 'ceiling' }).goal, 'ceiling');
     assert.equal(PROGRAMME_DEFAULTS.goal, 'average');
     assert.equal(tuningKey({ goal: 'ceiling' }), 'goal=ceiling', 'part of the plans\' cache key');
+});
+
+test('Who counts as related: the family tree by default; Thin out gets the goal and the rule', () => {
+    assert.equal(tuningChoice({}, 'kinRule').label, 'Family tree');
+    assert.equal(applyTuning({}, { kinRule: 'genes' }).kinRule, 'genes');
+    assert.equal(PROGRAMME_DEFAULTS.kinRule, 'pedigree');
+    assert.deepEqual(tuningCull(null), { goal: 'average', kinRule: 'pedigree' });
+    assert.deepEqual(tuningCull({ kinRule: 'genes', goal: 'ceiling' }), { goal: 'ceiling', kinRule: 'genes' });
+    assert.deepEqual(tuningCull({ kinRule: 'nope' }), { goal: 'average', kinRule: 'pedigree' });
 });
 
 test('Auto mode applies the tuning on top of its own search budget', () => {

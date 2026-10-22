@@ -18,7 +18,7 @@ import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, isBreeder, planProgramme } from './kinprogramme.js';
 import { FILL_STEPS, breedsNow, cullPlan } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
-import { applyTuning, tuningGoal } from './kinprogtune.js';
+import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
 import { carrierKeepers, speciesStrands } from './kinstrands.js';
 
 // How often a species' run comes round, in months of the park's calendar
@@ -133,7 +133,7 @@ export function locksOf(model, species, view) {
 //          (normalizeSpecies), ratio (the board's make-up choice), view
 //          (kinautoledger ledgerView), tradeFree (places left at the trade
 //          centre, null: unknown), tune (the fine tuning, kinprogtune.js:
-//          its Breeding goal also decides how Thin out culls) }
+//          its Breeding goal and kin rule also decide how Thin out culls) }
 // prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
@@ -152,7 +152,7 @@ export function prepareAutoRun(input) {
         // programme's last runs), and so does what it must not touch
         const keepIds = new Set(locked);
         for (const id of view.recentFrom.keys()) keepIds.add(id);
-        const c = cullPlan(model, species, info || {}, { options: { fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, goal: tuningGoal(input.tune) } });
+        const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds }, tuningCull(input.tune)) });
         out.thin = c;
         if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin');
     }

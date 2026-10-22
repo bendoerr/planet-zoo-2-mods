@@ -7,11 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildKinModel, predictOffspring, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
 import { TRADE } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
-import { planProgramme, youngQuality } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
-import { cullPlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
+import { planProgramme, relatedBy, youngQuality } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
+import { cullPlan, keepValue } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
 import { planAutoRun, programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
-    breedingValue, carrierKeepers, ceilingText, copiesText, outclasses, speciesStrands, usefulCopies, youngDistribution, youngUpside,
+    breedingValue, carrierKeepers, ceilingText, ceilingWaiting, copiesText, outclasses, speciesStrands, usefulCopies, youngDistribution, youngImmunity, youngUpside,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinstrands.js';
 import { SEEDS } from './helpers/enginedigest.mjs';
 import { makeZoo } from './helpers/zoogen.mjs';
@@ -98,11 +98,24 @@ test('speciesStrands: best strands, copies, carriers, sole carrier and the ceili
     assert.equal(ceilingText(speciesStrands(model, 'Zebra')), '', 'no animals: no ceiling');
 });
 
-test('breeding value: the better strands and the fertility grade, not immunity', () => {
+test('breeding value: the better strands, the fertility grade and the Immunity of its young with the herd', () => {
+    // without a herd: its own Immunity grade stands in
     const a = { genes: G(5, 1, 2, 4, 3, 0) };
-    assert.ok(near(breedingValue(a), (10 / 12 + 8 / 12 + 0.5) / 3));
-    assert.ok(near(breedingValue({ genes: G(5, 1, 2, 4, 3, 6) }), breedingValue(a)));
+    assert.ok(near(breedingValue(a), (10 / 12 + 8 / 12 + 0.5 + 0) / 4));
     assert.equal(breedingValue({ genes: null }), null);
+    // with the herd: how far its Immunity strands differ from the others'
+    const animals = [
+        an('m1', M, '1', Object.assign(G(5, 1, 3, 3), { I: 'AAAAAABBBBBB' })),
+        an('f1', F, '1', Object.assign(G(5, 1, 3, 3), { I: 'AAAAAABBBBBB' })),
+        an('f2', F, '1', Object.assign(G(5, 1, 3, 3), { I: 'CCCCCCDDDDDD' })),
+    ];
+    const model = buildKinModel(snap(animals));
+    const st = speciesStrands(model, 'Lion');
+    assert.equal(st.iStrands.length, 6);
+    // m1 against f1 (A, B) and f2 (C, D): 2 of 4 strands differ at every locus
+    assert.ok(near(youngImmunity(st, model.animals.get('m1')), 0.75));
+    assert.ok(near(youngImmunity(st, model.animals.get('f2')), 1));
+    assert.ok(breedingValue(model.animals.get('f2'), st) > breedingValue(model.animals.get('m1'), st));
 });
 
 test('outclasses: at least as many copies of each and more of one', () => {
@@ -146,7 +159,7 @@ test('default goal: the same programme plans and Thin out culls as with no goal 
             const plain = planProgramme(model, sp, info(), z.dest, { assignments: z.assignments, options: base });
             const avg = planProgramme(model, sp, info(), z.dest, { assignments: z.assignments, options: Object.assign({ goal: 'average' }, base) });
             assert.deepEqual(progDigest(avg), progDigest(plain), `seed ${seed} ${sp}: programme`);
-            const ceil = planProgramme(model, sp, info(), z.dest, { assignments: z.assignments, options: Object.assign({ goal: 'ceiling' }, base) });
+            const ceil = planProgramme(model, sp, info(), z.dest, { assignments: z.assignments, options: Object.assign({ goal: 'ceiling', ceilingWithin: 1 }, base) });
             if (plain && ceil && !near(plain.score, ceil.score)) differs++;
             for (const o of [{ fill: 0.85 }, { fill: 0.55, genes: 'below', oldAlways: true, young: true }]) {
                 assert.deepEqual(cullPlan(model, sp, info(), { options: Object.assign({ goal: 'average' }, o) }), cullPlan(model, sp, info(), { options: o }), `seed ${seed} ${sp}: Thin out`);
@@ -181,7 +194,7 @@ test('ceiling goal: a carrier x carrier pair beats an equal-average non-carrier 
         assert.ok(near(youngQuality(m, fc), youngQuality(m, fn)));
         // best young: (12 + 12 + 10 + 6) / 48 against (12 + 12 + 8 + 6) / 48
         assert.ok(near(youngUpside(m, fc), 40 / 48) && near(youngUpside(m, fn), 38 / 48));
-        const plan = planProgramme(model, 'Lion', { mating: 'monogamy', social: { max: 2 } }, DEST(['1']), { options: { moveCost: 0, outsiderCost: 0, goal: 'ceiling' } });
+        const plan = planProgramme(model, 'Lion', { mating: 'monogamy', social: { max: 2 } }, DEST(['1']), { options: { moveCost: 0, outsiderCost: 0, goal: 'ceiling', ceilingWithin: 1 } });
         const to = new Map(plan.moves.map(x => [x.id, x.to]));
         assert.equal(to.get('fc'), '1', `order ${order}: the carrier joins the carrier`);
         assert.ok(!to.has('fn') || to.get('fn') !== '1', `order ${order}: the non-carrier stays out`);
@@ -201,7 +214,7 @@ test('Thin out, ceiling goal: the last carriers of a best strand stay, one of ea
     const plain = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1 } });
     const out = new Set(plain.moves.map(x => x.id));
     assert.ok(out.has('ma') && out.has('fa'), `the default sends the carriers away (${Array.from(out)})`);
-    const ceil = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling' } });
+    const ceil = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling', ceilingWithin: 1 } });
     const gone = new Set(ceil.moves.map(x => x.id));
     // the carriers, the breeding core (mb, fb, fc) and the Longevity
     // keepers stay: only fd can leave, so the habitat stays one over
@@ -211,7 +224,7 @@ test('Thin out, ceiling goal: the last carriers of a best strand stay, one of ea
     const keep = ceil.habitats[0].keep.find(x => x.id === 'ma');
     assert.match(keep.why, /best Vitality strand/);
     // the player's own choice still wins
-    const hand = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling', cullIds: new Set(['ma']) } });
+    const hand = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling', ceilingWithin: 1, cullIds: new Set(['ma']) } });
     assert.ok(hand.moves.some(x => x.id === 'ma' && x.reason === 'your choice'));
 });
 
@@ -225,11 +238,11 @@ test('Thin out, ceiling goal: no best strand goes first, then the outclassed', (
     const model = buildKinModel(snap(animals(), ['1']));
     const plain = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1 } });
     assert.deepEqual(plain.moves.map(x => x.id), ['f2'], 'the default: the weakest own grades');
-    const ceil = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling' } });
+    const ceil = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling', ceilingWithin: 1 } });
     assert.deepEqual(ceil.moves.map(x => x.id), ['f3'], 'no copy of either best strand goes first');
     assert.equal(ceil.moves[0].reason, 'carries neither best strand (V0 L0)');
     // room for 3: the outclassed one goes too
-    const tight = cullPlan(model, 'Lion', { social: { max: 3 }, mating: 'polygyny' }, { options: { fill: 1, goal: 'ceiling' } });
+    const tight = cullPlan(model, 'Lion', { social: { max: 3 }, mating: 'polygyny' }, { options: { fill: 1, goal: 'ceiling', ceilingWithin: 1 } });
     assert.deepEqual(tight.moves.map(x => x.id).sort(), ['f2', 'f3']);
     assert.equal(tight.moves.find(x => x.id === 'f2').reason, 'outclassed by F1 (V2 L2 vs V1 L1)');
 });
@@ -263,4 +276,87 @@ test('Auto mode, ceiling goal: the carrier guard holds against the programme and
     }
     const off = autoRun(null, true);
     assert.ok(off.thin && !off.thin.strands, 'the default goal reaches Thin out too');
+});
+
+// ------------------------------------------- the ceiling goal waits
+
+test('ceiling goal: far below the ceiling it waits and breeds for the average young', () => {
+    // herd mean 83%, ceiling 91% (best V and L 5/6): 8 points below
+    const animals = () => [
+        an('m1', M, '1', G(5, 5, 5, 5)), an('f1', F, '1', G(5, 5, 5, 5)), an('f4', F, '1', G(5, 5, 5, 5)),
+        an('f2', F, '1', G(5, 0, 5, 0, 3, 6)), an('f3', F, '1', G(4, 4, 4, 4)),
+    ];
+    const model = buildKinModel(snap(animals(), ['1']));
+    const st = speciesStrands(model, 'Lion');
+    assert.ok(near(st.mean, (3 * 11 / 12 + (0.5 + 1 + 5 / 12 + 5 / 12) / 4 * 1 + 10 / 12) / 5));
+    assert.equal(ceilingWaiting(st), true);
+    assert.equal(ceilingWaiting(st, 0.1), false, 'within 10 points it acts');
+    // Thin out: by the animals' own genes, as the default (the carriers stay)
+    const wait = cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling' } });
+    assert.equal(wait.strands.waiting, true);
+    assert.deepEqual(wait.moves.map(x => x.id), cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1 } }).moves.map(x => x.id));
+    assert.deepEqual(cullPlan(model, 'Lion', GUARD_INFO, { options: { fill: 1, goal: 'ceiling', ceilingWithin: 0.1 } }).moves.map(x => x.id), ['f3']);
+});
+
+test('ceiling goal: the programme waits too, with the same plan as the average young', () => {
+    const sexed = (sex, s1, s2) => Object.assign(G(s1, s2, 3, 3), sex === M ? { F: 'AAAAAABBBBBB', I: 'AAAAAABBBBBB' } : { F: 'CCCCCCDDDDDD', I: 'CCCCCCDDDDDD' });
+    const animals = [an('m', M, '1', sexed(M, 5, 1)), an('fc', F, '', sexed(F, 5, 1)), an('fn', F, '', sexed(F, 3, 3))];
+    const model = buildKinModel(snap(animals, ['1']));
+    const opts = extra => ({ options: Object.assign({ moveCost: 0, outsiderCost: 0 }, extra) });
+    const INFO = { mating: 'monogamy', social: { max: 2 } };
+    const avg = planProgramme(model, 'Lion', INFO, DEST(['1']), opts({}));
+    const wait = planProgramme(model, 'Lion', INFO, DEST(['1']), opts({ goal: 'ceiling' }));
+    // mean 75%, ceiling 83%
+    assert.ok(wait.ceilingWait && near(wait.ceilingWait.mean, 0.75) && near(wait.ceilingWait.ceiling, 40 / 48), JSON.stringify(wait.ceilingWait));
+    assert.deepEqual(wait.moves, avg.moves);
+    assert.ok(near(wait.score, avg.score));
+    const act = planProgramme(model, 'Lion', INFO, DEST(['1']), opts({ goal: 'ceiling', ceilingWithin: 0.1 }));
+    assert.equal(act.ceilingWait, undefined);
+    assert.equal(new Map(act.moves.map(x => [x.id, x.to])).get('fc'), '1');
+});
+
+// ------------------------------------------- who counts as related
+
+// grandparents ga x gb; their son c1 and daughter c2; c1's son x and c2's
+// daughter y are first cousins (kinship 1/16, the default close kin). The
+// elders and x's sister xf don't breed (infertile), so only x and y can pair.
+const ELDER = { infertile: true };
+const cousins = (xGenes, yGenes) => [
+    an('ga', M, '3', G(3, 3, 3, 3), Object.assign({ age: 12 }, ELDER)), an('gb', F, '3', G(3, 3, 3, 3), Object.assign({ age: 12 }, ELDER)),
+    an('c1', M, '3', G(3, 3, 3, 3), Object.assign({ par: ['gga', 'ggb'], age: 8 }, ELDER)), an('c2', F, '3', G(3, 3, 3, 3), Object.assign({ par: ['gga', 'ggb'], age: 8 }, ELDER)),
+    an('x', M, '1', xGenes, { par: ['gc1', 'gu1'] }), an('y', F, '2', yGenes, { par: ['gu2', 'gc2'] }),
+    an('xf', F, '3', G(3, 3, 3, 3), Object.assign({ par: ['gc1', 'gu1'], age: 4 }, ELDER)),
+];
+const GOOD_X = Object.assign(G(3, 3, 3, 3), { F: 'AAAAAABBBBBB', I: 'AAAAAABBBBBB' });
+const GOOD_Y = Object.assign(G(3, 3, 3, 3), { F: 'CCCCCCDDDDDD', I: 'CCCCCCDDDDDD' });
+const SAME = Object.assign(G(3, 3, 3, 3), { F: 'AAAAAAAAAAAA', I: 'AAAAAAAAAAAA' });
+
+test('kin rule: by the young\'s genes, close kin with good young are not related; the game\'s own rule always is', () => {
+    const model = buildKinModel(snap(cousins(GOOD_X, GOOD_Y), ['1', '2', '3']));
+    const [x, y, c1, xf] = ['x', 'y', 'c1', 'xf'].map(id => model.animals.get(id));
+    const rel = model.ped.relation(x.guid, y.guid);
+    assert.ok(rel && !rel.game && near(rel.kinship, 1 / 16), JSON.stringify(rel));
+    assert.equal(relatedBy(model, x, y), true, 'the family tree: first cousins are close kin');
+    assert.equal(relatedBy(model, x, y, 'genes'), false, 'by genes: their young would have 100% Fertility and Immunity');
+    assert.equal(relatedBy(model, c1, xf, 'genes'), true, 'father and daughter: the game\'s own rule');
+    const bad = buildKinModel(snap(cousins(SAME, SAME), ['1', '2', '3']));
+    assert.equal(relatedBy(bad, bad.animals.get('x'), bad.animals.get('y'), 'genes'), true, 'young with 0% Fertility: related');
+    // Thin out counts relatives by the same rule
+    assert.equal(keepValue(model, x, [x, y]).relatives, 1);
+    assert.equal(keepValue(model, x, [x, y], { kin: { kinRule: 'genes' } }).relatives, 0);
+});
+
+test('kin rule: by the young\'s genes the programme pairs first cousins the family tree leaves idle', () => {
+    const model = buildKinModel(snap(cousins(GOOD_X, GOOD_Y), ['1', '2', '3']));
+    const INFO = { mating: 'monogamy', social: { max: 2 } };
+    const plan = extra => planProgramme(model, 'Lion', INFO, DEST(['1', '2']), { options: Object.assign({ moveCost: 0, outsiderCost: 0 }, extra) });
+    const tree = plan({});
+    const genes = plan({ kinRule: 'genes' });
+    const pairedXY = p => {
+        const to = new Map(p.moves.map(m => [m.id, m.to]));
+        const hx = to.get('x') || '1', hy = to.get('y') || '2';
+        return hx === hy;
+    };
+    assert.equal(pairedXY(tree), false, 'the family tree keeps them apart');
+    assert.equal(pairedXY(genes), true, `by genes they breed together: ${JSON.stringify(genes.moves)}`);
 });

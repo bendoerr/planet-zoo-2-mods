@@ -21,8 +21,17 @@
 // c1/2 x c2/2. The "Push the ceiling" goal (kinprogtune.js) scores a pair by
 // its best young (youngUpside) instead of its average one
 // (kinprogramme.js), and Thin out keeps the carriers (kincull.js). Mutation
-// (about 1% per letter) is left out.
-import { Sex, offspringTwelfths, ownGrades, strandGood } from './kincore.js';
+// (1% per letter, to a random other letter) is left out.
+//
+// The goal waits (ceilingWaiting) while the herd's mean is far below its
+// ceiling: there the limit is how fast good strands spread, and breeding for
+// the average young does better (a simulation of the owner's herds,
+// 2026-10-21: the ceiling goal lowered the herd's mean by 2-8 points over 20
+// years while it was 23-35 points below).
+import { Sex, geneStrands, offspringTwelfths, ownGrades, strandGood } from './kincore.js';
+
+// 'ceiling' waits while the herd's mean is more than this below the ceiling
+export const CEILING_WITHIN = 0.05;
 
 export const STRAND_GENES = Object.freeze(['S', 'L']);
 // the game's names for the two genes (Size is Vitality in game)
@@ -52,15 +61,17 @@ export function pastBreeding(a, info = {}) {
 // { species, best: { S, L } (0..6, null: no gene data), ceiling (0..1 or
 //   null), copies: Map(id -> { S, L } (0..2, null: no data)), carriers:
 //   { S: [animal], L: [animal] }, sole: { S, L } (the only carrier or null),
-//   past: Set(id) (past breeding) }
+//   past: Set(id) (past breeding), mean (the herd's own gene average 0..1,
+//   null: no gene data), iStrands: [{ id, s }] (Immunity strands) }
 // Copies are counted for every animal present; only those not past
-// breeding set the best and are carriers.
+// breeding set the best, are carriers and count for the mean and iStrands.
 export function speciesStrands(model, species, info = {}) {
-    const out = { species, best: { S: null, L: null }, ceiling: null, copies: new Map(), carriers: { S: [], L: [] }, sole: { S: null, L: null }, past: new Set() };
+    const out = { species, best: { S: null, L: null }, ceiling: null, copies: new Map(), carriers: { S: [], L: [] }, sole: { S: null, L: null }, past: new Set(), mean: null, iStrands: [] };
     if (!model || !model.animals || !species) return out;
     const ix = withAges(model, species, info);
     const all = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false);
     const vals = new Map();
+    let sum = 0, n = 0;
     for (const a of all) {
         const v = { S: strandGood(a.genes, 'S'), L: strandGood(a.genes, 'L') };
         vals.set(a.id, v);
@@ -69,7 +80,15 @@ export function speciesStrands(model, species, info = {}) {
             continue;
         }
         for (const k of STRAND_GENES) if (v[k]) out.best[k] = Math.max(out.best[k] == null ? 0 : out.best[k], v[k][0], v[k][1]);
+        const g = Object.values(ownGrades(a.genes));
+        if (g.length) {
+            sum += g.reduce((x, y) => x + y, 0) / g.length;
+            n++;
+        }
+        const im = geneStrands(a.genes, 'I');
+        if (im) for (const s of im) out.iStrands.push({ id: a.id, s });
     }
+    out.mean = n ? sum / n : null;
     for (const a of all) {
         const v = vals.get(a.id);
         const c = {};
@@ -114,21 +133,52 @@ export function outclasses(x, y) {
     return STRAND_GENES.every(k => x[k] >= y[k]) && STRAND_GENES.some(k => x[k] > y[k]);
 }
 
+// The Immunity its young would have with the herd (0..1, null without
+// data): how far its two Immunity strands differ, locus by locus, from the
+// other animals' strands (stats.iStrands), on average. Immunity is not passed
+// on as a score; strands unlike the herd's are what keep the young immune.
+export function youngImmunity(stats, a) {
+    const own = a ? geneStrands(a.genes, 'I') : null;
+    if (!own || !stats || !stats.iStrands) return null;
+    let sum = 0, n = 0;
+    for (const s of own) {
+        for (const o of stats.iStrands) {
+            if (o.id === a.id) continue;
+            let d = 0;
+            for (let i = 0; i < 6; i++) if (s[i] !== o.s[i]) d++;
+            sum += d / 6;
+            n++;
+        }
+    }
+    return n ? sum / n : null;
+}
+
 // What an animal passes on (0..1, null without gene data): the young it
 // would have with a partner like itself on its better Size and Longevity
-// strands (2 x the better strand / 12 each), and its own Fertility grade
-// (conception uses it). Not its Immunity or its own average: those are not
-// passed on as scores.
-export function breedingValue(a) {
+// strands (2 x the better strand / 12 each), its own Fertility grade
+// (conception uses it), and the Immunity of its young with the herd
+// (youngImmunity; without stats, its own Immunity grade). Not its own
+// average. (Without Immunity, Thin out let the herd's Immunity fall to
+// 54-72% in a simulation of the owner's herds, 2026-10-21.)
+export function breedingValue(a, stats = null) {
     const g = a && a.genes;
     const parts = [];
     for (const k of STRAND_GENES) {
         const v = strandGood(g, k);
         if (v) parts.push(2 * Math.max(v[0], v[1]) / 12);
     }
-    const f = ownGrades(g).fertility;
-    if (typeof f === 'number') parts.push(f);
+    const own = ownGrades(g);
+    if (typeof own.fertility === 'number') parts.push(own.fertility);
+    const im = stats ? youngImmunity(stats, a) : null;
+    if (im != null) parts.push(im);
+    else if (typeof own.immunity === 'number') parts.push(own.immunity);
     return parts.length ? parts.reduce((s, v) => s + v, 0) / parts.length : null;
+}
+
+// The ceiling goal waits while the herd's mean is more than `within` below
+// the ceiling (no gene data: it does not wait).
+export function ceilingWaiting(stats, within = CEILING_WITHIN) {
+    return !!(stats && stats.ceiling != null && stats.mean != null && stats.ceiling - stats.mean > within + 1e-9);
 }
 
 // The carriers that must stay, from `animals` (the ones in habitats): per

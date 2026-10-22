@@ -1029,7 +1029,14 @@ function programmeEl(model) {
             title: 'The best young the strands in the zoo allow: two copies of the best Vitality strand and of the best Longevity strand. V2 L1 on an animal: its copies.',
         }));
     }
-    if (tuningGoal(getPref(TUNE_PREF)) === 'ceiling') wrap.appendChild(h('div.PZ2QoL_bwHint', { text: 'Push the ceiling needs Thin out on, or the poorer young stay.' }));
+    if (tuningGoal(getPref(TUNE_PREF)) === 'ceiling') {
+        // the goal waits while the herd is far below its ceiling (kinstrands.js ceilingWaiting)
+        const w = r.ceilingWait;
+        const pc = v => `${Math.floor(v * 100 + 1e-9)}%`;
+        wrap.appendChild(h('div.PZ2QoL_bwHint', { text: w
+            ? `Push the ceiling waits: herd ${pc(w.mean)}, ceiling ${pc(w.ceiling)}. Until the herd is within 5 points it breeds for the average young; the best-strand carriers stay.`
+            : 'Push the ceiling needs Thin out on, or the poorer young stay.' }));
+    }
     const plan = runnableMoves(model, r.moves);
     const box = scrollBox('moves');
     const c = box.content;

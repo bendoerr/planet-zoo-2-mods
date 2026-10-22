@@ -38,7 +38,7 @@ import {
     setOptimiser, startDeep, stopDeep,
 } from '/js/mods/pz2qol/kinprogdeep.js';
 import { getPref, setPref } from '/js/mods/pz2qol/prefs.js';
-import { TUNE_PREF, applyTuning, tuningGoal, tuningKey } from '/js/mods/pz2qol/kinprogtune.js';
+import { TUNE_PREF, applyTuning, tuningCull, tuningKey } from '/js/mods/pz2qol/kinprogtune.js';
 import { dlog } from '/js/mods/pz2qol/debuglog.js';
 import { FILL_STEPS, GENE_STEPS, cullPlan, geneScore } from '/js/mods/pz2qol/kincull.js';
 import { hideKinCard, kinBadge, sexClass, sexSymbol } from '/js/mods/pz2qol/kinui.js';
@@ -2621,19 +2621,19 @@ function cullFill(c) {
 }
 
 // cullPlan for the current choices (cached until a choice or the model changes)
-// (+ the Breeding goal of the fine tuning, kinprogtune.js tuningGoal)
+// (+ the Breeding goal and kin rule of the fine tuning, kinprogtune.js tuningCull)
 function cullResult() {
     const c = S.cull;
     const model = getKinModel();
     if (!c || !model || c.state !== 'ready') return null;
     const ratio = ratioChoice(c.species);
-    const goal = tuningGoal(getPref(TUNE_PREF));
-    const key = [c.fill, c.oldAlways, c.genes, c.zeroFertility, c.young, ratio, Array.from(c.keepIds).sort().join(','), Array.from(c.cullIds).sort().join(','), goal].join('|');
+    const tc = tuningCull(getPref(TUNE_PREF));
+    const key = [c.fill, c.oldAlways, c.genes, c.zeroFertility, c.young, ratio, Array.from(c.keepIds).sort().join(','), Array.from(c.cullIds).sort().join(','), tc.goal, tc.kinRule].join('|');
     if (c.modelRef === model && c.key === key) return c.result;
     let r = null;
     try {
         r = cullPlan(model, c.species, c.info || {}, {
-            options: { fill: cullFill(c), oldAlways: c.oldAlways, genes: c.genes, zeroFertility: c.zeroFertility, young: c.young, keepIds: c.keepIds, cullIds: c.cullIds, ratio, goal },
+            options: { fill: cullFill(c), oldAlways: c.oldAlways, genes: c.genes, zeroFertility: c.zeroFertility, young: c.young, keepIds: c.keepIds, cullIds: c.cullIds, ratio, goal: tc.goal, kinRule: tc.kinRule },
         });
         c.error = null;
         if (r) {

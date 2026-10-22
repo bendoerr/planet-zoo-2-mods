@@ -32,16 +32,21 @@
 // the species' best genes overall (`keepBest` per sex).
 //
 // Goal 'ceiling' (the Breeding goal "Push the ceiling", kinstrands.js): the
-// genes part is the animal's breeding value (its better Size and Longevity
-// strands, and its Fertility grade), not its own average; the last two
-// carriers of each best strand stay (one of each sex where possible); when
-// a habitat is over its room, grown animals with no copy of either best
-// strand go first, then breeders outclassed by a fertile animal of their
-// sex with more copies, then the rest by keep value.
+// last two carriers of each best strand stay (one of each sex where
+// possible). Once the herd's mean is within ceilingWithin of its ceiling
+// (it waits until then, culling as for the average young), the genes part is
+// the animal's breeding value (its better Size and Longevity strands, its
+// Fertility grade, the Immunity of its young with the herd), not its own
+// average; and when a habitat is over its room, grown animals with no copy
+// of either best strand go first, then breeders outclassed by a fertile
+// animal of their sex with more copies, then the rest by keep value.
+//
+// Who counts as related (kinRule, kinprogramme.js relatedBy) follows the
+// programme's rule.
 import { ownGrades, fertilityText, Sex } from './kincore.js';
 import { TRADE } from './kinboardcore.js';
-import { habitatCapacity, estimateSpacePerAdult, groupRule, ratioKey, youngByHabitat } from './kinprogramme.js';
-import { breedingValue, carrierKeepers, copiesText, outclasses, speciesStrands, usefulCopies } from './kinstrands.js';
+import { habitatCapacity, estimateSpacePerAdult, groupRule, ratioKey, relatedBy, youngByHabitat } from './kinprogramme.js';
+import { breedingValue, carrierKeepers, ceilingWaiting, copiesText, outclasses, speciesStrands, usefulCopies } from './kinstrands.js';
 
 export const FILL_STEPS = Object.freeze([
     { id: 'core', label: 'Core only', fill: 0 },
@@ -72,7 +77,10 @@ export const CULL_DEFAULTS = Object.freeze({
     keepIds: null,          // Set: the player said keep
     cullIds: null,          // Set: the player said send away
     ratio: 'auto',          // the group make-up (the breeding programme's RATIO_CHOICES)
-    goal: 'average',        // the Breeding goal (kinprogtune.js tuningGoal): 'average' | 'ceiling'
+    goal: 'average',        // the Breeding goal (kinprogtune.js tuningCull): 'average' | 'ceiling'
+    ceilingWithin: 0.05,    // 'ceiling' waits while the herd is more than this below its ceiling
+    kinRule: 'pedigree',    // who counts as related (kinprogramme.js relatedBy): 'pedigree' | 'genes'
+    kinFloor: 0.5,
 });
 
 // Breeding males a habitat keeps under the make-up: one per f females
@@ -137,20 +145,20 @@ export function breedsNow(a) {
     return !a.juv && !a.contra && !a.infertile && st !== 'old' && st !== 'young' && st !== 'sterile';
 }
 
-function related(model, a, b) {
-    if (!a.guid || !b.guid) return false;
-    const rel = model.ped.relation(a.guid, b.guid);
-    return !!rel && (rel.game || rel.kinship >= model.closeKinship - 1e-9);
+// kin: { kinRule, kinFloor } (the programme's rule, kinprogramme.js relatedBy)
+function related(model, a, b, kin = null) {
+    return relatedBy(model, a, b, kin ? kin.kinRule : 'pedigree', kin && kin.kinFloor != null ? kin.kinFloor : 0.5);
 }
 
 // { value, gene, fert, relatives, parts }. males: breeding males the
 // habitat keeps (maleRoom); without it a polygynous species keeps one.
-// score: the genes part (geneScore; breedingValue for the 'ceiling' goal).
-export function keepValue(model, a, group, { system = 'mixed', maleRank = 0, males, score = geneScore } = {}) {
+// score: the genes part (geneScore; breedingValue for the 'ceiling' goal);
+// kin: who counts as related ({ kinRule, kinFloor }, null: the family tree).
+export function keepValue(model, a, group, { system = 'mixed', maleRank = 0, males, score = geneScore, kin = null } = {}) {
     if (males == null) males = system === 'polygyny' ? 1 : Infinity;
     const gene = score(a);
     const fert = fertilityValue(a);
-    const relatives = group.filter(b => b !== a && related(model, a, b)).length;
+    const relatives = group.filter(b => b !== a && related(model, a, b, kin)).length;
     let value = 0.55 * (gene == null ? 0.5 : gene) + 0.35 * fert - 0.06 * relatives;
     if (a.alpha) value += 0.08;
     if ((a.mates || []).some(id => group.some(b => b.id === id))) value += 0.05;
@@ -184,9 +192,20 @@ function cullReason(a, k, group, rule, maleRank, males, strand = '', score = gen
 export function cullPlan(model, species, info = {}, { options = {} } = {}) {
     const opts = Object.assign({}, CULL_DEFAULTS, options);
     if (!model || !species) return null;
-    const ceiling = opts.goal === 'ceiling';
+    const ceilingGoal = opts.goal === 'ceiling';
+    // 'ceiling': the species' best strands; their last two carriers stay
+    const strands = ceilingGoal ? speciesStrands(model, species, info) : null;
+    // the goal waits while the herd is far below its ceiling: Thin out then
+    // keeps by the animals' own genes, as for the average young (the
+    // carriers still stay)
+    const waiting = ceilingGoal && ceilingWaiting(strands, opts.ceilingWithin);
+    const ceiling = ceilingGoal && !waiting;
     // the genes part: the animal's own grades, or what it passes on
-    const score = ceiling ? breedingValue : geneScore;
+    const bvCache = new Map();
+    const score = ceiling ? a => {
+        if (!bvCache.has(a.id)) bvCache.set(a.id, breedingValue(a, strands));
+        return bvCache.get(a.id);
+    } : geneScore;
     const keepIds = opts.keepIds instanceof Set ? opts.keepIds : new Set(opts.keepIds || []);
     const cullIds = opts.cullIds instanceof Set ? opts.cullIds : new Set(opts.cullIds || []);
     const rule = groupRule(info, opts.ratio);
@@ -203,9 +222,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         const w = poorWhy(a);
         if (w) poor.set(a.id, w);
     }
-    // 'ceiling': the species' best strands; their last two carriers stay
-    const strands = ceiling ? speciesStrands(model, species, info) : null;
-    const carriers = ceiling ? carrierKeepers(strands, inHabitats, breedsNow) : new Map();
+    const carriers = ceilingGoal ? carrierKeepers(strands, inHabitats, breedsNow) : new Map();
     // ... and who goes first from a habitat over its room: no copy of either
     // best strand (tier 0), a breeder outclassed by a fertile animal of its
     // sex with more copies (tier 1), the rest (2)
@@ -249,7 +266,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         const fertileMales = group.filter(a => a.sex === Sex.Male && breedsNow(a)).sort((x, y) => (score(y) ?? 0) - (score(x) ?? 0));
         const maleRankOf = a => fertileMales.indexOf(a);
         const males = maleRoom(rule, group.filter(a => a.sex === Sex.Female && breedsNow(a)).length);
-        const scored = group.map(a => ({ a, k: keepValue(model, a, group, { system, maleRank: Math.max(0, maleRankOf(a)), males, score }) }));
+        const scored = group.map(a => ({ a, k: keepValue(model, a, group, { system, maleRank: Math.max(0, maleRankOf(a)), males, score, kin: opts }) }));
         // the breeding core: the best fertile male(s), then the best fertile
         // females not related to them (keep value, so relatives rank lower)
         const valueOf = new Map(scored.map(x => [x.a.id, x.k.value]));
@@ -258,7 +275,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         const coreMales = fertileMales.filter(a => !poor.has(a.id)).slice(0, opts.coreMales);
         coreMales.forEach(a => core.add(a.id));
         const females = group.filter(a => a.sex === Sex.Female && breedsNow(a) && !poor.has(a.id));
-        const unrelatedFirst = byValue(females).sort((x, y) => coreMales.some(m => related(model, m, x)) - coreMales.some(m => related(model, m, y)));
+        const unrelatedFirst = byValue(females).sort((x, y) => coreMales.some(m => related(model, m, x, opts)) - coreMales.some(m => related(model, m, y, opts)));
         unrelatedFirst.slice(0, opts.coreFemales).forEach(a => core.add(a.id));
         byValue(group.filter(a => a.sex === Sex.Unisex && breedsNow(a) && !poor.has(a.id))).slice(0, opts.coreMales + opts.coreFemales).forEach(a => core.add(a.id));
         const fixed = a => keepIds.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || carriers.has(a.id);
@@ -321,7 +338,8 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         removedGene: avg(gone),
         estimated: !info.social && !(info.habitats && Object.keys(info.habitats).length),
     };
-    // 'ceiling': the best strands, the ceiling and the carriers kept for them
-    if (ceiling) out.strands = { best: strands.best, ceiling: strands.ceiling, keep: Array.from(carriers.keys()) };
+    // 'ceiling': the best strands, the ceiling, the carriers kept for them,
+    // the herd's mean and whether the goal waits
+    if (ceilingGoal) out.strands = { best: strands.best, ceiling: strands.ceiling, keep: Array.from(carriers.keys()), mean: strands.mean, waiting };
     return out;
 }

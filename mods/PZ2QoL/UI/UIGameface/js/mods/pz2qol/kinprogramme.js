@@ -97,12 +97,19 @@ export function programmeLogData(r) {
 // (tests/kinprogramme.test.mjs).
 import { predictOffspring, Sex, fertileNow, ownGrades, relationWord } from './kincore.js';
 import { TRADE, normalizeAssignments, assignedHabitatsOf, habitatAllowedFor } from './kinboardcore.js';
-import { youngUpside } from './kinstrands.js';
+import { ceilingWaiting, speciesStrands, youngUpside } from './kinstrands.js';
 
 export const PROGRAMME_DEFAULTS = Object.freeze({
     // the breeding goal (kinprogtune.js "Breeding goal"): 'average' pairs for
     // the best expected young, 'ceiling' for the best young a pair can have
     goal: 'average',
+    // 'ceiling' waits (plans as 'average') while the herd's mean is more than
+    // this below its ceiling (0..1; kinstrands.js ceilingWaiting)
+    ceilingWithin: 0.05,
+    // who counts as related (relatedBy): 'pedigree' | 'genes', and the young's
+    // expected Fertility and Immunity a 'genes' pair of close kin must reach
+    kinRule: 'pedigree',
+    kinFloor: 0.5,
     moveCost: 0.04,          // per moved animal, in pair-value units (0..1)
     bondBreakCost: 0.15,     // separating two monogamous mates (mourning)
     outsiderCost: 0.02,      // joining a habitat that already has this species
@@ -490,10 +497,28 @@ export function maxWeightPairs(males, females, value, perMale = 1, perFemale = 1
 
 // ------------------------------------------------------------------ setup
 
-function relatedPair(model, a, b) {
+// Who counts as related (option kinRule, the tuning's "Who counts as
+// related"): 'pedigree' (the default) the game's own rule (parent and young,
+// siblings) and any kinship at or above the Kin settings' close kin;
+// 'genes' the game's own rule always, other close kin only when their young's
+// expected Fertility or Immunity is under `floor`. The game's inbred young
+// lose nothing beyond what their strands predict (checked on 562 of the
+// owner's parent/young trios, 2026-10-21), so the strands decide.
+export function relatedBy(model, a, b, rule = 'pedigree', floor = 0.5) {
     if (!a.guid || !b.guid) return false;
     const rel = model.ped.relation(a.guid, b.guid);
-    return !!rel && (rel.game || rel.kinship >= model.closeKinship - 1e-9);
+    if (!rel) return false;
+    if (rel.game) return true;
+    if (rel.kinship < model.closeKinship - 1e-9) return false;
+    if (rule !== 'genes') return true;
+    const p = predictOffspring(a.genes, b.genes);
+    // without gene data the family tree decides
+    if (!p || !p.fertility || !p.immunity) return true;
+    return p.fertility.mean < floor - 1e-9 || p.immunity.mean < floor - 1e-9;
+}
+
+function relatedPair(model, a, b, opts = null) {
+    return relatedBy(model, a, b, opts ? opts.kinRule : 'pedigree', opts && opts.kinFloor != null ? opts.kinFloor : 0.5);
 }
 
 function lineOf(a) {
@@ -663,13 +688,14 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
     });
     ctx.canGo = (i, p) => p === ctx.home[i] || (!ctx.pinned[i] && (p === trade || (groupPlace[p] && allowed.has(placeKeys[p]))));
     // the pair's value, male m with female f (indices): -1 = related
-    const young = opts.goal === 'ceiling' ? youngUpside : youngQuality;
+    // ('ceiling' while it waits, opts.ceilingWait: the expected young)
+    const young = opts.goal === 'ceiling' && !opts.ceilingWait ? youngUpside : youngQuality;
     ctx.pv = (m, f) => {
         const k = m * n + f;
         let v = ctx.pvCache[k];
         if (v !== v) {
             const a = breeders[m], b = breeders[f];
-            v = relatedPair(model, a, b) ? -1 : young(a, b) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
+            v = relatedPair(model, a, b, opts) ? -1 : young(a, b) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
             ctx.pvCache[k] = v;
         }
         return v;
@@ -1773,6 +1799,12 @@ function prepare(model, species, info, destinations, assignments, options) {
     habitats = Array.from(allowed);
     const infoX = Object.assign({}, info);
     if (!infoX.spacePerAdult) infoX.spacePerAdult = estimateSpacePerAdult(info, youngByHabitat(all));
+    // 'ceiling' waits while the herd's mean is far below its ceiling (it plans
+    // for the average young until then; kinstrands.js ceilingWaiting)
+    if (opts.goal === 'ceiling') {
+        const st = speciesStrands(model, species, info);
+        if (ceilingWaiting(st, opts.ceilingWithin)) opts.ceilingWait = { mean: st.mean, ceiling: st.ceiling };
+    }
     const ctx = makeContext(model, infoX, opts, breeders, all, habitats, home, spares.filter(a => habitats.includes(a.hab)));
     // the deep engine has its own budgets (solveDeep)
     ctx.budget = makeBudget(opts);
@@ -1907,14 +1939,15 @@ function* programmeSteps(model, species, info, destinations, assignments, option
     }
     // the breeding goal it planned for, only when it is not the default
     // (Auto mode's runtime test checks the tuning reached it)
-    return Object.assign(opts.goal === 'ceiling' ? { goal: 'ceiling' } : {}, {
+    // (and, while it waits, the herd's mean and ceiling)
+    return Object.assign(opts.goal === 'ceiling' ? { goal: 'ceiling' } : {}, opts.ceilingWait ? { ceilingWait: opts.ceilingWait } : {}, {
         system: ctx.rule.system,
         rule: ctx.rule,
         moves,
         // pregnant breeders: they stay where they are (never in moves)
         pinned: breeders.filter((a, i) => ctx.pinned[i]).map(a => a.id),
         // pregnant females who should get contraception, and why
-        contraception: contraceptionAdvice(model, species, { moves, info: ctx.info, rule: ctx.rule }),
+        contraception: contraceptionAdvice(model, species, { moves, info: ctx.info, rule: ctx.rule, kin: opts }),
         // breeders taken out of the trade centre / waiting there (and usable)
         fromTrade: moves.filter(m => m.fromTrade).length,
         tradeWaiting,
@@ -1985,7 +2018,7 @@ function problemSig(ctx) {
     const places = ctx.placeKeys.map((k, p) => `${k}:${ctx.cap[p] == null ? '' : ctx.cap[p]}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}`).sort();
     const r = ctx.rule;
     const facts = [ratioKey(r), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
-        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '');
+        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
 }
@@ -2142,8 +2175,9 @@ function medianOf(list) {
 // -> [{ id, name, hab, kind: 'nomate'|'related'|'genes'|'surplus', reason,
 //       text ("Contraception after birth: ..."), score, median }]
 // options: moves (the plan, [{ id, to }]), info (isBreeder), rule
-// (groupRule; null: mixed), limits (CONTRA_ADVICE overrides).
-export function contraceptionAdvice(model, species, { moves = [], info = {}, rule = null, limits = null } = {}) {
+// (groupRule; null: mixed), limits (CONTRA_ADVICE overrides), kin (the
+// programme's options: kinRule, kinFloor; null: the family tree).
+export function contraceptionAdvice(model, species, { moves = [], info = {}, rule = null, limits = null, kin = null } = {}) {
     if (!model || !model.animals || !species) return [];
     const L = Object.assign({}, CONTRA_ADVICE, limits || {});
     const all = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false);
@@ -2167,7 +2201,7 @@ export function contraceptionAdvice(model, species, { moves = [], info = {}, rul
             return false;
         };
         const mates = around.filter(mateOf);
-        const related = mates.filter(b => relatedPair(model, f, b));
+        const related = mates.filter(b => relatedPair(model, f, b, kin));
         const add = (kind, reason, extra = {}) => out.push(Object.assign({ id: f.id, name: f.name, hab, kind, reason, text: `Contraception after birth: ${reason}`, score: null, median: null }, extra));
         if (!mates.length) {
             add('nomate', all.some(b => b.sex === Sex.Unisex) ? 'no partner here, now or after the plan' : 'no male here, now or after the plan');
