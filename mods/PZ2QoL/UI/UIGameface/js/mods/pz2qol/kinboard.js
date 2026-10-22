@@ -16,7 +16,8 @@
 // Gameface: own DOM under <body>, explicit display:flex, no CSS grid, no
 // native scrolling (kinpanel.js), pointer drag with mouse events (no HTML5
 // drag and drop).
-import { Sex, relationWord, severityRank, fertilityTag, holdReason, withStored } from '/js/mods/pz2qol/kincore.js';
+import { Sex, relationWord, severityRank, fertilityTag, holdReason, ownGrades, withStored } from '/js/mods/pz2qol/kincore.js';
+import { gameGrades, planRenames } from '/js/mods/pz2qol/renamecore.js';
 import {
     STORED_SHOW, TRADE, boardColumns, canMove, moveText, planImpact, planProblems, prunePlan, setMove, simulatePlan, speciesList, suggestPlan,
     isPinned, PREGNANT_STAYS,
@@ -27,7 +28,7 @@ import {
     setContraception,
 } from '/js/mods/pz2qol/kin.js';
 import {
-    cachedDestinations, getPlanRun, isAskingStored, moveAnimal, onPlanRun, planBlockedReason, requestDestinations, requestSpeciesInfo, requestStoredAdults, runPlan, stopPlan,
+    cachedDestinations, getPlanRun, isAskingStored, moveAnimal, onPlanRun, planBlockedReason, renameAnimal, requestDestinations, requestSpeciesInfo, requestStoredAdults, runPlan, stopPlan,
 } from '/js/mods/pz2qol/kinmoves.js';
 import {
     PROGRAMME_DEFAULTS, PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, RATIO_CHOICES, conceptionChance, groupRule, planProgrammeAsync, makeupDbNote, programmeLogData, programmeProblemSig, ratioKey, unknownMakeupText, withFreshYoung, youngQuality,
@@ -57,6 +58,7 @@ import {
 
 const TICK_MS = 2000;
 const NOTICE_MS = 9000;
+const RENAME_PAUSE_MS = 150;   // between two gene names (local calls, no server request)
 const DRAG_START_PX = 6;
 // wider than the other big panels by about one column: room for the pinned
 // trade centre without taking any from the habitats
@@ -103,6 +105,7 @@ const S = {
     unsub: [],
     timer: 0,
     prog: null,               // the breeding programme preview: { species, state, step, info, results, ... }
+    genes: null,              // Gene names: { species, phase ('confirm'|'running'|'done'), items, i, done, failed, stop, message }
     auto: null,               // the species whose Auto mode panel is open (kinautoui.js draws it)
     storedBy: new Map(),      // species -> the player's stored adults (Franchise; kinmoves requestStoredAdults), null: no answer
     storedTried: new Set(),   // species asked since the board opened
@@ -565,7 +568,13 @@ function renderBoard(model, dest) {
         muteSwitch(),
         h('div.PZ2QoL_kpFlex'),
         tradeHead(),
+        btn('Gene names', 'IconGenetics', toggleGeneNames, {
+            cls: S.genes && S.genes.species === S.species ? 'on' : '',
+            title: 'Gene names: rename this species\' animals in the park to gene score, breeder score, name, Vitality and Longevity ("7987 Monifa 5858"). Shows what would change first; nothing is renamed until you press Rename.',
+        }),
         right));
+    const genes = geneNamesEl(model);
+    if (genes) el.appendChild(genes);
     // no other suitable habitat: say so
     if (destKnown()) {
         const ok = Object.entries(S.dest.bySpecies[S.species]).filter(([, d]) => d.ok).map(([id]) => id);
@@ -603,6 +612,95 @@ function renderBoard(model, dest) {
         box.wrap,
         pinned ? h('div.PZ2QoL_kbPinned', null, columnEl(model, pinned, { pinned: true })) : null));
     restoreScroll(box, S.scroll.board, 0);
+}
+
+// ----------------------------------------------------------- gene names
+
+// Gene names (renamecore.js, as the storage bar's) for this species' animals
+// in the park: a strip under the header says what would change; nothing is
+// renamed until Rename. One animal at a time through the game's own name
+// field call (kinmoves.js renameAnimal, pz2qol.kin.lua Rename); Stop ends it.
+// Exhibit animals are not on the board and are left alone.
+function geneNamesPlan(model) {
+    const animals = Array.from(model.animals.values()).filter(a => a.species === S.species && !a.exhibit);
+    return planRenames(animals.map(a => ({ id: a.id, name: a.name, genes: gameGrades(ownGrades(a.genes)) })), x => x.name);
+}
+
+function toggleGeneNames() {
+    if (S.genes && S.genes.phase === 'running') return;
+    if (S.genes && S.genes.species === S.species) S.genes = null;
+    else {
+        S.genes = { species: S.species, phase: 'confirm' };
+        breadcrumb('kin_genenames_open');
+    }
+    renderAll();
+}
+
+async function runGeneNames(items) {
+    const g = S.genes;
+    if (!g || g.phase !== 'confirm' || !items.length) return;
+    Object.assign(g, { phase: 'running', items, i: 0, done: 0, failed: [], stop: false, message: '', current: null });
+    breadcrumb('kin_genenames_start');
+    dlog('board', 'gene_names_start', { species: g.species, n: items.length });
+    renderAll();
+    for (const it of items) {
+        if (g.stop) break;
+        g.current = it;
+        queueRender();
+        const r = await renameAnimal(it.a.id, it.to);
+        g.i++;
+        if (r && r.ok) g.done++;
+        else {
+            g.failed.push({ from: it.from, why: (r && r.detail) || 'not renamed' });
+            // the game did not answer: nothing more is sent
+            if (!r || /did not answer/.test(r.detail)) {
+                g.message = 'The game did not answer; nothing more was sent.';
+                break;
+            }
+        }
+        await new Promise(res => setTimeout(res, RENAME_PAUSE_MS));
+    }
+    g.phase = 'done';
+    g.current = null;
+    if (g.stop && !g.message) g.message = 'Stopped by you.';
+    dlog('board', 'gene_names_end', { species: g.species, done: g.done, failed: g.failed.length, stopped: g.stop || undefined });
+    requestKinScan('gene_names', { force: true, delay: 300 });
+    renderAll();
+}
+
+function geneNamesEl(model) {
+    const g = S.genes;
+    if (!g || g.species !== S.species) return null;
+    const name = speciesName(S.species);
+    const parts = [];
+    const close = () => btn('Close', null, () => { S.genes = null; renderAll(); });
+    if (g.phase === 'confirm') {
+        const plan = geneNamesPlan(model);
+        const n = plan.items.length;
+        const left = [
+            plan.named ? `${plan.named} already ${plan.named === 1 ? 'has' : 'have'} a gene name` : '',
+            plan.nogenes ? `${plan.nogenes} without gene data` : '',
+            plan.noname ? `${plan.noname} without a name` : '',
+        ].filter(Boolean);
+        parts.push(h('div.PZ2QoL_kbGeneText', { text: n ? `${n} ${name} in the park get a gene name: gene score, breeder score, name, Vitality, Longevity.` : `Nothing to rename among the ${name} in the park.` }));
+        if (left.length) parts.push(h('div.PZ2QoL_kbGeneSoft', { text: `Left as they are: ${left.join('; ')}.` }));
+        for (const i of plan.items.slice(0, 3)) parts.push(h('div.PZ2QoL_kbGeneRow', { text: `${i.from} → ${i.to}`, title: `${i.from} → ${i.to}` }));
+        if (n > 3) parts.push(h('div.PZ2QoL_kbGeneSoft', { text: `…and ${n - 3} more.` }));
+        parts.push(h('div.PZ2QoL_kbGeneBtns', null,
+            n ? btn(`Rename ${n}`, null, () => runGeneNames(plan.items), { cls: 'primary', tint: 'white' }) : null,
+            close()));
+    }
+    else if (g.phase === 'running') {
+        const c = g.current;
+        parts.push(h('div.PZ2QoL_kbGeneText', { text: `Renaming ${Math.min(g.items.length, g.i + 1)} of ${g.items.length}${c ? `: ${c.from} → ${c.to}` : ''}` }));
+        parts.push(h('div.PZ2QoL_kbGeneBtns', null, btn('Stop', null, () => { g.stop = true; queueRender(); })));
+    }
+    else {
+        parts.push(h('div.PZ2QoL_kbGeneText', { text: `Renamed ${g.done} of ${g.items.length}.${g.message ? ` ${g.message}` : ''}` }));
+        for (const f of g.failed.slice(-2)) parts.push(h('div.PZ2QoL_kbGeneSoft.warn', { text: `Not renamed · ${f.from}: ${f.why}`, title: f.why }));
+        parts.push(h('div.PZ2QoL_kbGeneBtns', null, close()));
+    }
+    return h('div.PZ2QoL_kbGeneNames', null, parts);
 }
 
 // Trade shortcuts (tradejump.js): this species' adults in Animal Storage,

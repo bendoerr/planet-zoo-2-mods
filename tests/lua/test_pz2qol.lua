@@ -1172,6 +1172,51 @@ fireUI(oHUD, "PZ2QoL_KinMove", "m8c", "2", "trade:auto")
 r = lastMoveResult()
 check(r and r[3] == false and string.find(r[4], "no trade centre", 1, true), "no trade centre: a clear refusal")
 tParkAPIs.facilities.GetTradeCentres = fnTC
+-- a gene name (the Species board's Gene names): the game's own SetName and
+-- rename message; only "dddd name dddd" names, habitat animals, living
+do
+	local tNames, tMsgs = {}, {}
+	animalsAPI.SetName = function(self, e, s)
+		if s == "9999 Boom 9999" then error("no") end
+		tNames[e] = s
+	end
+	animalsAPI.GetName = function(self, e) return tNames[e] end
+	animalsAPI.IsAlive = function(self, e) return e ~= 8 end
+	tParkAPIs.cheats = { RenameMessage_Type_Animal = 3 }
+	api.messaging.MsgType_UserRenameMessage = 41
+	api.messaging.SubmitMessage = function(nType, nRename, sName, e) tMsgs[#tMsgs + 1] = { nType, nRename, sName, e } end
+	local function rename(sReq, sId, sName)
+		tCalls = {}
+		fireUI(oHUD, "PZ2QoL_KinRename", sReq, sId, sName)
+		local r = nil
+		for _, c in ipairs(calls("Trigger")) do
+			if c.tArgs[1] == "PZ2QoL_KinRenameResult" then r = c.tArgs end
+		end
+		return r
+	end
+	local rr = rename("n1", "3", "7987 Monifa 5858")
+	check(rr and rr[2] == "n1" and rr[3] == true and rr[4] == "7987 Monifa 5858" and tNames[3] == "7987 Monifa 5858", "rename: SetName, answered with the name the game gives")
+	check(#tMsgs == 1 and tMsgs[1][1] == 41 and tMsgs[1][2] == 3 and tMsgs[1][3] == "7987 Monifa 5858" and tMsgs[1][4] == 3, "rename: the game's rename message, animal type")
+	rr = rename("n2", "3", "MeggieB")
+	check(rr and rr[3] == false and string.find(rr[4], "Not a gene name", 1, true) and tNames[3] == "7987 Monifa 5858" and #tMsgs == 1, "rename: only gene names (a cheat name never goes)")
+	rr = rename("n3", "3", "7987 Mon|ifa 5858")
+	check(rr and rr[3] == false and #tMsgs == 1, "rename: no |")
+	rr = rename("n4", "x77", "7987 Rex 5858")
+	check(rr and rr[3] == false and string.find(rr[4], "habitat animals", 1, true), "rename: exhibit animals refused")
+	rr = rename("n5", "8", "7987 Gone 5858")
+	check(rr and rr[3] == false and string.find(rr[4], "no longer alive", 1, true) and tNames[8] == nil, "rename: a dead animal refused")
+	rr = rename("n6", "4", "9999 Boom 9999")
+	check(rr and rr[3] == false and string.find(rr[4], "did not take", 1, true) and #tMsgs == 1, "rename: SetName failing, no message")
+	-- no rename message API: the name still changes
+	local fnSubmit = api.messaging.SubmitMessage
+	api.messaging.SubmitMessage = nil
+	rr = rename("n7", "4", "6060 Kito 4141")
+	check(rr and rr[3] == true and tNames[4] == "6060 Kito 4141", "rename: without the message API, still renamed")
+	api.messaging.SubmitMessage = fnSubmit
+	animalsAPI.SetName, animalsAPI.GetName, animalsAPI.IsAlive = nil, nil, nil
+	tParkAPIs.cheats = nil
+	api.messaging.SubmitMessage, api.messaging.MsgType_UserRenameMessage = nil, nil
+end
 -- tradeq: a sick or injured animal goes to a quarantine first; a healthy one to the trade centre
 do
 	tJobs[2] = false

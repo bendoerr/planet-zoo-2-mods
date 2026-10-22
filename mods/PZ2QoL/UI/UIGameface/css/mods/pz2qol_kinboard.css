@@ -879,3 +879,12 @@
 .PZ2QoL_kbDeep.running .PZ2QoL_kbDeepText { flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 .PZ2QoL_kbDeepBar { flex: 1; min-width: 4rem; height: 0.45rem; margin: 0 0.6rem; border-radius: 0.225rem; background-color: rgba(114, 91, 74, 0.14); }
 .PZ2QoL_kbDeepFill { height: 100%; border-radius: 0.225rem; background-color: var(--qol-teal); }
+
+/* Gene names (kinboard.js geneNamesEl) */
+.PZ2QoL_kbGeneNames { flex-shrink: 0; flex-direction: column; margin-bottom: 0.5rem; padding: 0.45rem 0.7rem; border-radius: 0.5rem; background-color: rgba(114, 91, 74, 0.08); }
+.PZ2QoL_kbGeneText { font-size: 0.8rem; }
+.PZ2QoL_kbGeneSoft { font-size: 0.72rem; color: var(--qol-ink-soft); margin-top: 0.15rem; }
+.PZ2QoL_kbGeneSoft.warn { color: #9A6414; }
+.PZ2QoL_kbGeneRow { font-size: 0.76rem; margin-top: 0.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.PZ2QoL_kbGeneBtns { flex-direction: row; justify-content: flex-end; margin-top: 0.35rem; }
+.PZ2QoL_kbGeneBtns > .PZ2QoL_kpBtn + .PZ2QoL_kpBtn { margin-left: 0.4rem; }

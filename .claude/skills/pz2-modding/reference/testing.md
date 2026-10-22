@@ -326,6 +326,12 @@ Run all of these before installing a build.
   `[STRING_LITERAL:...]` (the page reads such names itself); a hello sent before a scenario's fake engine is in place
   comes back empty (`engineCaps` returns the in-flight ask), so ask once more; playwright-core 1.48 can't launch
   current Edge (`--headless=old` is gone): use 1.55.0 in the work folder.
+- Gene names in the park (2026-10-22, the Species board): `test_pz2qol.lua` (`PZ2QoL_KinRename`: SetName and the
+  rename message with the animal type, the name read back; a cheat name such as `MeggieB` or a name with `|` never
+  sent; exhibit ids, dead animals and a failing SetName refused; no message API still renames); `renamecore.test.mjs`
+  (`gameGrades(ownGrades(strands))` gives the storage bar's name). Harness `kin_genenames.mjs` (HUD, kin fixture, a fake
+  `PZ2QoL_KinRename`): the header button, the strip (count, "Left as they are", examples, Rename N), nothing sent before
+  Rename, one request per lion without a gene name, the done line, Close, the strip inside the board.
 - "Find a habitat": `node --test tests/storagesend.test.mjs` (`storagesendcore.js`: ranking, skip
   reasons, the one-at-a-time run with fake game and clock: pauses, 8 s after a refusal online, busy
   wait, Stop); Lua `tests/lua/test_storagesend.lua` (same `lua.exe` command; arm/take/disarm/expiry/

@@ -51,6 +51,17 @@ export function geneName(a, shown) {
     return `${two(gene)}${two(breeder)} ${base} ${two(pct(g.size))}${two(pct(g.longevity))}`;
 }
 
+// A park animal's gene grades (kincore.js ownGrades: twelfths and sixths)
+// as the game sends them, 32-bit, so the scores round as the badges do
+// ("7987": 0.875 as the game's float rounds to 87, not 88).
+export function gameGrades(g) {
+    const out = {};
+    for (const k of ['size', 'longevity', 'fertility', 'immunity']) {
+        if (g && isNum(g[k])) out[k] = Math.fround(g[k]);
+    }
+    return out;
+}
+
 // What a click would rename among these animals: { items: [{ a, from, to }],
 // named (already a gene name), nogenes (no gene name possible), noname (no
 // name to keep) }. nameOf(a): the name as the game shows it.

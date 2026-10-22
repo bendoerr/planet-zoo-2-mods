@@ -27,6 +27,9 @@
 --                                  exhibit (the Habitats/Exhibits lists' own
 --                                  locate: GuestUIUtils.FocusCameraOnEntity)
 --    PZ2QoL_KinHeatmap(on)         the game's own InbreedingRisk heat map
+--    PZ2QoL_KinRename(req, id, name)  ONE habitat animal's gene name, as
+--                                  the game's own name field does it
+--                                  (animals:SetName and the rename message)
 --    PZ2QoL_KinMove(req, id, to)   ONE animal to a habitat or the trade
 --                                  centre, the game's own Move sequence
 --                                  (AnimalMovementEditMode): checks, box
@@ -1702,6 +1705,46 @@ Kin.Destinations = function(self, oUI, sReq, sIds)
 	answer(tOut)
 end
 
+-- ONE habitat animal's new name (the Species board's Gene names), as the
+-- game's own name field does it (components.ui.animalinfopopup.lua on
+-- UI_InputTextCommitted; the Animals list's rename): animals:SetName, then
+-- the rename message its panels refresh on. Only gene names ("dddd name
+-- dddd", renamecore.js) are taken, so the message's cheat check (cheat
+-- names are plain words) never matches. Answers ok and the name the game
+-- gives now.
+Kin.sGeneName = "^%d%d%d%d .+ %d%d%d%d$"
+Kin.Rename = function(self, oUI, sReq, sId, sName)
+	local function answer(bOk, sDetail)
+		mark(bOk and "kin_rename_ok" or "kin_rename_failed")
+		pcall(oUI.TriggerEventAtNextAdvance, oUI, "PZ2QoL_KinRenameResult", sReq, bOk == true, sDetail or "")
+	end
+	local tAPIs = self:_ParkWorld()
+	if tAPIs == nil or tAPIs.animals == nil then
+		return answer(false, "No park is loaded.")
+	end
+	local animals = tAPIs.animals
+	local e = entityOf(sId)
+	if e == nil then
+		return answer(false, "Only habitat animals can be renamed from here.")
+	end
+	sName = tostring(sName or "")
+	if #sName > 120 or not string.match(sName, self.sGeneName) or string.find(sName, "|", 1, true) or string.find(sName, "%c") then
+		return answer(false, "Not a gene name.")
+	end
+	if call(animals, "IsAlive", e) == false then
+		return answer(false, "This animal is no longer alive.")
+	end
+	local _, sErr = call(animals, "SetName", e, sName)
+	if sErr ~= nil then
+		return answer(false, "The game did not take the name (" .. tostring(sErr) .. ").")
+	end
+	pcall(function()
+		api.messaging.SubmitMessage(api.messaging.MsgType_UserRenameMessage, tAPIs.cheats.RenameMessage_Type_Animal, sName, e)
+	end)
+	local sNow = call(animals, "GetName", e)
+	answer(true, type(sNow) == "string" and sNow or "")
+end
+
 -- ONE animal to a habitat (habitat entity id) or the trade centre
 -- ("trade:<id>" / "trade:auto"): the game's own Move sequence, or its own
 -- Send to Trade Centre. Never more than one.
@@ -2836,6 +2879,9 @@ Kin.Attach = function(self, oUI)
 		end), self)
 		oUI:AddEventListener("PZ2QoL_KinMove", 3, guard("move", function(sReq, sId, sTo)
 			self:Move(oUI, sReq, sId, sTo)
+		end), self)
+		oUI:AddEventListener("PZ2QoL_KinRename", 3, guard("rename", function(sReq, sId, sName)
+			self:Rename(oUI, sReq, sId, sName)
 		end), self)
 		oUI:AddEventListener("PZ2QoL_StoreLoad", 1, guard("store_load", function(sReq)
 			self:StoreLoad(oUI, sReq)

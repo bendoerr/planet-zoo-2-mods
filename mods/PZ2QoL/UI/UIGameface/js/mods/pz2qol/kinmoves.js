@@ -84,6 +84,12 @@ function install() {
         waiting.delete(String(reqId));
         done({ ok: ok === true, detail: detail ? String(detail) : '' });
     });
+    engine.on('PZ2QoL_KinRenameResult', (reqId, ok, detail) => {
+        const done = waiting.get(String(reqId));
+        if (!done) return;
+        waiting.delete(String(reqId));
+        done({ ok: ok === true, detail: detail ? String(detail) : '' });
+    });
 }
 
 function ask(event, timeoutValue, ...args) {
@@ -261,6 +267,15 @@ export async function moveAnimal(id, to, opts = {}) {
     }
     requestKinScan('move', { force: true, delay: 300 });
     return r;
+}
+
+// One habitat animal's gene name (the Species board's Gene names), as the
+// game's own name field gives it (pz2qol.kin.lua Rename: animals:SetName;
+// only "dddd name dddd" names). Resolves { ok, detail }: detail is the
+// name the game gives now, or why not.
+export function renameAnimal(id, name) {
+    breadcrumb('kin_rename');
+    return ask('PZ2QoL_KinRename', { ok: false, detail: 'The game did not answer.' }, String(id), String(name));
 }
 
 // Waits until the kin data shows the animal on its way (or there).

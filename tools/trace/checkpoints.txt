@@ -187,6 +187,8 @@ js_kin_plan_start
 js_kin_plan_skip_pregnant
 js_kin_plan_end
 kin_move_ok
+kin_rename_ok
+kin_rename_failed
 kin_move_failed
 kin_groups_found
 kin_groups_none
@@ -775,6 +777,9 @@ lister_skip_named
 js_reprice_start
 js_rename_open
 js_rename_start
+js_kin_rename
+js_kin_genenames_open
+js_kin_genenames_start
 js_reprice_done
 js_reprice_left
 js_reprice_stop

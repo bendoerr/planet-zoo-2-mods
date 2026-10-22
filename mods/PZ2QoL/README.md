@@ -19,7 +19,7 @@ What's in the toolbox:
 | **Animal Storage** | Filters (Pregnant, Alpha, Adults / Fertile adults / Juveniles, Sellable, Not listed, Has pair, Surplus, Gene ≥, Kin), lister on/off, sort by score, summary line, Find a habitat, Gene names |
 | **Zoo Animals list** | Filter bar (habitat, sex, age, pregnant, alpha, contraception, unhappy, gene and fertility minimums, Kin) and sort by gene, breeder or welfare |
 | **Kin (inbreeding)** | Risk badges in every animal screen, alerts, Kin planner, Find a mate, Compare Mates and Genealogy additions, fertility over a life |
-| **Species board** | Plan moves by drag and drop, Suggest fixes, Breeding programme, Thin out, habitat assignments, Execute plan one move at a time, Auto mode per species |
+| **Species board** | Plan moves by drag and drop, Suggest fixes, Breeding programme, Thin out, habitat assignments, Execute plan one move at a time, Auto mode per species, Gene names |
 | **Market lister** | Price book, price advisor with recommended prices, background price checks, Sell at recommended price, Market desk (list many at once) |
 | **Park tools** | Launcher buttons on the tools column, reliable Autosave with Save now, pause sliders for automated runs, stuck aquarium animals let out of their boxes |
 | **Safety net** | Error banner for silent server and script errors, stuck-spinner watchdog, crash guard for the game's Move screen |
@@ -452,6 +452,10 @@ by them:
 - One animal at a time, through the game's own rename (the same call as typing a name in the
   info panel), at the listing pace; each new name must show in its row. A name that does not
   show, or a server refusal, stops the run; **Stop** stops it too.
+- **In the park**: the same names from the **Species board** (**Gene names** next to Storage and
+  Market) for the species shown, the animals in its habitats, at the trade centre or on the way.
+  A strip under the header says what would change; **Rename N** renames them one at a time, the
+  same way as typing a name in the animal's info panel. Exhibit animals are left alone.
 
 **Error banner** at the top of the screen. It shows:
 - **Franchise server errors**, with names and hints, e.g. "Server error: NotEnoughCC: Not enough

@@ -3,8 +3,9 @@
 // alone, the engine's job text and the run's summary.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GENE_NAME, NAME_MAX, baseName, encodeRenameJob, geneName, hasGeneName, literalName, planRenames, renameSummary } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/renamecore.js';
+import { GENE_NAME, NAME_MAX, baseName, encodeRenameJob, gameGrades, geneName, hasGeneName, literalName, planRenames, renameSummary } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/renamecore.js';
 import { breederScore, geneScore } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/scores.js';
+import { ownGrades } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
 
 // the game sends genes as 32-bit floats
 const f32 = v => Math.fround(v);
@@ -87,4 +88,13 @@ test('summary: renamed, already named, not renamed', () => {
     const s = { results: [{ status: 'renamed' }, { status: 'renamed' }, { status: 'skipped', kind: 'named' }, { status: 'unconfirmed', kind: 'unconfirmed' }, { status: 'pending' }] };
     assert.equal(renameSummary(s), 'Renamed 2 of 5 · 1 had the name already · 1 not renamed');
     assert.equal(renameSummary(null), '');
+});
+
+test('park animals: grades from the strands, as the game sends them, give the same name', () => {
+    // V 7/12, L 7/12, F and I 6/6 (every locus differs)
+    const genes = { S: 'AAAAAAACCCCC', L: 'AAAAAAACCCCC', F: 'AAAAAACCCCCC', I: 'AAAAAACCCCCC' };
+    const g = gameGrades(ownGrades(genes));
+    assert.equal(g.size, Math.fround(7 / 12));
+    assert.equal(geneName({ genes: g }, 'Monifa'), '7987 Monifa 5858');
+    assert.deepEqual(gameGrades(null), {});
 });
