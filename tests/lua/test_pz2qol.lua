@@ -42,7 +42,9 @@ table.insert(package.searchers, 2, function(sName)
 	if not f then return nil end
 	f:close()
 	-- the game passes the module name as the chunk's `...` (used by module(...))
-	return function(sModName) return assert(loadfile(sPath))(sModName) end, sPath
+	-- with only what the game gives a module: _G and module() (a bare
+	-- global such as next is nil in game: "attempt to call a nil value")
+	return function(sModName) return assert(loadfile(sPath, "t", { _G = _G, module = module }))(sModName) end, sPath
 end)
 require = function(sName)
 	local sKey = string.lower(sName)

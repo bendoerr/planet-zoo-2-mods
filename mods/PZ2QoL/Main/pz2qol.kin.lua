@@ -47,6 +47,7 @@ local ipairs   = global.ipairs
 local string   = global.string
 local table    = global.table
 local math     = global.math
+local next     = global.next
 
 local Kin = module(...)
 

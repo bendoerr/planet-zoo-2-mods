@@ -732,8 +732,11 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   `sexMax` = the mixed-group limits, `sexMaxFrom: 'db'`, `leaderMale`, `leaderFemale`. Plains zebra:
   MaxPopulation 6, MaxMixedMale 1 / Female 5, MaxBachelorMale 6, OnlyLeaderMaleCanMate 1 (a harem).
   Extract the statements with `ovl_tool_cmd.py extract <ovl> -o <dir> --type .pscollection`.
-  **Not yet confirmed in game** (2026-10-22): with build 86cd43d the springbok make-up still showed
-  1 ♂ : 2 ♀ (source `groups`), so the database gave nothing in game. Since then `_SpeciesDb` no
+  **Cause found** (2026-10-22, the programme's note in game): `_SpeciesDb` called a bare `next`,
+  which is nil in a game module ("attempt to call a nil value (global 'next')"), so every read
+  failed and the make-up fell back to the social groups (springbok 1 ♂ : 2 ♀, two males with four
+  females). Fixed with `local next = global.next` (lua-runtime.md). Earlier guesses, kept as they
+  are harmless: `_SpeciesDb` no
   longer requires `api.database` to be a table (it may be userdata), reads `GetAllResults` with
   `pairs`, falls back to row by row (`IsReadyForResult`, `GetResultColumn(inst, c)` from column 1,
   `Step`, as `components.challengemanager.lua` reads `GetChallengeCoolDownTimers`), and keeps

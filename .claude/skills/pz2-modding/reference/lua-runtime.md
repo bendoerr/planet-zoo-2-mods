@@ -10,6 +10,12 @@
   Do waits there, e.g. for the overlay and probe. **proven**
 - Modules use `local X = module(...)`. Grab globals once at the top
   (`local global = _G; local api = global.api; local pcall = global.pcall` ...). **proven**
+  - **A module sees only `_G` and `module`.** Any other bare global is nil in game: `next(t)` in
+    `pz2qol.kin.lua` failed with "attempt to call a nil value (global 'next')" (2026-10-22), so the
+    animal database never reached the mod. Take each one from `global` (`local next = global.next`).
+    Check a file with `luac -p -l -l <file> | grep -o '_ENV "[^"]*"'`: only `_G` and `module` should
+    show. `test_pz2qol.lua` and `test_lister.lua` load modules with only those two, so such a call
+    fails there too. (`pz2qol.profiler.lua` still calls a bare `error`, upstream.)
 
 ## Patching game modules
 
