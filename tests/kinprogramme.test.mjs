@@ -6,7 +6,7 @@ import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol
 import {
     planProgramme, isBreeder, conceptionChance, youngQuality, habitatCapacity, estimateSpacePerAdult,
     groupRule, parseRatio, reduceRatio, ratioKey, groupTarget, maxWeightPairs, scoreLayout, planProgrammeAsync, RATIO_CHOICES,
-    unknownMakeupText, contraceptionAdvice, ownGeneScore, CONTRA_ADVICE, programmeProblemSig, withFreshYoung,
+    unknownMakeupText, makeupDbNote, contraceptionAdvice, ownGeneScore, CONTRA_ADVICE, programmeProblemSig, withFreshYoung,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 
 const M = Sex.Male, F = Sex.Female;
@@ -355,6 +355,18 @@ test('make-up: the note when the make-up is not known', () => {
     // a group kind the mod has no words for keeps its name; missing counts read 0
     assert.match(unknownMakeupText({ groups: [{ kind: 'Herd', m: 2 }] }), /\(Herd: 2 ♂ 0 ♀\), as for a solitary species/);
     assert.doesNotMatch(unknownMakeupText({ matingRaw: '' }), /came as/);
+});
+
+test('make-up: the note when the group rules of the game were not read', () => {
+    const info = { dbStatus: 'no database API', groups: [{ kind: 'mixed', m: 1, f: 2 }] };
+    const rule = groupRule(info);
+    assert.equal(rule.source, 'groups');
+    assert.match(makeupDbNote(info, rule), /^The game's group rules could not be read \(no database API\), so the auto make-up comes from the game's social groups\. /);
+    assert.match(makeupDbNote(info, rule), /choose it with the arrows/);
+    // read: no note; the player's own make-up: no note
+    assert.equal(makeupDbNote({ sexMax: { male: 1, female: 35 }, leaderMale: true, sexMaxFrom: 'db' }, groupRule({ leaderMale: true })), '');
+    assert.equal(makeupDbNote(info, groupRule(info, '1:*')), '');
+    assert.equal(makeupDbNote(undefined), '');
 });
 
 test('make-up: the target group for the room of a habitat', () => {

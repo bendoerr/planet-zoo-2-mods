@@ -2045,25 +2045,70 @@ end
 -- run the way the game's own Lua runs its queries (GetPreparedStatementInstance,
 -- BindComplete, Step, GetAllResults). The Lua API itself carries neither
 -- (kin_sexmax_none, 2026-10-17). Read once per session; nothing found is
--- not kept, so a later call tries again.
+-- not kept, so a later call tries again. Kin.sDbStatus says how the last
+-- read went ("ok", or what failed), for the Breeding programme's notes.
 -- -> species -> { nMaxMixedMale, nMaxMixedFemale, nMaxBachelorMale,
 --    nMaxBachelorFemale, bLeaderMale, bLeaderFemale }
 Kin.tSpeciesDb = nil
+Kin.sDbStatus = nil
 Kin._SpeciesDb = function(self)
 	if self.tSpeciesDb ~= nil then
 		return self.tSpeciesDb
 	end
-	local db = api.database
+	-- api.database may be a table or userdata: only calls tell
+	local bApi, db = pcall(function() return api.database end)
 	local t = {}
-	local function rows(sStatement)
-		local bOk, inst = pcall(db.GetPreparedStatementInstance, "Animals", sStatement)
-		if not bOk or inst == nil then
+	local tWhy = {}
+	-- one statement's rows, each an array of its columns in SELECT order:
+	-- GetAllResults, else row by row as the game's challenge manager reads
+	-- its own (IsReadyForResult, GetResultColumn from column 1, Step)
+	local function rows(sStatement, nCols)
+		local function instance()
+			local bOk, inst = pcall(function() return db.GetPreparedStatementInstance("Animals", sStatement) end)
+			if not bOk or inst == nil then
+				return nil, bOk and "no statement" or tostring(inst)
+			end
+			pcall(function() db.BindComplete(inst) end)
+			pcall(function() db.Step(inst) end)
+			return inst
+		end
+		local inst, sErr = instance()
+		if inst == nil then
+			tWhy[#tWhy + 1] = sStatement .. ": " .. sErr
 			return {}
 		end
-		pcall(db.BindComplete, inst)
-		pcall(db.Step, inst)
-		local bOk2, tRes = pcall(db.GetAllResults, inst, false)
-		return bOk2 and type(tRes) == "table" and tRes or {}
+		local out = {}
+		local bAll, tRes = pcall(function() return db.GetAllResults(inst, false) end)
+		if bAll and type(tRes) == "table" then
+			for _, r in pairs(tRes) do
+				if type(r) == "table" then
+					out[#out + 1] = r
+				end
+			end
+		end
+		if #out > 0 then
+			return out
+		end
+		inst = instance()
+		while inst ~= nil and #out < 5000 do
+			local bOk, bReady = pcall(function() return db.IsReadyForResult(inst) end)
+			if not bOk or not bReady then
+				break
+			end
+			local r = {}
+			for c = 1, nCols do
+				local bCol, v = pcall(function() return db.GetResultColumn(inst, c) end)
+				if bCol then
+					r[c] = v
+				end
+			end
+			out[#out + 1] = r
+			pcall(function() db.Step(inst) end)
+		end
+		if #out == 0 then
+			tWhy[#tWhy + 1] = sStatement .. ": no rows" .. (bAll and "" or " (" .. tostring(tRes) .. ")")
+		end
+		return out
 	end
 	local function entry(r)
 		if type(r) ~= "table" or r[1] == nil then
@@ -2074,11 +2119,13 @@ Kin._SpeciesDb = function(self)
 		return t[sSp]
 	end
 	local function yes(v)
-		return v == true or v == 1
+		return v == true or v == 1 or v == "1" or v == "true"
 	end
-	if type(db) == "table" and type(db.GetPreparedStatementInstance) == "function" then
+	if not bApi or db == nil then
+		tWhy[#tWhy + 1] = "no database API"
+	else
 		-- AnimalType, MinPopulation, MaxPopulation, MaxBachelorMale, MaxBachelorFemale, MaxMixedMale, MaxMixedFemale, ...
-		for _, r in ipairs(rows("GetDesiredPopulationSizes")) do
+		for _, r in ipairs(rows("GetDesiredPopulationSizes", 7)) do
 			local e = entry(r)
 			if e ~= nil then
 				e.nMaxBachelorMale, e.nMaxBachelorFemale = tonumber(r[4]), tonumber(r[5])
@@ -2086,7 +2133,7 @@ Kin._SpeciesDb = function(self)
 			end
 		end
 		-- AnimalType, MaleHasSingleMate, FemaleHasSingleMate, OnlyLeaderMaleCanMate, OnlyLeaderFemaleCanMate, MourningSeasons
-		for _, r in ipairs(rows("GetMatingRules")) do
+		for _, r in ipairs(rows("GetMatingRules", 5)) do
 			local e = entry(r)
 			if e ~= nil then
 				e.bLeaderMale, e.bLeaderFemale = yes(r[4]), yes(r[5])
@@ -2096,8 +2143,10 @@ Kin._SpeciesDb = function(self)
 	if next(t) ~= nil then
 		mark("kin_db_found")
 		self.tSpeciesDb = t
+		self.sDbStatus = "ok"
 	else
 		mark("kin_db_none")
+		self.sDbStatus = #tWhy > 0 and table.concat(tWhy, "; ") or "nothing read"
 	end
 	return t
 end
@@ -2136,6 +2185,12 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	-- group), else whatever the Lua API carries
 	local bDb, tDbAll = pcall(self._SpeciesDb, self)
 	local tDb = bDb and type(tDbAll) == "table" and tDbAll[sSpecies] or nil
+	-- why the database gave nothing for this species (shown with the make-up)
+	if not bDb then
+		tOut.dbStatus = tostring(tDbAll)
+	elseif tDb == nil then
+		tOut.dbStatus = self.sDbStatus == "ok" and "no row for " .. sSpecies or tostring(self.sDbStatus or "not read")
+	end
 	local tSex = {}
 	if tDb ~= nil and (tDb.nMaxMixedMale or 0) > 0 and (tDb.nMaxMixedFemale or 0) > 0 then
 		tSex.male, tSex.female = tDb.nMaxMixedMale, tDb.nMaxMixedFemale

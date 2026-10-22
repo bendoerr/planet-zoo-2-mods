@@ -180,6 +180,31 @@ test('the player\'s own move is noticed and that animal is left where it was put
     assert.equal(auto.isAutoHeld('c'), true);
 });
 
+test('a Run from the Breeding window is the mod\'s plan, not "moved by you"; a drag on the board is the player\'s; the player can let Auto move it now', async () => {
+    const moveMod = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinmoves.js');
+    // "moved by you" ends when the player says so
+    assert.equal(auto.releaseAutoHeld(['c']), 1);
+    assert.equal(auto.isAutoHeld('c'), false);
+    assert.ok(!auto.getAutopilotLedger().manual.gc);
+    // the Breeding window's Run: Auto mode expects it and keeps it as its own (the cooldown)
+    const c = fake.animals.find(x => x.id === 'c');
+    const from = c.hab;
+    const to = from === '3' ? '2' : '3';
+    const r = await moveMod.runPlan([{ id: 'c', to }], { owner: 'window' });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    publish();
+    await sleep(300);
+    const l = auto.getAutopilotLedger();
+    assert.equal(auto.isAutoHeld('c'), false, 'not moved by you');
+    assert.ok(Array.isArray(l.hist.gc) && l.hist.gc.some(h => h[0] === 'H' + from), JSON.stringify(l.hist.gc));
+    // the board's run of a move the player planned by hand (a drag): the player's
+    const r2 = await moveMod.runPlan([{ id: 'c', to: from, byPlayer: true }]);
+    assert.equal(r2.ok, true, JSON.stringify(r2));
+    publish();
+    await sleep(300);
+    assert.equal(auto.isAutoHeld('c'), true, 'a drag is the player\'s own move');
+});
+
 test('hands off: a pinned animal is never in a plan', async () => {
     assert.equal(auto.toggleAutoPin('a'), true);
     assert.equal(auto.isAutoPinned('a'), true);

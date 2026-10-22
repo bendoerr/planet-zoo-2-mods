@@ -686,6 +686,9 @@ which male and female in the same habitat are related and would inbreed. Collect
   habitat) where only the leader male mates. Where only the leader female mates (meerkats, spotted
   hyenas), each habitat gets one breeding female with one male: a female has one litter however many
   males live with her, so extra males go to a habitat that needs one, or to the trade centre.
+  If the game's animal data can't be read, the programme says so under its settings, with the
+  reason; the make-up then comes from the game's social groups (springbok: 1 ♂ : 2 ♀, so two
+  males with four females). Choose it with the **Make-up** arrows (1 ♂ : any ♀ for a harem).
   To clear poor genes out of the gene pool, these go from **every** habitat, full or not, and the
   breeding core does not protect them:
   - **0% fertility genes** (on by default): any animal with a 0% fertility gene.
@@ -785,7 +788,12 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
   move, or animals you marked **Auto mode: hands off** (an animal card's menu); brings back an
   animal it sent to the trade centre.
 - **You stay in charge:**
-  - An animal **you** move is left where you put it for two game years.
+  - An animal **you** move (in the game, or a drag or Move now on the board) is left where you
+    put it for two game years ("moved by you" on its card). **Let Auto move them** in the panel,
+    or **Auto mode may move it now** in the card's menu, ends that early.
+  - A **Run** in the Breeding window, or the programme and Thin out moves of an **Execute plan**
+    on the board, are the mod's plan: Auto mode keeps them like its own moves (left alone for one
+    game year), not as moved by you.
   - While you work on that species on the board (a staged plan with its animals, its Breeding
     programme or Thin out, a drag, a Move now), Auto mode waits.
   - If it would move an animal back where it just came from twice, it stops for that species and

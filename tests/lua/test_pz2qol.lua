@@ -1337,18 +1337,41 @@ do
 	t = ask("d2", "Lion")
 	check(#tStatements == nRead, "db: read once per session")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
+	check(t.dbStatus == nil, "db: no status when the species was read")
 	-- a species the database lacks: the probe, a mixed-group limit before a plain one, never a bachelor one
 	t = ask("d3", "Okapi")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == nil and t.sexMaxFrom == nil and t.leaderMale == nil, "probe: mixed over plain, bachelor never (" .. tostring(t.sexMax and t.sexMax.male) .. ")")
+	check(t.dbStatus == "no row for Okapi", "db: a species it lacks is named (" .. tostring(t.dbStatus) .. ")")
 	-- no database at all: the probe alone, nothing kept
 	api.database = nil
 	KinD.tSpeciesDb = nil
 	t = ask("d4", "Zebra_Plains")
 	check(t.sexMax and t.sexMax.male == 2 and t.leaderMale == nil and KinD.tSpeciesDb == nil, "no database: the probe, and a later call tries again")
+	check(t.dbStatus == "no database API", "no database: said so (" .. tostring(t.dbStatus) .. ")")
 	-- a database that throws: the same
 	api.database = { GetPreparedStatementInstance = function() error("no db") end }
 	t = ask("d5", "Zebra_Plains")
 	check(t.sexMax and t.sexMax.male == 2 and t.species == "Zebra_Plains", "a failing database: still answered")
+	check(type(t.dbStatus) == "string" and t.dbStatus:find("GetDesiredPopulationSizes", 1, true) and t.dbStatus:find("no db", 1, true), "a failing database: the error is sent (" .. tostring(t.dbStatus) .. ")")
+	-- userdata-like access (no table, only calls) with no GetAllResults:
+	-- row by row, columns from 1, string flags
+	local tRows = {
+		GetDesiredPopulationSizes = { { "Antelope_Springbok", 3, 36, 36, 36, 1, 35 } },
+		GetMatingRules = { { "Antelope_Springbok", "0", "1", "1", "0" } },
+	}
+	api.database = setmetatable({}, { __index = function(_, k)
+		local f = {
+			GetPreparedStatementInstance = function(sDb, sSt) return { sSt = sSt, n = 0 } end,
+			BindComplete = function(inst) end,
+			Step = function(inst) inst.n = inst.n + 1 end,
+			IsReadyForResult = function(inst) return tRows[inst.sSt][inst.n] ~= nil end,
+			GetResultColumn = function(inst, c) return tRows[inst.sSt][inst.n][c] end,
+		}
+		return f[k]
+	end })
+	KinD.tSpeciesDb = nil
+	t = ask("d6", "Antelope_Springbok")
+	check(t.sexMax and t.sexMax.male == 1 and t.sexMax.female == 35 and t.sexMaxFrom == "db" and t.leaderMale == true and t.dbStatus == nil, "db: row by row when GetAllResults gives nothing (" .. tostring(t.dbStatus) .. ")")
 	api.database = nil
 	KinD.tSpeciesDb = nil
 	animalsAPI.GetSpeciesSocialityData = nil

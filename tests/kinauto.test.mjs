@@ -12,7 +12,7 @@ import {
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
     LEDGER_VERSION, emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves,
-    noteReversal, noteUndone, pruneLedger, refusedMoves, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
+    noteModMove, noteReversal, noteUndone, pruneLedger, refusedMoves, releaseManual, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
     speciesSettings, togglePinAnimal, undoOf,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
 import { makeZoo, rng } from './helpers/zoogen.mjs';
@@ -355,6 +355,19 @@ test('ledger: what was done, refusals, the trade centre, the player\'s moves, pi
     assert.ok(ledgerView(l, model, 2 + AUTO_LIMITS.manualYears - 0.1, 0).manual.has('d'));
     assert.ok(!ledgerView(l, model, 2 + AUTO_LIMITS.manualYears + 0.1, 0).manual.has('d'));
     assert.ok(isManualAnimal(l, model, 'd', 2.5));
+    // the player lets Auto mode move it now
+    assert.equal(releaseManual(l, model, ['d', 'a']), 1);
+    assert.ok(!isManualAnimal(l, model, 'd', 2.5));
+    noteManualMoves(l, model, ['d'], 2);
+    // a move by the mod's own plan (the board, the Breeding window): Auto
+    // mode's cooldown, not "moved by you"; to the trade centre: leaving
+    noteModMove(l, model, 'd', '1', TRADE, 2);
+    assert.ok(!isManualAnimal(l, model, 'd', 2.5), 'no longer held as moved by the player');
+    assert.ok(l.leave.gd);
+    assert.ok(ledgerView(l, model, 2 + AUTO_LIMITS.cooldownYears - 0.1, 0).cooled.has('d'));
+    assert.ok(!ledgerView(l, model, 2 + AUTO_LIMITS.cooldownYears + 0.1, 0).cooled.has('d'));
+    assert.ok(ledgerView(l, model, 2.5, 0).recentFrom.get('d').has('1'));
+    noteManualMoves(l, model, ['d'], 2);
     // pins
     assert.equal(togglePinAnimal(l, model, 'a'), true);
     assert.ok(isPinnedAnimal(l, model, 'a'));

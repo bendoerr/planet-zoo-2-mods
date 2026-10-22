@@ -732,6 +732,14 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   `sexMax` = the mixed-group limits, `sexMaxFrom: 'db'`, `leaderMale`, `leaderFemale`. Plains zebra:
   MaxPopulation 6, MaxMixedMale 1 / Female 5, MaxBachelorMale 6, OnlyLeaderMaleCanMate 1 (a harem).
   Extract the statements with `ovl_tool_cmd.py extract <ovl> -o <dir> --type .pscollection`.
+  **Not yet confirmed in game** (2026-10-22): with build 86cd43d the springbok make-up still showed
+  1 ♂ : 2 ♀ (source `groups`), so the database gave nothing in game. Since then `_SpeciesDb` no
+  longer requires `api.database` to be a table (it may be userdata), reads `GetAllResults` with
+  `pairs`, falls back to row by row (`IsReadyForResult`, `GetResultColumn(inst, c)` from column 1,
+  `Step`, as `components.challengemanager.lua` reads `GetChallengeCoolDownTimers`), and keeps
+  `Kin.sDbStatus`. `SpeciesInfo` sends `dbStatus` (the reason, or `no row for <species>`) when the
+  species has no database row; `kinprogramme.js` `makeupDbNote` shows it under the programme's
+  settings (board and Breeding window).
 - `kinprogramme.js` `groupRule`: `leaderMale` (not monogamy or polyandry) gives a harem (1:*) before
   the per-sex limits, which still cap the males; a game limit of one male sets `rule.oneMale`, and
   Thin out then sends a second adult male away from a habitat with an adult female even with room

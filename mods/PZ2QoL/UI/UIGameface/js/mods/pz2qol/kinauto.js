@@ -14,7 +14,7 @@
 // (developer, 2026-10-19; CLAUDE.md). One move at a time, each confirmed by
 // the game, the game's gate before each.
 import { getKinModel, onKin, requestKinScan, setKinAlertFilter } from '/js/mods/pz2qol/kin.js';
-import { getPlanRun, onPlanRun, requestDestinations, requestSpeciesInfo, runPlan, stopPlan } from '/js/mods/pz2qol/kinmoves.js';
+import { getPlanRun, onPlanMove, onPlanRun, requestDestinations, requestSpeciesInfo, runPlan, stopPlan } from '/js/mods/pz2qol/kinmoves.js';
 import { getUserData, onUserData, setUserData, userDataEpoch, userDataStatus } from '/js/mods/pz2qol/userstore.js';
 import { getAssignments } from '/js/mods/pz2qol/kinassign.js';
 import { breadcrumb, reportError } from '/js/mods/pz2qol/errors.js';
@@ -28,8 +28,8 @@ import {
     AUTO_LIMITS, calendarMonths, finishAutoRun, observeChanges, prepareAutoRun, programmeOptionsFor, speciesFingerprints,
 } from '/js/mods/pz2qol/kinautocore.js';
 import {
-    emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves, noteReversal,
-    noteUndone, pruneLedger, resumeSpecies, setSpeciesSettings, settleAction, speciesOn, speciesSettings, togglePinAnimal, undoOf,
+    emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves, noteModMove, noteReversal,
+    noteUndone, pruneLedger, releaseManual, resumeSpecies, setSpeciesSettings, settleAction, speciesOn, speciesSettings, togglePinAnimal, undoOf,
 } from '/js/mods/pz2qol/kinautoledger.js';
 
 const DATA_KEY = 'kinAuto';
@@ -55,6 +55,7 @@ const A = {
     monthSec: null,          // the game's month length at 1x (GetMonthDurationInSeconds)
     seen: null,
     expected: new Map(),     // id -> { to, until }
+    modFrom: new Map(),      // id -> where it was when a board or Breeding window move started
     prints: new Map(),       // species -> fingerprint
     queue: [],               // species waiting for their turn, in order (one run at a time)
     planning: null,          // species being planned
@@ -311,6 +312,7 @@ function start() {
         safe(() => onModel(model), 'model');
     }));
     A.unsub.push(onPlanRun(() => notify()));
+    A.unsub.push(onPlanMove((m, owner, phase) => safe(() => onModMove(m, owner, phase), 'plan move')));
     A.timers.push(setInterval(() => safe(tick, 'tick'), TICK_MS));
     loadBoard().catch(() => {});
     setKinAlertFilter(p => {
@@ -334,6 +336,7 @@ function stop() {
     A.quiet.clear();
     A.prints.clear();
     A.expected.clear();
+    A.modFrom.clear();
     A.pausedUntil.clear();
     A.queue = [];
     A.acting = null;
@@ -354,6 +357,33 @@ function stillHere() {
 }
 
 // ------------------------------------------------------------- watching
+
+// A run from the Species board or the Breeding window moves animals by the
+// mod's own plan: Auto mode expects those moves and keeps them like its own
+// (its cooldown), not as "moved by you" (2 years). A move the player planned
+// by hand on the board (a drag, Move N here) is still the player's.
+function onModMove(m, owner, phase) {
+    if (owner === 'autopilot' || owner === 'undo' || m.byPlayer) return;
+    const id = String(m.id);
+    if (phase === 'start') {
+        const model = getKinModel() || A.model;
+        const a = model && model.animals.get(id);
+        A.modFrom.set(id, a ? (a.hab || (a.lt === 'trade' ? TRADE : '')) : '');
+        A.expected.set(id, { to: m.to, until: Date.now() + 60 * 60 * 1000 });
+        return;
+    }
+    const from = A.modFrom.get(id) || '';
+    A.modFrom.delete(id);
+    if (phase === 'refused') {
+        A.expected.delete(id);
+        return;
+    }
+    if (phase === 'done' && A.ledger && storeReady()) {
+        noteModMove(A.ledger, getKinModel() || A.model, id, from, m.to, parkYears());
+        A.saveDirty = true;
+        notify();
+    }
+}
 
 function settled() {
     return A.scans >= AUTO_LIMITS.settleScans && Date.now() - A.loadAt >= AUTO_LIMITS.settleMs;
@@ -919,6 +949,16 @@ export function isAutoPinned(id) {
 // Moved by the player lately: Auto mode leaves it where it is for a while.
 export function isAutoHeld(id) {
     return !!A.ledger && isManualAnimal(A.ledger, getKinModel(), id, parkYears());
+}
+
+// "Auto mode may move it now": "moved by you" ends for these animals.
+// -> how many were held
+export function releaseAutoHeld(ids) {
+    if (!A.ledger || !storeReady()) return 0;
+    const n = releaseManual(A.ledger, getKinModel(), ids);
+    if (n) saveLedger(true);
+    notify();
+    return n;
 }
 
 // --------------------------------------------------------------- install

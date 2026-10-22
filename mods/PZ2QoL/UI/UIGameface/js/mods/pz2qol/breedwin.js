@@ -28,7 +28,7 @@ import {
 } from '/js/mods/pz2qol/breedwincore.js';
 import { getKinModel, locatePlace, markKinActive, onKin, onKinSettings, requestKinScan } from '/js/mods/pz2qol/kin.js';
 import { getPlanRun, onPlanRun, planBlockedReason, requestDestinations, requestSpeciesInfo, runPlan, stopPlan } from '/js/mods/pz2qol/kinmoves.js';
-import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, RATIO_CHOICES, groupRule, planProgrammeAsync, programmeProblemSig, ratioKey, withFreshYoung } from '/js/mods/pz2qol/kinprogramme.js';
+import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, RATIO_CHOICES, groupRule, makeupDbNote, planProgrammeAsync, programmeProblemSig, ratioKey, withFreshYoung } from '/js/mods/pz2qol/kinprogramme.js';
 import {
     CPU_ORDER, CPU_STEPS, CUSTOM_STEPS, DEEP_PRESETS, PRESET_ORDER, PRESET_WORDS, cpuOf, deepJob, deepKey, deepResult, deepSettings, durationText,
     estimateSeconds, getOptimiser, latestDeepResult, msPerStartFor, onDeep, onOptimiser, setOptimiser, startDeep, stopDeep,
@@ -1001,6 +1001,8 @@ function programmeEl(model) {
             }, 'Breeders waiting at the trade centre may join a group')));
     }
     if (!p.info) wrap.appendChild(h('div.PZ2QoL_bwWarn', { text: 'The game did not describe this species, so the plan uses estimates for room and group size.' }));
+    const dbNote = makeupDbNote(p.info, rule);
+    if (dbNote) wrap.appendChild(h('div.PZ2QoL_bwWarn', { text: dbNote }));
     if (busy) {
         const pct = `${Math.round(Math.max(0, Math.min(1, p.job.progress || 0)) * 100)}%`;
         wrap.appendChild(h('div.PZ2QoL_bwBusy', null,

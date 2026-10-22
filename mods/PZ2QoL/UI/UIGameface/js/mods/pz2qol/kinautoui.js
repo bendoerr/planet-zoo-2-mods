@@ -5,7 +5,7 @@
 // docs/DESIGN-autopilot.md section 16.
 import {
     getAutopilotLedger, getAutopilotState, getSpeciesAuto, installAutopilot, isAutoHeld, isAutoPinned, onAutopilot,
-    resumeSpeciesAuto, runSpeciesNow, setAutopilotToastHook, setSpeciesAuto, speciesChoicesChanged,
+    releaseAutoHeld, resumeSpeciesAuto, runSpeciesNow, setAutopilotToastHook, setSpeciesAuto, speciesChoicesChanged,
     toggleAutoPin, undoEntries,
 } from '/js/mods/pz2qol/kinauto.js';
 import { EVERY_CHOICES, SPECIES_DEFAULTS, dueText, everyText, everyWords, realTimeText, sexMark } from '/js/mods/pz2qol/kinautocore.js';
@@ -293,7 +293,12 @@ function panelEl(model, species, H) {
         const refused = l ? refusedMoves(l, model, species) : [];
         const bits = [];
         bits.push(para(pinned.length ? `Hands off (${pinned.length}): ${pinned.slice(0, 8).map(a => `${a.name} ${sexMark(a)}`).join(', ')}${pinned.length > 8 ? '…' : ''}.` : 'No animal is marked "hands off". Use an animal card\'s menu on the board to mark one.'));
-        if (held.length) bits.push(para(`Moved by you lately, left where you put them for 2 game years: ${held.slice(0, 8).map(a => `${a.name} ${sexMark(a)}`).join(', ')}${held.length > 8 ? '…' : ''}.`, 'soft'));
+        if (held.length) {
+            bits.push(h('div.PZ2QoL_apRow', null,
+                para(`Moved by you lately, left where you put them for 2 game years: ${held.slice(0, 8).map(a => `${a.name} ${sexMark(a)}`).join(', ')}${held.length > 8 ? '…' : ''}.`, 'soft'),
+                h('div.PZ2QoL_kpFlex'),
+                H.btn('Let Auto move them', null, () => { releaseAutoHeld(held.map(a => a.id)); H.renderAll(); }, { cls: 'small', title: 'Auto mode may move these animals again from its next run' })));
+        }
         if (refused.length) bits.push(para(`The game refused ${refused.length} move${refused.length === 1 ? '' : 's'} three times; Auto mode no longer tries ${refused.length === 1 ? 'it' : 'them'}: ${refused.slice(0, 5).map(r => { const a = model.animals.get(r.id); return `${a ? a.name : r.id} → ${r.to === TRADE ? 'trade centre' : H.placeName(model, r.to)}`; }).join(', ')}.`, 'warn'));
         c.appendChild(section('Left alone', ...bits));
     }
@@ -343,11 +348,19 @@ const boardExtension = {
     menuItems(a) {
         const pinned = isAutoPinned(a.id);
         if (!pinned && !getSpeciesAuto(a.species).settings.on) return [];
-        return [{
+        const items = [{
             label: pinned ? 'Auto mode may move it again' : 'Auto mode: hands off',
             title: pinned ? 'Auto mode may move this animal again' : 'Auto mode never moves this animal or sends it away',
             run: () => toggleAutoPin(a.id),
         }];
+        if (!pinned && isAutoHeld(a.id)) {
+            items.push({
+                label: 'Auto mode may move it now',
+                title: 'You moved it lately, so Auto mode leaves it here for 2 game years. This ends that now.',
+                run: () => releaseAutoHeld([a.id]),
+            });
+        }
+        return items;
     },
 };
 

@@ -369,6 +369,18 @@ export function unknownMakeupText(info = {}) {
         + 'If you know how it breeds, choose the make-up with the arrows (kept for this zoo).';
 }
 
+// The auto make-up when the game's group rules (its animal database:
+// mixed-group limits, leader-only mating; Kin.SpeciesInfo) were not read:
+// why, and where the make-up came from instead. '' when they were read or
+// the player chose the make-up.
+const MAKEUP_FROM = { game: "the game's per-sex limits", groups: "the game's social groups", mating: 'the mating system', none: 'a guess (mixed groups)' };
+export function makeupDbNote(info = {}, rule = null) {
+    if (!info || !info.dbStatus || (rule && rule.source === 'yours')) return '';
+    const from = (rule && MAKEUP_FROM[rule.source]) || "the game's other data";
+    return `The game's group rules could not be read (${info.dbStatus}), so the auto make-up comes from ${from}. `
+        + 'If it is wrong (two males together where the game allows one), choose it with the arrows.';
+}
+
 // Partners per animal: a male breeds with up to `male` females, a female
 // with one male (her best). A female has one litter a cycle however many
 // males she lives with, so under a reverse harem (k:1, *:1) the extra males

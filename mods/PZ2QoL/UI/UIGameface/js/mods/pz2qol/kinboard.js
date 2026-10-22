@@ -30,7 +30,7 @@ import {
     cachedDestinations, getPlanRun, isAskingStored, moveAnimal, onPlanRun, planBlockedReason, requestDestinations, requestSpeciesInfo, requestStoredAdults, runPlan, stopPlan,
 } from '/js/mods/pz2qol/kinmoves.js';
 import {
-    PROGRAMME_DEFAULTS, PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, RATIO_CHOICES, conceptionChance, groupRule, planProgrammeAsync, programmeLogData, programmeProblemSig, ratioKey, unknownMakeupText, withFreshYoung, youngQuality,
+    PROGRAMME_DEFAULTS, PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, RATIO_CHOICES, conceptionChance, groupRule, planProgrammeAsync, makeupDbNote, programmeLogData, programmeProblemSig, ratioKey, unknownMakeupText, withFreshYoung, youngQuality,
 } from '/js/mods/pz2qol/kinprogramme.js';
 import {
     CPU_ORDER, CPU_STEPS, CUSTOM_STEPS, DEEP_PRESETS, PRESET_ORDER, PRESET_WORDS, cpuOf, deepJob, deepKey, deepResult, deepSettings,
@@ -2297,6 +2297,8 @@ function programmeWarnings(model, p, r) {
     }
     if (!Array.isArray(info.conception) || !info.conception.length) out.push('No conception table from the game: the chance of young is estimated from the fertility genes.');
     if (r && r.rule && r.rule.source === 'none') out.push(noMakeupText(info));
+    const dbNote = makeupDbNote(info, r && r.rule);
+    if (dbNote) out.push(dbNote);
     if (r) {
         const hs = info.habitats || {};
         const noSpace = r.habitats.filter(hb => !(hs[hb] && hs[hb].available));

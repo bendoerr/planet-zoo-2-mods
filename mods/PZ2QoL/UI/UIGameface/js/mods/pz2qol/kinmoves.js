@@ -319,6 +319,27 @@ export function onPlanRun(fn) {
     return () => runListeners.delete(fn);
 }
 
+// Each move of a run, for Auto mode (kinauto.js): fn(move, owner, phase),
+// phase 'start' (just before the game is asked), 'done' (the game confirmed
+// it) or 'refused'. An unconfirmed move gets no second call.
+const moveListeners = new Set();
+
+export function onPlanMove(fn) {
+    moveListeners.add(fn);
+    return () => moveListeners.delete(fn);
+}
+
+function tellMove(m, owner, phase) {
+    moveListeners.forEach(fn => {
+        try {
+            fn(m, owner, phase);
+        }
+        catch (e) {
+            // a listener must never stop the run
+        }
+    });
+}
+
 // Why a plan may not run now ('' when it may).
 export function planBlockedReason(model = getKinModel()) {
     if (!model) return 'No kin data yet.';
@@ -385,8 +406,10 @@ export async function runPlan(plan, { destinations, beforeEach = null, owner = '
         }
         // a refused or unconfirmed move is skipped and the plan carries on;
         // only Stop ends a run (the developer's decision, 2026-10-16)
+        tellMove(m, owner, 'start');
         const r = await moveAnimal(m.id, m.to);
         if (!r.ok) {
+            tellMove(m, owner, 'refused');
             skipped++;
             error = `${text}: ${r.detail || 'the game refused the move'}`;
             setRun({ log: run.log.concat([{ text, ok: false, detail: `skipped: ${r.detail || 'refused'}` }]) });
@@ -401,6 +424,7 @@ export async function runPlan(plan, { destinations, beforeEach = null, owner = '
             await sleep(getPaceMs('moves'));
             continue;
         }
+        tellMove(m, owner, 'done');
         setRun({ done: run.done + 1, log: run.log.concat([{ text, ok: true }]) });
         await sleep(getPaceMs('moves'));
     }

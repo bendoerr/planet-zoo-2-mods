@@ -254,6 +254,36 @@ export function noteManualMoves(l, model, ids, clock) {
     }
 }
 
+// A move the mod's own plan made from the Species board or the Breeding
+// window (not a drag, not Auto mode's run): kept like one of Auto mode's,
+// so the animal stays put for Auto mode's cooldown, not the 2 years of
+// "moved by you". from: its habitat before the move (or TRADE).
+export function noteModMove(l, model, id, from, to, clock) {
+    const g = guidOf(model, id);
+    if (!g) return;
+    delete l.manual[g];
+    const f = habRef(model, from);
+    const h = Array.isArray(l.hist[g]) ? l.hist[g] : [];
+    if (f.n || f.h) h.push([f.n, f.h, clock]);
+    l.hist[g] = h.slice(-4);
+    if (String(to) === TRADE) l.leave[g] = 1;
+    else delete l.leave[g];
+}
+
+// The player lets Auto mode move these again now ("moved by you" ends).
+// -> how many were held
+export function releaseManual(l, model, ids) {
+    let n = 0;
+    for (const id of ids) {
+        const g = guidOf(model, id);
+        if (g && l.manual[g] != null) {
+            delete l.manual[g];
+            n++;
+        }
+    }
+    return n;
+}
+
 // A move back to a habitat left within the window: two of them for one
 // species and Auto mode stops for it (the player looks).
 export function noteReversal(l, species, clock) {
