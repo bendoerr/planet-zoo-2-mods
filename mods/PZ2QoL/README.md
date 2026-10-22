@@ -683,7 +683,9 @@ which male and female in the same habitat are related and would inbreed. Collect
   (Plains zebra and other harem species), a second adult male goes even when the habitat has room;
   an all-male (bachelor) group is left alone. The group make-up now comes from the game's own
   animal data: the most males and females per breeding group, and a harem (one breeding male per
-  habitat) where only the leader male mates.
+  habitat) where only the leader male mates. Where only the leader female mates (meerkats, spotted
+  hyenas), each habitat gets one breeding female with one male: a female has one litter however many
+  males live with her, so extra males go to a habitat that needs one, or to the trade centre.
   To clear poor genes out of the gene pool, these go from **every** habitat, full or not, and the
   breeding core does not protect them:
   - **0% fertility genes** (on by default): any animal with a 0% fertility gene.

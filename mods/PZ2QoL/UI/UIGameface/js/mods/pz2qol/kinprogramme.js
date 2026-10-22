@@ -27,7 +27,9 @@
 // one breeding female per habitat, or mixed groups (every female with her
 // best unrelated male). First found: the player's choice for the species,
 // the game's most of each sex per habitat (its mixed-group limits), a harem
-// where only the leader male mates (info.leaderMale), the game's own social groups for
+// where only the leader male mates (info.leaderMale), one breeding female per
+// habitat where only the leader female mates (info.leaderFemale; she counts
+// once, with one male), the game's own social groups for
 // the species, the mating system. In a habitat each male breeds with up to
 // f/m females (each female with up to m/f males) and the pairs are the best
 // possible set (maxWeightPairs, exact). Breeders beyond what the other sex
@@ -320,6 +322,9 @@ export function groupRule(info = {}, choice = 'auto') {
     // info.leaderMale; Plains zebra): a harem, one breeding male per habitat,
     // whatever the per-sex limits allow (they still cap the males)
     if (info && info.leaderMale === true && system !== 'monogamy' && system !== 'polyandry') return out({ m: 1, f: Infinity }, 'game');
+    // only the leader female mates (meerkat, spotted hyena): one breeding
+    // female per habitat, with one male for her (partnersPer, overStructure)
+    if (info && info.leaderFemale === true && system !== 'monogamy' && system !== 'polygyny') return out({ m: Infinity, f: 1 }, 'game');
     const fromCaps = reduceRatio(caps.male, caps.female);
     if (fromCaps && fitsSystem(fromCaps, system)) return out(fromCaps, 'game');
     const groups = allGroups.filter(g => g.m > 0 && g.f > 0);
@@ -365,10 +370,19 @@ export function unknownMakeupText(info = {}) {
 }
 
 // Partners per animal: a male breeds with up to `male` females, a female
-// with up to `female` males (one of the two is always 1).
+// with one male (her best). A female has one litter a cycle however many
+// males she lives with, so under a reverse harem (k:1, *:1) the extra males
+// add no young (they counted as more breeding pairs until 2026-10-22: one
+// meerkat female drew 7 males in).
 function partnersPer(rule) {
     if (!rule || rule.m == null) return { male: Infinity, female: 1 }; // mixed: each female her best male
-    return { male: rule.m === 1 ? rule.f : 1, female: rule.f === 1 ? rule.m : 1 };
+    return { male: rule.m === 1 ? rule.f : 1, female: 1 };
+}
+
+// Breeding males a reverse harem allows per breeding female: k for k:1, one
+// for *:1 (only the leader female breeds; one male for her is enough).
+function malesPerFemale(r) {
+    return r.m === Infinity ? 1 : r.m;
 }
 
 // The breeders a habitat with room for `room` adults asks for under the
@@ -377,6 +391,8 @@ function partnersPer(rule) {
 export function groupTarget(rule, room) {
     if (!rule || rule.m == null || !(room >= 1)) return null;
     room = Math.floor(room);
+    // one breeding female per habitat (*:1): her and one male
+    if (rule.m === Infinity && rule.f === 1) return { males: room >= 2 && (rule.maxMales ?? 1) >= 1 ? 1 : 0, females: 1 };
     const scarceIsMale = rule.m === 1;
     const k = scarceIsMale ? rule.f : rule.m;               // partners of one scarce-sex animal
     const capScarce = (scarceIsMale ? rule.maxMales : rule.maxFemales) ?? Infinity;
@@ -820,12 +836,16 @@ function relatedCount(ctx, list) {
 }
 
 // Breeders over the make-up: males beyond what the females need (1:3 with
-// 4 females: 2), or beyond the game's most per sex; the same for females.
+// 4 females: 2; a reverse harem: k per female, one under *:1), or beyond the
+// game's most per sex; the same for females.
 function overStructure(ctx, nm, nf) {
     const r = ctx.rule;
     let allowM = Infinity, allowF = Infinity;
     if (harem(r)) allowM = Math.max(1, Math.ceil(nf / r.f));
-    else if (reverseHarem(r)) allowF = Math.max(1, Math.ceil(nm / r.m));
+    else if (reverseHarem(r)) {
+        allowF = Math.max(1, Math.ceil(nm / r.m));
+        allowM = Math.max(1, nf * malesPerFemale(r));
+    }
     if (r.maxMales != null) allowM = Math.min(allowM, r.maxMales);
     if (r.maxFemales != null) allowF = Math.min(allowF, r.maxFemales);
     return Math.max(0, nm - allowM) + Math.max(0, nf - allowF);

@@ -86,9 +86,12 @@ export const CULL_DEFAULTS = Object.freeze({
 });
 
 // Breeding males a habitat keeps under the make-up: one per f females
-// (at least one) for 1:f, one for a harem; the game's most per sex caps it.
+// (at least one) for 1:f, one for a harem; a reverse harem k per breeding
+// female (one under *:1: only the leader female breeds); the game's most per
+// sex caps it.
 export function maleRoom(rule, fertileFemales) {
     let n = rule && rule.m === 1 && rule.f > 1 ? Math.max(1, Math.ceil(fertileFemales / rule.f)) : Infinity;
+    if (rule && rule.f === 1 && rule.m > 1) n = rule.m === Infinity ? 1 : Math.max(1, rule.m * fertileFemales);
     if (rule && rule.maxMales != null) n = Math.min(n, rule.maxMales);
     return n;
 }
@@ -170,6 +173,7 @@ export function keepValue(model, a, group, { system = 'mixed', maleRank = 0, mal
 
 function extraMaleWhy(rule, males) {
     const key = ratioKey(rule);
+    if (rule.f === 1 && rule.m > 1) return `an extra male (one breeding female here: room for ${males} breeding male${males === 1 ? '' : 's'})`;
     if (key === '1:*' || males === 1 && rule.maxMales === 1) return 'an extra male (harem: one breeding male per habitat)';
     return `an extra male (${key.replace(':', ' ♂ : ')} ♀: room for ${males} breeding male${males === 1 ? '' : 's'} here)`;
 }

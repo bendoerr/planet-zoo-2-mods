@@ -735,7 +735,16 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
 - `kinprogramme.js` `groupRule`: `leaderMale` (not monogamy or polyandry) gives a harem (1:*) before
   the per-sex limits, which still cap the males; a game limit of one male sets `rule.oneMale`, and
   Thin out then sends a second adult male away from a habitat with an adult female even with room
-  (`kincull.js`; a bachelor group is left alone).
+  (`kincull.js`; a bachelor group is left alone). `leaderFemale` (not monogamy or polygyny; meerkat,
+  spotted hyena) gives one breeding female per habitat (*:1).
+- **A female counts once** (2026-10-22): `partnersPer` gives every female one partner in the
+  pairing (her best male), so under a reverse harem extra males add no young; `overStructure` allows
+  k males per breeding female for k:1 and one for *:1, `groupTarget('*:1', room)` = 1 ♀ + 1 ♂, and
+  Thin out's `maleRoom` matches. Before, each male counted as another pair: one meerkat female drew 7
+  males in, and 1:1 drew extras through the family-line bonus. Data: leader-female-only species are
+  meerkat (MaxMixed 20/20), spotted hyena (2/2) and western chimpanzee (`OnlyLeaderFemaleCanMate`);
+  monogamous pack species (wolf, African wild dog, small-clawed otter, beaver, siamang, golden lion
+  tamarin) have both leader flags: only the leader pair breeds (not modelled: 1:1 pairs).
 - PZ2QoL (`pz2qol.kin.lua` `Kin.SpeciesInfo` → `info.groups = [{kind, m, f}]`, `info.sexMax = {male,
   female}`; `kinprogramme.js` `groupRule`): the make-up is the player's choice per species (`kinRatio`
   in the player store, per zoo; `RATIO_CHOICES` 1:1…1:5, 1:*, 2:1, 3:1, *:1, mixed), else the game's

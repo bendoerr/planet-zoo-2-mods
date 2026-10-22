@@ -862,3 +862,30 @@ test('make-up: only the leader male mates -> one breeding male per habitat', () 
     const males1 = ['m1', 'm2'].filter(id => where(model, plan, id) === '1').length;
     assert.equal(males1, 1, JSON.stringify(plan.moves));
 });
+
+// Only the leader female mates (meerkat, spotted hyena; info.leaderFemale):
+// one breeding female per habitat (*:1). A female has one litter a cycle,
+// so she counts once, with her best male; extra males are surplus (one
+// female drew 7 males in before 2026-10-22).
+test('make-up: only the leader female mates -> one breeding female with one male', () => {
+    assert.equal(ratioKey(groupRule({ mating: 'mixed', leaderFemale: true })), '*:1');
+    assert.equal(ratioKey(groupRule({ mating: 'polyandry', leaderFemale: true })), '*:1');
+    assert.equal(ratioKey(groupRule({ mating: 'monogamy', leaderFemale: true })), '1:1', 'monogamy stays pairs');
+    assert.equal(ratioKey(groupRule({ mating: 'polygyny', leaderMale: true, leaderFemale: true })), '1:*', 'the leader male rule first');
+    assert.deepEqual(groupTarget(parseRatio('*:1'), 10), { males: 1, females: 1 });
+    assert.deepEqual(groupTarget(parseRatio('*:1'), 1), { males: 0, females: 1 });
+    // two females and three males in habitat 1, one pair in 2, an empty 3, eight males waiting
+    const animals = [an('f1', F, '1', [], { genes: G('A', 'B') }), an('f3', F, '1', [], { genes: G('C', 'D') }), an('f2', F, '2', [], { genes: G('E', 'F') }),
+        an('m1', M, '1', [], { genes: G('G', 'H') }), an('m3', M, '1', [], { genes: G('I', 'J') }), an('m4', M, '1', [], { genes: G('K', 'L') }), an('m2', M, '2', [], { genes: G('M', 'N') })];
+    for (let i = 0; i < 8; i++) animals.push(an('t' + i, M, '', [], { lt: 'trade', genes: G('O', 'P') }));
+    const model = buildKinModel(snap(animals, ['1', '2', '3']));
+    const info = { mating: 'mixed', leaderFemale: true, social: { max: 30 }, sexMax: { male: 20, female: 20 } };
+    const plan = planProgramme(model, 'Lion', info, DEST(['1', '2', '3']), { options: { moveCost: 0, outsiderCost: 0 } });
+    for (const h of ['1', '2', '3']) {
+        const here = animals.filter(a => where(model, plan, a.id) === h);
+        assert.equal(here.filter(a => a.sex === M).length, 1, `habitat ${h}: one male (${JSON.stringify(plan.moves)})`);
+        assert.equal(here.filter(a => a.sex === F).length, 1, `habitat ${h}: one female`);
+    }
+    assert.equal(plan.after.breedingPairs, 3);
+    assert.ok(animals.filter(a => a.id[0] === 't' && ['1', '2', '3'].includes(where(model, plan, a.id))).length <= 1, 'the waiting males stay out (one may fill the empty habitat)');
+});

@@ -231,3 +231,16 @@ test('one male per group: a second adult male goes even with room', async () => 
     const bach = model([an(M, '2', 6), an(M, '2', 3), an(M, '2', 4)]);
     assert.equal(cullPlan(bach, 'Lemur', ZEBRA, { options: { fill: 1 } }).moves.length, 0, 'no adult female: a bachelor group stays');
 });
+
+test('one breeding female (*:1): males beyond one for her are extra when a habitat is over its room', async () => {
+    const { maleRoom } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js');
+    const { parseRatio } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js');
+    assert.equal(maleRoom(parseRatio('*:1'), 3), 1);
+    assert.equal(maleRoom(parseRatio('2:1'), 3), 6);
+    n = 0;
+    const animals = [an(F, '1', 5), an(M, '1', 6), an(M, '1', 4), an(M, '1', 3), an(M, '1', 2)];
+    const plan = cullPlan(model(animals), 'Lemur', { social: { max: 4 }, mating: 'polyandry' }, { options: { fill: 0.75, ratio: '*:1' } });
+    // room 4 x 0.75 = 3: two leave, the weakest extra males
+    assert.deepEqual(plan.moves.map(x => x.id).sort(), ['a4', 'a5']);
+    assert.match(plan.moves[0].reason, /extra male \(one breeding female here: room for 1 breeding male\)/);
+});

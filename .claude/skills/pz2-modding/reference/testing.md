@@ -219,7 +219,9 @@ Run all of these before installing a build.
   lacks → the probe, mixed over plain, bachelor never; no or a throwing database → the probe and
   a retry). Node: `kincull.test.mjs` "one male per group" (a second adult male goes with room, a
   bachelor group and the player's keeps stay); `kinprogramme.test.mjs` "make-up: only the leader male
-  mates" (1:* before the per-sex limits, monogamy and the player's choice kept, two males split).
+  mates" (1:* before the per-sex limits, monogamy and the player's choice kept, two males split) and
+  "only the leader female mates" (*:1, `groupTarget('*:1')` = 1 + 1, one female with one male in every
+  habitat, the waiting males left out); `kincull.test.mjs` "one breeding female (*:1)" (`maleRoom`).
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is
