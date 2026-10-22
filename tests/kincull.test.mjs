@@ -205,3 +205,29 @@ test('a pregnant female is never sent away, not even by the player\'s choice', (
         assert.equal(keep.why, 'pregnant');
     }
 });
+
+// The game's own limit of one adult male per mixed group (its animal
+// database, MaxMixedMale 1; Plains zebra, 2026-10-22): a second adult male
+// leaves even a habitat with room. A bachelor group (no adult female) and the
+// player's keeps are left alone.
+test('one male per group: a second adult male goes even with room', async () => {
+    const { groupRule } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js');
+    const ZEBRA = { social: { max: 6 }, mating: 'polygyny', sexMax: { male: 1, female: 5 } };
+    assert.equal(groupRule(ZEBRA).oneMale, true);
+    assert.equal(groupRule({ social: { max: 6 }, mating: 'polygyny' }).oneMale, undefined, 'no game limit: no rule');
+    n = 0;
+    const animals = [an(M, '1', 6), an(M, '1', 3), an(F, '1', 5), an(F, '1', 4), an(F, '1', 4)];
+    const m = model(animals);
+    const plain = cullPlan(m, 'Lemur', { social: { max: 6 }, mating: 'polygyny' }, { options: { fill: 1 } });
+    assert.equal(plain.moves.length, 0, 'without the game limit: room left, nobody goes');
+    const one = cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1 } });
+    assert.deepEqual(one.moves.map(x => x.id), ['a2'], 'the weaker male goes');
+    assert.match(one.moves[0].reason, /extra male \(harem: one breeding male per habitat\)/);
+    // the player's keep wins: the weaker male kept, the better one is the
+    // habitat's breeding core, so both stay
+    assert.deepEqual(cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1, keepIds: new Set(['a2']) } }).moves, []);
+    // a bachelor group: males only
+    n = 0;
+    const bach = model([an(M, '2', 6), an(M, '2', 3), an(M, '2', 4)]);
+    assert.equal(cullPlan(bach, 'Lemur', ZEBRA, { options: { fill: 1 } }).moves.length, 0, 'no adult female: a bachelor group stays');
+});

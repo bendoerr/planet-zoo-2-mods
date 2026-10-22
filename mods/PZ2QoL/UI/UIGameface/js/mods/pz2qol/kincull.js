@@ -25,6 +25,8 @@
 //                beyond what the group make-up allows for the habitat's
 //                females (the breeding programme's rule: a harem keeps one,
 //                1:3 keeps one per three females) lower
+// Where the game allows one adult male per mixed group (rule.oneMale), a
+// second adult male goes even from a habitat with room.
 // Juveniles are only sent away by hand, or by the gene rules with `young`.
 // Never sent away: pregnant females,
 // animals on the move, the best fertile
@@ -290,6 +292,20 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
             if (fixed(a) || why.has(a.id) || !poor.has(a.id)) continue;
             why.set(a.id, poor.get(a.id));
             if (!a.juv) over--;
+        }
+        // the game allows one adult male per mixed group (rule.oneMale, its
+        // own limit: Plains zebra, 2026-10-22): a second one goes even when
+        // the habitat has room. The best by keep value stays (a fixed one
+        // first); a habitat without adult females is a bachelor group and is
+        // left alone.
+        if (rule.oneMale && group.some(a => a.sex === Sex.Female && !a.juv)) {
+            const menHere = scored.filter(x => x.a.sex === Sex.Male && !x.a.juv && !why.has(x.a.id))
+                .sort((x, y) => (fixed(y.a) ? 1 : 0) - (fixed(x.a) ? 1 : 0) || y.k.value - x.k.value);
+            for (const x of menHere.slice(1)) {
+                if (fixed(x.a)) continue;
+                why.set(x.a.id, extraMaleWhy(rule, 1));
+                over--;
+            }
         }
         const rank = new Map(ceiling ? scored.map(x => [x.a.id, strandRank(x.a)]) : []);
         const candidates = scored.filter(x => !fixed(x.a) && !why.has(x.a.id))

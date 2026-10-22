@@ -213,6 +213,13 @@ Run all of these before installing a build.
   `programme.goal`, `thin.strands`) and without it. Pitfall for hand
   examples: fertility/immunity spread in the young can fill the best quarter by itself and tie
   `youngUpside`; give the sexes different F/I letters so every young gets 100% there.
+- One male per group (2026-10-22): Lua `test_pz2qol.lua` section 11 (a mocked `api.database`:
+  `GetDesiredPopulationSizes` / `GetMatingRules` rows → `sexMax` = the mixed-group limits with
+  `sexMaxFrom: 'db'`, `leaderMale`, a boolean flag, read once per session; a species the database
+  lacks → the probe, mixed over plain, bachelor never; no or a throwing database → the probe and
+  a retry). Node: `kincull.test.mjs` "one male per group" (a second adult male goes with room, a
+  bachelor group and the player's keeps stay); `kinprogramme.test.mjs` "make-up: only the leader male
+  mates" (1:* before the per-sex limits, monogamy and the player's choice kept, two males split).
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is

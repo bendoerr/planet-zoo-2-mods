@@ -26,7 +26,8 @@
 // with three females, 1:any a harem (one breeding male per habitat), any:1
 // one breeding female per habitat, or mixed groups (every female with her
 // best unrelated male). First found: the player's choice for the species,
-// the game's most of each sex per habitat, the game's own social groups for
+// the game's most of each sex per habitat (its mixed-group limits), a harem
+// where only the leader male mates (info.leaderMale), the game's own social groups for
 // the species, the mating system. In a habitat each male breeds with up to
 // f/m females (each female with up to m/f males) and the pairs are the best
 // possible set (maxWeightPairs, exact). Breeders beyond what the other sex
@@ -302,7 +303,7 @@ export function groupRule(info = {}, choice = 'auto') {
     // other sex must fit too); a group of 2 (tigers) is one male and one female
     const social = info && info.social && info.social.max >= 2 ? Math.floor(info.social.max) : null;
     const derived = social != null ? social - 1 : null;
-    const out = (r, source) => ({
+    const out = (r, source) => Object.assign({
         m: r ? r.m : null,
         f: r ? r.f : null,
         maxMales: caps.male > 0 ? Math.floor(caps.male) : derived,
@@ -310,9 +311,15 @@ export function groupRule(info = {}, choice = 'auto') {
         source,
         system,
         solitary,
-    });
+    // the game's own limit of one adult male per mixed group (Thin out sends
+    // a second one away even with room, kincull.js)
+    }, caps.male > 0 && Math.floor(caps.male) === 1 ? { oneMale: true } : {});
     const mine = parseRatio(choice);
     if (mine) return out(mine === 'mixed' ? null : mine, 'yours');
+    // only the group's leader male mates (the game's mating rules,
+    // info.leaderMale; Plains zebra): a harem, one breeding male per habitat,
+    // whatever the per-sex limits allow (they still cap the males)
+    if (info && info.leaderMale === true && system !== 'monogamy' && system !== 'polyandry') return out({ m: 1, f: Infinity }, 'game');
     const fromCaps = reduceRatio(caps.male, caps.female);
     if (fromCaps && fitsSystem(fromCaps, system)) return out(fromCaps, 'game');
     const groups = allGroups.filter(g => g.m > 0 && g.f > 0);

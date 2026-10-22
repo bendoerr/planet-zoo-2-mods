@@ -843,3 +843,22 @@ test('a kept plan is redone (and gains the young moves) when young arrive at the
     assert.equal(r.score, 1);
     assert.equal(withFreshYoung(fresh, fresh), fresh);
 });
+
+// Only the leader male mates (the game's mating rules, info.leaderMale):
+// a harem whatever the per-sex limits, which still cap the males.
+test('make-up: only the leader male mates -> one breeding male per habitat', () => {
+    const r = groupRule({ mating: 'polygyny', leaderMale: true, sexMax: { male: 1, female: 5 }, social: { max: 6 } });
+    assert.equal(ratioKey(r), '1:*');
+    assert.equal(r.maxMales, 1);
+    assert.equal(r.source, 'game');
+    assert.equal(groupRule({ mating: 'monogamy', leaderMale: true }).m, 1, 'monogamy stays pairs');
+    assert.equal(groupRule({ mating: 'polygyny', leaderMale: true }, '1:3').source, 'yours', 'the player\'s make-up wins');
+    // two males in a zebra harem: one leaves for the empty habitat or the trade centre
+    const animals = [an('m1', M, '1'), an('m2', M, '1', [], { genes: G('E', 'F') }), an('f1', F, '1', [], { genes: G('G', 'H') }),
+        an('f2', F, '1', [], { genes: G('I', 'J') }), an('f3', F, '1', [], { genes: G('K', 'L') })];
+    const model = buildKinModel(snap(animals, ['1', '2']));
+    const info = { mating: 'polygyny', leaderMale: true, sexMax: { male: 1, female: 5 }, social: { max: 6 } };
+    const plan = planProgramme(model, 'Lion', info, DEST(['1', '2']), { options: { moveCost: 0, outsiderCost: 0 } });
+    const males1 = ['m1', 'm2'].filter(id => where(model, plan, id) === '1').length;
+    assert.equal(males1, 1, JSON.stringify(plan.moves));
+});

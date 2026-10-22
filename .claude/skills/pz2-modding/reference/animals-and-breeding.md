@@ -715,7 +715,27 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   TooManyMales|TooManyFemales` and `Zoopedia_MaleFemaleRatio_`, so the game has its own per-sex limit.
   PZ2QoL probes `GetSocialRequirements(sp)` and `GetSpeciesSocialityData(sp)` (**guess** signature) for
   number fields named max+male/female (one level deep): trace `kin_sexmax_found` / `kin_sexmax_none`.
-  **Proven 2026-10-17 (Y:): `kin_sexmax_none`** — neither table carries such a field.
+  **Proven 2026-10-17 (Y:): `kin_sexmax_none`** — neither table carries such a field. Since
+  2026-10-22 the probe skips `bachelor` names and ranks `mixed` names first (smaller value on a tie).
+- **The game's animal database answers it** (**offline**, 1.0.5, 2026-10-22; not yet seen in game):
+  `Content0\Main.ovl` `animals.pscollection` binds prepared statements on the named database
+  `"Animals"`, among them `GetDesiredPopulationSizes` (`SELECT AnimalType, MinPopulation,
+  MaxPopulation, MaxBachelorMale, MaxBachelorFemale, MaxMixedMale, MaxMixedFemale,
+  WelfareScalingStep FROM Requirements_GroupComposition`) and `GetMatingRules` (`AnimalType,
+  MaleHasSingleMate, FemaleHasSingleMate, OnlyLeaderMaleCanMate, OnlyLeaderFemaleCanMate,
+  MourningSeasons`). Also `GetSpeciesSocialityData` there is a database statement (GroupNameLoc,
+  MaturationType), not the per-sex limits. The game's Lua runs such statements as
+  `inst = api.database.GetPreparedStatementInstance("Animals", name)`, `api.database.BindComplete(inst)`,
+  `api.database.Step(inst)`, `api.database.GetAllResults(inst, false)` → rows as arrays in SELECT order
+  (`releasegroupstoragemode.lua` `GetReadyAnimals`). `pz2qol.kin.lua` `Kin._SpeciesDb` reads both once
+  per session (marks `kin_db_found` / `kin_db_none`, `kin_sexmax_db`); `Kin.SpeciesInfo` then sends
+  `sexMax` = the mixed-group limits, `sexMaxFrom: 'db'`, `leaderMale`, `leaderFemale`. Plains zebra:
+  MaxPopulation 6, MaxMixedMale 1 / Female 5, MaxBachelorMale 6, OnlyLeaderMaleCanMate 1 (a harem).
+  Extract the statements with `ovl_tool_cmd.py extract <ovl> -o <dir> --type .pscollection`.
+- `kinprogramme.js` `groupRule`: `leaderMale` (not monogamy or polyandry) gives a harem (1:*) before
+  the per-sex limits, which still cap the males; a game limit of one male sets `rule.oneMale`, and
+  Thin out then sends a second adult male away from a habitat with an adult female even with room
+  (`kincull.js`; a bachelor group is left alone).
 - PZ2QoL (`pz2qol.kin.lua` `Kin.SpeciesInfo` → `info.groups = [{kind, m, f}]`, `info.sexMax = {male,
   female}`; `kinprogramme.js` `groupRule`): the make-up is the player's choice per species (`kinRatio`
   in the player store, per zoo; `RATIO_CHOICES` 1:1…1:5, 1:*, 2:1, 3:1, *:1, mixed), else the game's

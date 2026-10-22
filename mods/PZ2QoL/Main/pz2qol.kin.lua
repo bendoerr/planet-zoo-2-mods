@@ -2004,20 +2004,30 @@ end
 -- Lua sets them), so look for number fields named like max + male / female
 -- in what the Lua API does give (GetSocialRequirements: nMin, nMax known;
 -- GetSpeciesSocialityData: exe-only, its signature guessed), one nested
--- level deep. The first found wins: fields of t before nested tables.
+-- level deep. A mixed-group limit wins over a plain one; bachelor-group
+-- limits (all-male or all-female groups) never count. Equal ranks: the
+-- smaller value, so the answer does not depend on the table's order.
 local function sexMaxFrom(t, tSex, nDepth)
 	if type(t) ~= "table" then
 		return
 	end
 	local tNested = {}
+	local function take(sSex, nRank, v)
+		local sRank = sSex .. "Rank"
+		if tSex[sSex] == nil or nRank < tSex[sRank] or (nRank == tSex[sRank] and v < tSex[sSex]) then
+			tSex[sSex] = v
+			tSex[sRank] = nRank
+		end
+	end
 	for k, v in pairs(t) do
 		if type(v) == "number" and type(k) == "string" and v > 0 and v < math.huge then
 			local s = string.lower(k)
-			if string.find(s, "max", 1, true) then
+			if string.find(s, "max", 1, true) and not string.find(s, "bachelor", 1, true) then
+				local nRank = string.find(s, "mixed", 1, true) and 1 or 2
 				if string.find(s, "female", 1, true) then
-					tSex.female = tSex.female or v
+					take("female", nRank, v)
 				elseif string.find(s, "male", 1, true) then
-					tSex.male = tSex.male or v
+					take("male", nRank, v)
 				end
 			end
 		elseif type(v) == "table" and nDepth < 1 then
@@ -2027,6 +2037,69 @@ local function sexMaxFrom(t, tSex, nDepth)
 	for _, v in ipairs(tNested) do
 		sexMaxFrom(v, tSex, nDepth + 1)
 	end
+end
+
+-- The game's own group limits and mating rules per species, from its animal
+-- database: the prepared statements "Animals" GetDesiredPopulationSizes
+-- (Requirements_GroupComposition) and GetMatingRules (Social_MatingRules),
+-- run the way the game's own Lua runs its queries (GetPreparedStatementInstance,
+-- BindComplete, Step, GetAllResults). The Lua API itself carries neither
+-- (kin_sexmax_none, 2026-10-17). Read once per session; nothing found is
+-- not kept, so a later call tries again.
+-- -> species -> { nMaxMixedMale, nMaxMixedFemale, nMaxBachelorMale,
+--    nMaxBachelorFemale, bLeaderMale, bLeaderFemale }
+Kin.tSpeciesDb = nil
+Kin._SpeciesDb = function(self)
+	if self.tSpeciesDb ~= nil then
+		return self.tSpeciesDb
+	end
+	local db = api.database
+	local t = {}
+	local function rows(sStatement)
+		local bOk, inst = pcall(db.GetPreparedStatementInstance, "Animals", sStatement)
+		if not bOk or inst == nil then
+			return {}
+		end
+		pcall(db.BindComplete, inst)
+		pcall(db.Step, inst)
+		local bOk2, tRes = pcall(db.GetAllResults, inst, false)
+		return bOk2 and type(tRes) == "table" and tRes or {}
+	end
+	local function entry(r)
+		if type(r) ~= "table" or r[1] == nil then
+			return nil
+		end
+		local sSp = tostring(r[1])
+		t[sSp] = t[sSp] or {}
+		return t[sSp]
+	end
+	local function yes(v)
+		return v == true or v == 1
+	end
+	if type(db) == "table" and type(db.GetPreparedStatementInstance) == "function" then
+		-- AnimalType, MinPopulation, MaxPopulation, MaxBachelorMale, MaxBachelorFemale, MaxMixedMale, MaxMixedFemale, ...
+		for _, r in ipairs(rows("GetDesiredPopulationSizes")) do
+			local e = entry(r)
+			if e ~= nil then
+				e.nMaxBachelorMale, e.nMaxBachelorFemale = tonumber(r[4]), tonumber(r[5])
+				e.nMaxMixedMale, e.nMaxMixedFemale = tonumber(r[6]), tonumber(r[7])
+			end
+		end
+		-- AnimalType, MaleHasSingleMate, FemaleHasSingleMate, OnlyLeaderMaleCanMate, OnlyLeaderFemaleCanMate, MourningSeasons
+		for _, r in ipairs(rows("GetMatingRules")) do
+			local e = entry(r)
+			if e ~= nil then
+				e.bLeaderMale, e.bLeaderFemale = yes(r[4]), yes(r[5])
+			end
+		end
+	end
+	if next(t) ~= nil then
+		mark("kin_db_found")
+		self.tSpeciesDb = t
+	else
+		mark("kin_db_none")
+	end
+	return t
 end
 
 -- sHabs: habitat ids (comma separated) to measure for this species.
@@ -2058,15 +2131,32 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	else
 		mark("kin_groups_none")
 	end
-	-- the most adults of each sex per habitat, if the Lua API carries it
+	-- the most adults of each sex per habitat: the game's own mixed-group
+	-- limits from its animal database (a bachelor group is another, one-sex
+	-- group), else whatever the Lua API carries
+	local bDb, tDbAll = pcall(self._SpeciesDb, self)
+	local tDb = bDb and type(tDbAll) == "table" and tDbAll[sSpecies] or nil
 	local tSex = {}
-	pcall(sexMaxFrom, tSocial, tSex, 0)
-	pcall(sexMaxFrom, (call(animals, "GetSpeciesSocialityData", sSpecies)), tSex, 0)
+	if tDb ~= nil and (tDb.nMaxMixedMale or 0) > 0 and (tDb.nMaxMixedFemale or 0) > 0 then
+		tSex.male, tSex.female = tDb.nMaxMixedMale, tDb.nMaxMixedFemale
+		tOut.sexMaxFrom = "db"
+		mark("kin_sexmax_db")
+	else
+		pcall(sexMaxFrom, tSocial, tSex, 0)
+		pcall(sexMaxFrom, (call(animals, "GetSpeciesSocialityData", sSpecies)), tSex, 0)
+	end
 	if tSex.male ~= nil or tSex.female ~= nil then
-		tOut.sexMax = tSex
+		tOut.sexMax = { male = tSex.male, female = tSex.female }
 		mark("kin_sexmax_found")
 	else
 		mark("kin_sexmax_none")
+	end
+	-- only the group's leader male (or female) mates: the game's mating rules
+	if tDb ~= nil and tDb.bLeaderMale then
+		tOut.leaderMale = true
+	end
+	if tDb ~= nil and tDb.bLeaderFemale then
+		tOut.leaderFemale = true
 	end
 	-- the game's conception chance by fertility grades (0..6 x 0..6), at full welfare
 	local nSpeciesFert = call(animals, "GetAnimalSpeciesFertility", sSpecies)
@@ -2116,7 +2206,8 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 			Core:Log("kin", "species_info", {
 				species = sSpecies, mating = tOut.mating, matingRaw = tOut.matingRaw,
 				socialMin = tOut.social and tOut.social.min, socialMax = tOut.social and tOut.social.max,
-				sexMaxMale = tOut.sexMax and tOut.sexMax.male, sexMaxFemale = tOut.sexMax and tOut.sexMax.female,
+				sexMaxMale = tOut.sexMax and tOut.sexMax.male, sexMaxFemale = tOut.sexMax and tOut.sexMax.female, sexMaxFrom = tOut.sexMaxFrom,
+				leaderMale = tOut.leaderMale, leaderFemale = tOut.leaderFemale,
 				groups = table.concat(tG, ","), habitats = nHabs,
 			})
 		end

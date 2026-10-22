@@ -1298,6 +1298,61 @@ do
 	check(t and t.mating == "polygyny" and t.matingRaw == nil, "a rule the mod read sends no raw value")
 	animalsAPI.GetSpeciesSocialityData = nil
 end
+-- the game's animal database (the prepared statements the game's own Lua
+-- runs): mixed-group limits, never the bachelor ones, and the leader-only
+-- mating rule (Plains zebra: one male per group, only the leader mates)
+do
+	local KinD = package.loaded["pz2qol.kin"]
+	local tStatements = {}
+	api.database = {
+		GetPreparedStatementInstance = function(sDb, sSt)
+			tStatements[#tStatements + 1] = sDb .. "/" .. sSt
+			return { sDb = sDb, sSt = sSt }
+		end,
+		BindComplete = function(inst) end,
+		Step = function(inst) end,
+		GetAllResults = function(inst, bNamed)
+			if inst.sSt == "GetDesiredPopulationSizes" then
+				return { { "Zebra_Plains", 3, 6, 6, 6, 1, 5, 1 }, { "Lion", 3, 9, 4, 0, 2, 7, 1 } }
+			elseif inst.sSt == "GetMatingRules" then
+				return { { "Zebra_Plains", 0, 1, 1, 0, 0 }, { "Lion", 0, 0, true, false, 0 } }
+			end
+			return {}
+		end,
+	}
+	KinD.tSpeciesDb = nil
+	-- what the Lua API probe would find (used only for a species the database lacks)
+	animalsAPI.GetSpeciesSocialityData = function(self, sp) return { nMaxBachelorMales = 6, nMaxMixedMales = 2, nMaxMales = 4 } end
+	local function ask(sReq, sSp)
+		tCalls = {}
+		fireUI(oHUD, "PZ2QoL_KinSpecies", sReq, sSp, "101")
+		local c = calls("Trigger")[1]
+		return c and jsonDecode(c.tArgs[3]) or {}
+	end
+	local t = ask("d1", "Zebra_Plains")
+	check(t.sexMax and t.sexMax.male == 1 and t.sexMax.female == 5 and t.sexMaxFrom == "db", "db: the mixed-group limits, not the bachelor ones (" .. tostring(t.sexMax and t.sexMax.male) .. ")")
+	check(t.leaderMale == true and t.leaderFemale == nil, "db: only the leader male mates")
+	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules", "db: the game's own statements")
+	local nRead = #tStatements
+	t = ask("d2", "Lion")
+	check(#tStatements == nRead, "db: read once per session")
+	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
+	-- a species the database lacks: the probe, a mixed-group limit before a plain one, never a bachelor one
+	t = ask("d3", "Okapi")
+	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == nil and t.sexMaxFrom == nil and t.leaderMale == nil, "probe: mixed over plain, bachelor never (" .. tostring(t.sexMax and t.sexMax.male) .. ")")
+	-- no database at all: the probe alone, nothing kept
+	api.database = nil
+	KinD.tSpeciesDb = nil
+	t = ask("d4", "Zebra_Plains")
+	check(t.sexMax and t.sexMax.male == 2 and t.leaderMale == nil and KinD.tSpeciesDb == nil, "no database: the probe, and a later call tries again")
+	-- a database that throws: the same
+	api.database = { GetPreparedStatementInstance = function() error("no db") end }
+	t = ask("d5", "Zebra_Plains")
+	check(t.sexMax and t.sexMax.male == 2 and t.species == "Zebra_Plains", "a failing database: still answered")
+	api.database = nil
+	KinD.tSpeciesDb = nil
+	animalsAPI.GetSpeciesSocialityData = nil
+end
 -- the mating rule: enum fields, text, Polygyandry, and what is not understood
 do
 	local KinM = package.loaded["pz2qol.kin"]
