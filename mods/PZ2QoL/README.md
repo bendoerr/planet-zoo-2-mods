@@ -559,6 +559,9 @@ save is due.
 players who go back and forth often get none. The mod keeps its own clock of park time that
 survives hub trips and asks the game for its normal autosave: Off (game default) / 2 / 3 / 5 /
 10 minutes, plus **Save now**. The setting resets each time the game starts.
+The game update of 2026-10-23 (build 26106647) fixed the timer: a hub trip now pauses the game's
+autosave instead of restarting it. The mod's clock still works the same way; with it Off you get
+the game's own 10 minutes.
 
 **Pause sliders:** the pause between Market lister listings and between Species board moves,
 1–10 s each. Every step still waits for the game to confirm it.

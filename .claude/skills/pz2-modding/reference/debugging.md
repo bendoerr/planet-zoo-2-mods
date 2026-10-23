@@ -251,7 +251,10 @@ replace it). Then:
     world deactivates, e.g. on a trip to the hub (Animal Storage, Market). `OnActivate` then calls
     `ResetAutosaveTimer` + `SelectAppropriateAutosaveSlot` on return, so **every hub trip restarts
     the 10 minutes**. Players who go back and forth more often than every 10 minutes get no
-    autosaves. The earlier "only the first autosave" sessions had Animal Storage use after the first
+    autosaves. **Fixed by Frontier in build 26106647 (2026-10-23):** `OnDeactivate` now suspends
+    the autosave (`api.save.CreateSaveSuspensionControl():SuspendAutosave(..., "Freeze")`) instead
+    of `ClearAutosaveSlot`; `OnActivate` resumes it and arms the slot only the first time
+    (`bAutosaveInitialised`); `ClearPreviousLoadRequests` no longer clears the slot. The earlier "only the first autosave" sessions had Animal Storage use after the first
     one (02:44, 10:16). A deactivation also writes the `player` save (`RequestSave`), not the zoo.
   - Launch option syntax: `-autosaveinterval 120` (the value follows the flag, like `-loadpark`).
     **Not picked up in game (2026-10-16 11:16, 1.0.5):** set in Steam (`localconfig.vdf`, app
