@@ -482,7 +482,8 @@ Run all of these before installing a build.
   failure go away), `tests/kinauto.test.mjs` (a run, locks, Thin out first, cooldown, growing up,
   the last breeder, runs settling on 50 seeded zoos, the ledger), `tests/kinauto_runtime.test.mjs`
   (fake engine: nothing on Auto sends nothing, an offline run, the schedule, Franchise waits for
-  the click), `tests/kinauto_soak.test.mjs` (50 park years, 3 settings x 3 seeds, about 2 minutes;
+  the click; `fake.slow` books a move without carrying it, `deliver` finishes it: one male per
+  group waits for the leaving male), `tests/kinauto_soak.test.mjs` (50 park years, 3 settings x 3 seeds, about 2 minutes;
   `SOAK_SEEDS=13` runs one zoo, `SOAK_DEBUG=1` prints each zoo's numbers, `SOAK_TRADE` the trade
   centre's places, 40 by default). Seeded zoos: `tests/helpers/zoogen.mjs`.
 - `kin_autopilot.mjs` (harness): the board with nothing on Auto (the "Auto mode" button, no Auto

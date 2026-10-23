@@ -823,6 +823,12 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
     says so (**Hand it back** in the panel).
   - Several refused moves pause the species for 10 minutes; a move refused three times is no
     longer tried and is listed in the panel.
+- **One adult male per habitat** (species where the game allows one adult male per group, such as
+  Sable antelope and Plains zebra, or the 1:* make-up): keepers carry each move in their own time,
+  so a male Auto mode moves into a habitat waits until the male leaving it has gone. Two males
+  trading places: one goes first, the other follows once he has left. The panel shows who is
+  waiting; if the first male's move never happens, the other stays where he is and the panel says
+  so.
 - **The panel** also shows the animals left alone and the last runs, each move with its reason
   and **Undo** (one move or the whole run).
 - **Kept** with your habitat assignments in your player profile on this PC (settings, pins and the

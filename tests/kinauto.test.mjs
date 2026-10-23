@@ -7,8 +7,8 @@ import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/
 import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
 import { PROGRAMME_STEPS, planProgramme } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import {
-    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, locksOf, normalizeSpecies, observeChanges, realTimeText,
-    planAutoRun, programmeOptionsFor, projectGrownUp, speciesFingerprints,
+    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, locksOf, normalizeSpecies, observeChanges,
+    planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
     LEDGER_VERSION, emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves,
@@ -119,8 +119,10 @@ test('a run is the Breeding programme\'s plan when nothing is held back', () => 
             const kept = new Set(r.held.filter(x => x.why === 'the last breeder of its sex stays').map(x => x.id));
             // (a juvenile never goes to the trade centre: youth is left alone)
             const want = prog.moves.filter(m => !model.animals.get(m.id).preg && !kept.has(m.id) && !(model.animals.get(m.id).juv && m.to === TRADE)).map(m => `${m.id}>${m.to}`).sort();
-            assert.deepEqual(r.moves.map(m => `${m.id}>${m.to}`).sort(), want, `seed ${seed} ${sp}`);
-            assert.ok(r.moves.every(m => m.stage === 'programme'));
+            // (a male coming in after the one leaving has gone runs later: waits)
+            assert.deepEqual(r.moves.concat(r.waits).map(m => `${m.id}>${m.to}`).sort(), want, `seed ${seed} ${sp}`);
+            assert.ok(r.moves.concat(r.waits).every(m => m.stage === 'programme'));
+            assert.ok(r.waits.every(w => w.after.every(id => r.moves.concat(r.waits).some(m => m.id === id))), 'each waits for a move of the run');
         }
     }
 });
@@ -237,6 +239,72 @@ test('the last breeding male or female of a species is never sent to the trade c
 
 // Runs over and over on a zoo that does not change otherwise: they stop
 // finding work (no animal goes back and forth).
+// One adult male per group (Sable antelope, 2026-10-23): keepers carry each
+// move in their own time, and a late one left two males in one habitat and
+// none in the other. A male the run brings in waits until the male leaving
+// that habitat has gone.
+const HAREM = habs => Object.assign(INFO(habs), { mating: 'polygyny', sexMax: { male: 1, female: 5 } });
+const withMoves = (model, moves, over = {}) => {
+    const input = Object.assign({ model, species: 'Lion', info: HAREM(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: false }, view: {}, tradeFree: null }, over);
+    return finishAutoRun(input, prepareAutoRun(input), { moves });
+};
+const waitOf = w => ({ id: w.id, to: w.to, from: w.from, hab: w.hab, after: w.after, names: w.names });
+
+test('one male per group: a male comes in only after the male leaving that habitat has gone', () => {
+    const model = buildKinModel(snap([an('x', M, '1'), an('g', F, '1'), an('y', M, '2'), an('f', F, '2'), an('z', M, '3', [], { juv: true, age: 1 })]));
+    // y leaves H2 for H3, x takes his place
+    const out = withMoves(model, [{ id: 'x', to: '2' }, { id: 'y', to: '3' }]);
+    assert.deepEqual(out.moves.map(m => m.id), ['y']);
+    assert.deepEqual(out.waits.map(waitOf), [{ id: 'x', to: '2', from: '1', hab: '2', after: ['y'], names: ['Ny'] }]);
+    assert.equal(out.waits[0].reason, 'breeding programme');
+    // to the trade centre the same
+    assert.deepEqual(withMoves(model, [{ id: 'x', to: '2' }, { id: 'y', to: TRADE }]).waits.map(w => w.after), [['y']]);
+    // females and juveniles never wait; nor a male going where no male leaves
+    const free = withMoves(model, [{ id: 'f', to: '1' }, { id: 'g', to: '2' }, { id: 'x', to: '3' }]);
+    assert.equal(free.waits.length, 0);
+    assert.equal(free.moves.length, 3);
+    // the player's harem make-up counts too; mixed groups do not wait
+    const mixed = { mating: 'mixed', social: { min: 2, max: 6 }, fertilityAges: { maturity: 3, infertility: 15 }, habitats: HAREM(HABS).habitats };
+    assert.equal(withMoves(model, [{ id: 'x', to: '2' }, { id: 'y', to: '3' }], { info: mixed }).waits.length, 0);
+    assert.equal(withMoves(model, [{ id: 'x', to: '2' }, { id: 'y', to: '3' }], { info: mixed, ratio: '1:*' }).waits.length, 1);
+});
+
+test('one male per group: two males trading places, the first in the run goes now and the other once he has left', () => {
+    const model = buildKinModel(snap([an('x', M, '1'), an('g', F, '1'), an('y', M, '2'), an('f', F, '2'), an('w', M, '3'), an('h', F, '3')]));
+    const swap = withMoves(model, [{ id: 'y', to: '1' }, { id: 'x', to: '2' }]);
+    assert.deepEqual(swap.moves.map(m => m.id), ['y']);
+    assert.deepEqual(swap.waits.map(w => [w.id, w.after]), [['x', ['y']]]);
+    // a round of three: one goes, the next follows him, the last follows that one
+    const round = withMoves(model, [{ id: 'x', to: '2' }, { id: 'y', to: '3' }, { id: 'w', to: '1' }]);
+    assert.deepEqual(round.moves.map(m => m.id), ['x']);
+    assert.deepEqual(round.waits.map(w => [w.id, w.after]).sort(), [['w', ['x']], ['y', ['w']]]);
+});
+
+test('one male per group: a waiting move is ready once the male has left, and dropped when he stayed or it moved', () => {
+    const animals = [an('x', M, '1'), an('y', M, '2'), an('f', F, '2')];
+    const model0 = buildKinModel(snap(animals));
+    const [w] = withMoves(model0, [{ id: 'x', to: '2' }, { id: 'y', to: '3' }]).waits;
+    const at = over => buildKinModel(snap(animals.map(a => Object.assign({}, a, over[a.id] || {}))));
+    // on his way: still waiting
+    let r = waitsReady(at({ y: { moving: true } }), [w]);
+    assert.deepEqual([r.ready.length, r.still.length, r.dropped.length], [0, 1, 0]);
+    // arrived in H3 (or sold, or gone to the trade centre): ready
+    for (const y of [{ hab: '3', loc: 'H3' }, { hab: '', lt: 'trade' }]) {
+        r = waitsReady(at({ y }), [w]);
+        assert.deepEqual(r.ready.map(x => x.id), ['x'], JSON.stringify(y));
+    }
+    r = waitsReady(buildKinModel(snap(animals.filter(a => a.id !== 'y'))), [w]);
+    assert.deepEqual(r.ready.map(x => x.id), ['x'], 'left the zoo');
+    // still there and no longer on the move: his move did not happen
+    r = waitsReady(at({}), [w]);
+    assert.equal(r.dropped.length, 1);
+    assert.match(r.dropped[0].why, /Ny did not leave/);
+    // the waiting male was moved meanwhile, or is on the move: dropped
+    assert.equal(waitsReady(at({ x: { hab: '3', loc: 'H3' }, y: { hab: '3', loc: 'H3' } }), [w]).dropped.length, 1);
+    assert.equal(waitsReady(at({ x: { moving: true }, y: { hab: '3', loc: 'H3' } }), [w]).dropped.length, 1);
+    assert.match(waitsReady(buildKinModel(snap(animals.filter(a => a.id !== 'x'))), [w]).dropped[0].why, /no longer in the zoo/);
+});
+
 test('runs settle: a zoo left alone needs no more moves after a few runs, and nothing goes back and forth', () => {
     let maxRuns = 0;
     for (let seed = 60; seed <= 110; seed++) {

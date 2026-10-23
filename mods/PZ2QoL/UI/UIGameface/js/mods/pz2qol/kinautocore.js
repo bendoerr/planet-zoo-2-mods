@@ -15,7 +15,7 @@
 // Thin out only takes animals away. So runs stop finding work until
 // something changes in the zoo (a birth, a death, the player).
 import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
-import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, isBreeder, planProgramme } from './kinprogramme.js';
+import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProgramme } from './kinprogramme.js';
 import { FILL_STEPS, breedsNow, cullPlan } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
 import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
@@ -137,7 +137,9 @@ export function locksOf(model, species, view) {
 // prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
-//   programme, thin, notes: [text], held: [{ id, why }] }
+//   programme, thin, notes: [text], held: [{ id, why }],
+//   waits: [move + { from, hab, after: [id], names: [name] }] (moves that
+//   wait until a male has left, waitForLeavingMales) }
 // planAutoRun(input) does all three at once (tests).
 export function prepareAutoRun(input) {
     const { model, species, info = null, destinations = null } = input;
@@ -226,6 +228,7 @@ export function finishAutoRun(input, prep, programme) {
     }
     keepLastBreeders(input, out);
     if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
+    waitForLeavingMales(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
     if (idle) out.notes.push(`${idle} breeder${idle === 1 ? ' has' : 's have'} no unrelated partner in the zoo: new animals from the market would let ${idle === 1 ? 'it' : 'them'} breed.`);
@@ -275,6 +278,92 @@ function keepCarriers(input, out) {
         out.moves.splice(i, 1);
         out.held.push({ id: m.id, why: keep.get(m.id) });
     }
+}
+
+// One adult male per group (the game's own limit, rule.oneMale: Sable
+// antelope, Plains zebra; or a harem make-up): a male the run brings into a
+// habitat waits until the adult male leaving it has gone. Keepers carry
+// each move in their own time; a late one left two males in one habitat and
+// none in the other (2026-10-23). Two males trading places: the first of
+// them in the run goes now, the other once he has left. The waiting moves
+// leave out.moves for out.waits (the runtime runs them later, waitsReady).
+function waitForLeavingMales(input, out) {
+    out.waits = [];
+    const { model, species } = input;
+    if (!model || !out.moves.length) return;
+    const rule = groupRule(input.info || {}, input.ratio || 'auto');
+    if (!rule.oneMale && !(rule.m === 1 && rule.f === Infinity)) return;
+    const adultMale = a => !!a && a.species === species && a.sex === Sex.Male && !a.juv && !a.exhibit && a.alive !== false;
+    const leaving = new Map(out.moves.map(m => [String(m.id), String(m.to)]));
+    const deps = new Map();
+    for (const m of out.moves) {
+        const a = model.animals.get(String(m.id));
+        if (m.to === TRADE || !adultMale(a)) continue;
+        const after = [];
+        for (const b of model.animals.values()) {
+            if (b.id === a.id || !adultMale(b) || b.hab !== String(m.to)) continue;
+            if (leaving.has(String(b.id)) && leaving.get(String(b.id)) !== String(m.to)) after.push(String(b.id));
+        }
+        if (after.length) deps.set(String(m.id), after);
+    }
+    if (!deps.size) return;
+    // a wait that leads back to itself (males trading places): the first of
+    // them in the run goes now
+    const waiting = new Set(deps.keys());
+    const reaches = (from, target, seen) => {
+        for (const d of deps.get(from) || []) {
+            if (d === target) return true;
+            if (!waiting.has(d) || seen.has(d)) continue;
+            seen.add(d);
+            if (reaches(d, target, seen)) return true;
+        }
+        return false;
+    };
+    for (const m of out.moves) {
+        const id = String(m.id);
+        if (waiting.has(id) && reaches(id, id, new Set())) waiting.delete(id);
+    }
+    for (let i = 0; i < out.moves.length; i++) {
+        const m = out.moves[i];
+        const id = String(m.id);
+        if (!waiting.has(id)) continue;
+        const a = model.animals.get(id);
+        const after = deps.get(id);
+        out.waits.push(Object.assign({}, m, { from: homeOf(a), hab: String(m.to), after, names: after.map(x => model.animals.get(x).name) }));
+        out.moves.splice(i--, 1);
+    }
+}
+
+// The run's waiting moves (waitForLeavingMales) on the zoo as it is now:
+// ready once every male it waits for has left the habitat; dropped when one
+// of them is still there and no longer on the move (his move did not
+// happen), or the waiting animal has gone or moved meanwhile.
+// -> { ready: [wait], still: [wait], dropped: [{ wait, why }] }
+export function waitsReady(model, waits) {
+    const out = { ready: [], still: [], dropped: [] };
+    for (const w of waits || []) {
+        const a = model && model.animals.get(String(w.id));
+        if (!a || a.alive === false) {
+            out.dropped.push({ wait: w, why: 'it is no longer in the zoo' });
+            continue;
+        }
+        if (a.moving || homeOf(a) !== w.from) {
+            out.dropped.push({ wait: w, why: 'it was moved meanwhile' });
+            continue;
+        }
+        let stayed = null, onTheWay = false;
+        for (const id of w.after || []) {
+            const b = model.animals.get(String(id));
+            // gone from the habitat: sold, carried off, or arrived elsewhere
+            if (!b || b.alive === false || b.hab !== w.hab) continue;
+            if (b.moving) onTheWay = true;
+            else stayed = b;
+        }
+        if (stayed) out.dropped.push({ wait: w, why: `${stayed.name} did not leave` });
+        else if (onTheWay) out.still.push(w);
+        else out.ready.push(w);
+    }
+    return out;
 }
 
 export function planAutoRun(input) {

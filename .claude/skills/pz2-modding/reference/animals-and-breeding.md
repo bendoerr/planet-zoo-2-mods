@@ -272,6 +272,13 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   for animals with `DoesTransportRequireStaff(e, h) == false` claim the box (`IsBoxingClaimed` /
   `ClaimBoxing`); then `AttemptRequestToTransportAnimalToTarget(e, h, nType)` (returns a bool) for
   each animal; release the claims (`ReleaseBoxing`) when the transport is refused.
+- **A booked move is not a done move** (seen in game 2026-10-23, Franchise, Sable antelope): the
+  request only books a keeper (`GetAnimalTransportData(e).bHasTransportJob`); the animal stays in
+  its habitat list until a keeper boxes it, and keepers take the jobs in their own order. Of six
+  moves booked together, two were done within minutes and three were still waiting 9 real
+  minutes (about 5 game days) later. A boxed animal being carried has no position in the save
+  (Helix `liveinfo`). So moves that depend on each other (a harem male in after the old one out)
+  must wait for the first to finish, not for its booking: PZ2QoL Auto mode `waitForLeavingMales`.
 - **Trade centre: use `animals:AttemptToSendToTradeCentre(e)`** (proven 1.0.4): what the info
   panel, radial menu, habitat gate and facility panel call, after `animals:CanSendAnimalToTradeCentre(e)`
   and capacity `park:GetNumberOfAnimalsInTradeCentre() < park:GetTradeCentreMaxCapacity()`. The game

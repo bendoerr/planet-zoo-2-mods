@@ -28,6 +28,7 @@ const fake = {
     handlers: new Map(), calls: [], file: '{}', mode: 'offline', kin: null, gate: { park: true, move: true, uiMode: '', tcMax: 8, tcCount: 0 },
     // the park's calendar (the schedule is game time): year 5, month 1
     date: { year: 5, month: 1, monthProp: 0 }, monthSec: 120,
+    moved: [], slow: false, pending: new Map(),
 };
 function fire(ev, ...a) {
     setTimeout(() => (fake.handlers.get(ev) || []).forEach(fn => fn(...a)), 3);
@@ -53,13 +54,19 @@ globalThis.engine = {
             fire('PZ2QoL_StoreSaved', args[0], true);
         }
         else if (name === 'PZ2QoL_KinScan') setTimeout(publish, 5);
-        else if (name === 'PZ2QoL_KinDestinations') fire('PZ2QoL_KinDestinationsResult', args[0], JSON.stringify({ bySpecies: { Lion: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Zebra: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } } }, habitats: [{ id: '1', name: 'H1' }, { id: '2', name: 'H2' }, { id: '3', name: 'H3' }], tradeCentre: { id: '99', name: 'Trade Centre' } }));
+        else if (name === 'PZ2QoL_KinDestinations') fire('PZ2QoL_KinDestinationsResult', args[0], JSON.stringify({ bySpecies: { Lion: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Zebra: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Sable: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } } }, habitats: [{ id: '1', name: 'H1' }, { id: '2', name: 'H2' }, { id: '3', name: 'H3' }], tradeCentre: { id: '99', name: 'Trade Centre' } }));
         else if (name === 'PZ2QoL_KinSpecies') fire('PZ2QoL_KinSpeciesResult', args[0], JSON.stringify({ social: { min: 2, max: 6 }, mating: 'polygyny', habitats: { 1: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 2: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 3: { available: { land: 4000 }, required: { land: 1000 }, adults: 0 } } }));
         else if (name === 'PZ2QoL_AutoGate') fire('PZ2QoL_AutoGateResult', args[0], JSON.stringify(Object.assign({ gameMode: fake.mode, hubTypeKnown: true, franchiseZoo: fake.mode === 'franchise', monthSec: fake.monthSec }, fake.date, fake.gate)));
         else if (name === 'PZ2QoL_KinMove') {
             const [req, id, to] = args;
             const a = fake.refuse ? null : fake.animals.find(x => x.id === id);
-            if (a) {
+            if (a) fake.moved.push([id, String(to)]);
+            // fake.slow: a keeper carries it later (deliver / cancel)
+            if (a && fake.slow && !String(to).startsWith('trade')) {
+                a.moving = true;
+                fake.pending.set(id, String(to));
+            }
+            else if (a) {
                 if (String(to).startsWith('trade')) {
                     a.hab = '';
                     a.lt = 'trade';
@@ -404,6 +411,77 @@ test('the Breeding goal set in the Breeding window reaches Auto mode\'s Thin out
     const avg = await planWith(undefined);
     assert.ok(avg.programme && !('goal' in avg.programme), 'the default: no goal');
     assert.ok(avg.thin && !avg.thin.strands, 'the default Thin out');
+});
+
+// One adult male per group (Sable antelope, 2026-10-23): the keepers carry
+// each move in their own time. Two males trading places: one goes, the
+// other only once the first has left; a move the keeper never makes leaves
+// the other where he is, with a line in the panel.
+test('one male per group: a male moves in only after the male leaving has gone; if he stays, the other stays too', async () => {
+    const A = auto._autopilotInternals();
+    const S = (id, sex, hab, par = [], genes = G('Q', 'R')) => an(id, sex, hab, par, { species: 'Sable', genes });
+    // two harems of a father and his own daughters: the fathers trade places
+    fake.animals.push(S('sa', M, '1', [], G('E', 'F')), S('sd1', F, '1', ['sa']), S('sd2', F, '1', ['sa']),
+        S('sb', M, '2', [], G('G', 'H')), S('se1', F, '2', ['sb']), S('se2', F, '2', ['sb']));
+    fake.slow = true;
+    const deliver = id => {
+        const a = fake.animals.find(x => x.id === id);
+        a.hab = fake.pending.get(id);
+        a.loc = 'H' + a.hab;
+        a.moving = false;
+        fake.pending.delete(id);
+        publish();
+    };
+    const sableMoves = () => fake.moved.filter(([id]) => /^s[ab]$/.test(id));
+    const trade = async () => {
+        fake.moved = [];
+        assert.equal(auto.setSpeciesAuto('Sable', { on: true, thin: false, every: 3 }), true);
+        A.ledger.sp.Sable.next = 0;
+        A.pausedUntil.clear();
+        publish();
+        await sleep(50);
+        settle();
+        assert.ok(await until(() => sableMoves().length >= 1 && !A.acting && auto.getSpeciesAuto('Sable').waits.length === 1), JSON.stringify([fake.moved, auto.getSpeciesAuto('Sable')]));
+        assert.equal(sableMoves().length, 1, 'one male goes first');
+        const [first] = sableMoves()[0];
+        const other = first === 'sa' ? 'sb' : 'sa';
+        assert.deepEqual(auto.getSpeciesAuto('Sable').waits.map(w => [w.id, w.names]), [[other, ['N' + first]]]);
+        return { first, other };
+    };
+    // 1. the first male is carried off; the other follows, as a short run of its own
+    const { first, other } = await trade();
+    await sleep(2500);
+    assert.equal(sableMoves().length, 1, 'nothing more while the first is still there');
+    const runBefore = A.ledger.run;
+    deliver(first);
+    assert.ok(await until(() => sableMoves().length === 2), JSON.stringify(fake.moved));
+    assert.equal(sableMoves()[1][0], other);
+    deliver(other);
+    assert.ok(await until(() => !A.acting && auto.getSpeciesAuto('Sable').waits.length === 0));
+    assert.equal(fake.animals.find(x => x.id === 'sa').hab, '2');
+    assert.equal(fake.animals.find(x => x.id === 'sb').hab, '1');
+    const log = A.ledger.log.filter(e => e.sp === 'Sable');
+    assert.ok(log.filter(e => e.o === 'ok').length >= 2, JSON.stringify(log));
+    assert.ok(log.some(e => e.c > runBefore && /after N/.test(e.r)), 'the follow-up run says why it waited');
+    assert.ok(auto.getSpeciesAuto('Sable').last.moves >= 2, JSON.stringify(auto.getSpeciesAuto('Sable').last));
+    assert.ok(!A.ledger.manual['g' + first] && !A.ledger.manual['g' + other], 'not "moved by you"');
+    // 2. back the way they were (a fresh zoo for this species), and this time the keeper never comes
+    auto.setSpeciesAuto('Sable', { on: false });
+    for (const [id, hab] of [['sa', '1'], ['sb', '2']]) Object.assign(fake.animals.find(x => x.id === id), { hab, loc: 'H' + hab });
+    delete A.ledger.hist.gsa;
+    delete A.ledger.hist.gsb;
+    publish();
+    await sleep(50);
+    const again = await trade();
+    Object.assign(fake.animals.find(x => x.id === again.first), { moving: false });
+    fake.pending.clear();
+    publish();
+    assert.ok(await until(() => auto.getSpeciesAuto('Sable').waits.length === 0), 'the wait is dropped');
+    await sleep(1500);
+    assert.equal(sableMoves().length, 1, 'the other never moved');
+    assert.ok((auto.getSpeciesAuto('Sable').last.notes || []).some(t => /stayed where he was/.test(t) && /did not leave/.test(t)), JSON.stringify(auto.getSpeciesAuto('Sable').last));
+    auto.setSpeciesAuto('Sable', { on: false });
+    fake.slow = false;
 });
 
 // the mod's own modules keep timers of their own (the scan, the board):

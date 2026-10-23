@@ -113,7 +113,10 @@ function soak(seed, settings) {
             const res = planAutoRun({ model, species: sp, info: z.info[sp], destinations: z.dest, settings, view, tradeFree });
             stats.tradeHeld += res.held.filter(x => x.why === 'the trade centre is full').length;
             l.run++;
-            for (const x of res.moves) {
+            // moves are instant here: a male waiting for another to leave his
+            // new habitat (res.waits) follows at once, as the runtime's follow-up does
+            const all = res.moves.concat(res.waits);
+            for (const x of all) {
                 const a = animals.find(y => y.id === x.id);
                 if (manualUntil.has(a.guid) && t < manualUntil.get(a.guid)) stats.manualMoved++;
                 if (l.pins[a.guid]) stats.pinnedMoved++;
@@ -140,7 +143,7 @@ function soak(seed, settings) {
                 settleAction(l, e, x, true, { clock: t, realNow: step * 1e6 });
                 stats.moves++;
             }
-            if (res.moves.length) model = build();
+            if (all.length) model = build();
             // Auto mode never sends away a species' last breeding male or female
             for (const sex of [Sex.Male, Sex.Female]) {
                 const before = res.moves.filter(x => x.to === TRADE).map(x => animals.find(y => y.id === x.id)).filter(a => a && a.sex === sex && !a.juv && !a.infertile && !a.contra);

@@ -25,7 +25,7 @@ import { cpuOf, deepJob } from '/js/mods/pz2qol/kinprogdeep.js';
 import { getPref } from '/js/mods/pz2qol/prefs.js';
 import { TUNE_PREF } from '/js/mods/pz2qol/kinprogtune.js';
 import {
-    AUTO_LIMITS, calendarMonths, finishAutoRun, observeChanges, prepareAutoRun, programmeOptionsFor, speciesFingerprints,
+    AUTO_LIMITS, calendarMonths, finishAutoRun, observeChanges, prepareAutoRun, programmeOptionsFor, speciesFingerprints, waitsReady,
 } from '/js/mods/pz2qol/kinautocore.js';
 import {
     emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves, noteModMove, noteReversal,
@@ -63,6 +63,7 @@ const A = {
     pausedUntil: new Map(),  // species -> ms (refusals)
     quiet: new Map(),        // species -> ms: its new pairs are not alerted
     lastPlan: new Map(),     // species -> the last plan made (the panel's preview)
+    waits: new Map(),        // species -> { items: [wait], destinations }: moves waiting until a male has left
     session: 0,              // bumped by stop(): a plan or run of an older session (another zoo) ends
     changed: new Map(),      // species -> settings version: a plan made with older settings is dropped
     loadAt: 0,
@@ -210,13 +211,16 @@ export function getAutopilotState() {
 // One species, for its panel and button:
 // { settings, status, why, left (months of game time to the next run, null
 //   before the calendar is read), rate (months per real ms, 0 paused),
-//   pausedMs, queued (place in the queue, 1 = next), last, plan, log }
+//   pausedMs, queued (place in the queue, 1 = next), last, plan, log,
+//   waits: [{ id, hab, names }] (moves waiting until a male has left) }
 //   status: off | stopped | paused | acting | planning | queued | waiting | due
 export function getSpeciesAuto(species) {
     const l = A.ledger && A.ledgerEpoch === userDataEpoch() ? A.ledger : null;
     const s = speciesSettings(l, species);
     const left = A.cal ? Math.max(0, (s.next || 0) - A.cal.months) : null;
-    const out = { settings: s, status: 'off', why: '', left, rate: gameRate(), pausedMs: 0, last: s.last || null, plan: A.lastPlan.get(species) || null, log: [] };
+    const out = { settings: s, status: 'off', why: '', left, rate: gameRate(), pausedMs: 0, last: s.last || null, plan: A.lastPlan.get(species) || null, log: [], waits: [] };
+    const w = A.waits.get(species);
+    if (w) out.waits = w.items.map(x => ({ id: x.id, hab: x.hab, names: x.names.slice() }));
     if (l) out.log = l.log.filter(e => e.sp === species);
     if (!s.on) return out;
     const paused = A.pausedUntil.get(species);
@@ -274,6 +278,7 @@ export function setSpeciesAuto(species, patch) {
 
 function bump(species) {
     A.changed.set(species, (A.changed.get(species) || 0) + 1);
+    A.waits.delete(species);
 }
 
 // The board's make-up for the species changed (kinautoui.js): a plan made
@@ -339,6 +344,7 @@ function stop() {
     A.modFrom.clear();
     A.pausedUntil.clear();
     A.queue = [];
+    A.waits.clear();
     A.acting = null;
     A.planning = null;
     // nothing of the old zoo is used again (a new zoo's model and gate come fresh)
@@ -408,7 +414,8 @@ function onModel(model) {
         A.scans = 0;
         A.seen = null;
         A.expected.clear();
-            A.lastPlan.clear();
+        A.lastPlan.clear();
+        A.waits.clear();
         A.cal = null;
     }
     A.model = model;
@@ -615,6 +622,8 @@ async function makePlan(species) {
 
 async function planOne(species) {
     A.planning = species;
+    // a fresh plan supersedes the last run's waiting moves
+    A.waits.delete(species);
     notify();
     try {
         const plan = await makePlan(species);
@@ -659,8 +668,55 @@ function tick() {
     if (A.saveDirty) saveLedger(false);
     queueDue();
     if (blockedNow() || A.planning || A.acting) return;
+    if (runWaits()) return;
     const sp = takeNext();
     if (sp) planOne(sp);
+}
+
+// Moves a run left waiting until a male has left their habitat
+// (kinautocore.js waitForLeavingMales): run as a short run of their own as
+// soon as he has gone (and none of the species is still on the move);
+// dropped, with a line in the panel, when he stayed or the waiting animal
+// was moved or marked "hands off". The species' next run plans afresh.
+function runWaits() {
+    const l = A.ledger;
+    for (const [species, w] of A.waits) {
+        const s = l && l.sp[species];
+        if (!s || !s.on || l.stopped[species] || !A.model) {
+            A.waits.delete(species);
+            continue;
+        }
+        const r = waitsReady(A.model, w.items);
+        const ready = r.ready.filter(x => {
+            if (!isPinnedAnimal(l, A.model, x.id)) return true;
+            r.dropped.push({ wait: x, why: 'you marked it "hands off"' });
+            return false;
+        });
+        if (r.dropped.length) noteDropped(species, r.dropped);
+        w.items = r.still.concat(ready);
+        if (!ready.length || speciesBlocked(species)) {
+            if (!w.items.length) A.waits.delete(species);
+            continue;
+        }
+        w.items = r.still;
+        if (!w.items.length) A.waits.delete(species);
+        const moves = ready.map(x => ({ id: x.id, to: x.to, reason: `${x.reason}; after ${x.names.join(' and ')} left`, stage: x.stage, reversal: x.reversal }));
+        startRun([{ species, moves, waits: [], notes: [], fp: A.prints.get(species), session: A.session, destinations: w.destinations, followUp: true }], 'auto');
+        return true;
+    }
+    return false;
+}
+
+function noteDropped(species, dropped) {
+    const s = A.ledger.sp[species];
+    if (!s || !s.last) return;
+    const lines = dropped.map(({ wait, why }) => {
+        const a = A.model && A.model.animals.get(String(wait.id));
+        return `${a ? a.name : 'A male'} stayed where he was (he was to follow once ${wait.names.join(' and ')} had left): ${why}.`;
+    });
+    s.last.notes = lines.concat(s.last.notes || []).slice(0, 3).map(t => String(t).slice(0, 160));
+    A.saveDirty = true;
+    notify();
 }
 
 // Run now on the board: this species goes to the front of the queue and
@@ -694,6 +750,20 @@ function finishRun(species, { moves, skipped, note, notes = [] }) {
     // what the run could not do (trade centre full, no unrelated partner)
     if (notes.length) s.last.notes = notes.slice(0, 3).map(t => String(t).slice(0, 160));
     if (skipped >= AUTO_LIMITS.skipsToPause) A.pausedUntil.set(species, Date.now() + AUTO_LIMITS.pauseAfterSkipsMs);
+    saveLedger(true);
+    if (moves || skipped) toast('done', { species, moves, skipped });
+}
+
+// A run of moves that waited (runWaits): counted with the run that planned
+// them; the schedule stays as it was.
+function finishFollowUp(species, { moves, skipped }) {
+    const l = A.ledger;
+    const s = l && l.sp[species];
+    if (!s) return;
+    if (s.last) {
+        s.last.moves = (s.last.moves || 0) + moves;
+        s.last.skipped = (s.last.skipped || 0) + skipped;
+    }
     saveLedger(true);
     if (moves || skipped) toast('done', { species, moves, skipped });
 }
@@ -869,7 +939,13 @@ async function startRun(plans, how) {
                 enqueue(species, true);
                 break;
             }
+            if (plan.followUp) {
+                finishFollowUp(species, { moves: moved, skipped });
+                continue;
+            }
             finishRun(species, { moves: moved, skipped, note: '', notes: plan.notes });
+            // a male that waits until another has left his habitat comes later (runWaits)
+            if (plan.waits && plan.waits.length) A.waits.set(species, { items: plan.waits.slice(), destinations: plan.destinations });
         }
     }
     catch (e) {
