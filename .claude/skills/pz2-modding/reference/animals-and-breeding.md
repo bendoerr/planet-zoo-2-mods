@@ -282,7 +282,12 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
 - **Trade centre: use `animals:AttemptToSendToTradeCentre(e)`** (proven 1.0.4): what the info
   panel, radial menu, habitat gate and facility panel call, after `animals:CanSendAnimalToTradeCentre(e)`
   and capacity `park:GetNumberOfAnimalsInTradeCentre() < park:GetTradeCentreMaxCapacity()`. The game
-  picks the centre and books the keeper. **Pitfall (proven):** `AttemptRequestToTransportAnimalToTarget(e,
+  picks the centre. **No keeper** (seen in game by the owner, 2026-10-24, Franchise): the animal is
+  boxed at once and the box disappears; the info panel's bottom button "Send animal to storage in
+  Trade Center" (`InfoPanel_Animal_SendToTradeCentre_Tooltip`, `_SendToTradeCentre`) is this call.
+  `RequestTransportToQuarantine(e)` **does** book a keeper: PZ2QoL's "Quarantine sick animals first"
+  (`tradeq:`) sends a sick animal there, so in an outbreak Auto mode's Thin out queued dozens of
+  warthogs for keepers, and while queued the game refused other moves for them ("already being moved"). **Pitfall (proven):** `AttemptRequestToTransportAnimalToTarget(e,
   tc, nType)` (as in `RelocateAnimalsPopup._AttemptSendToTradeCentre`) returns true for a habitat animal
   but nothing happens: no transport job, the animal stays. Used in `pz2qol.kin.lua` `Kin.Move`.
 - **The Animals list's own bulk Send to Trade Centre is all-or-nothing** (1.0.5, **offline**,
