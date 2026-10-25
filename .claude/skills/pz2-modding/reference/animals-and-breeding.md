@@ -285,9 +285,13 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   picks the centre. **No keeper** (seen in game by the owner, 2026-10-24, Franchise): the animal is
   boxed at once and the box disappears; the info panel's bottom button "Send animal to storage in
   Trade Center" (`InfoPanel_Animal_SendToTradeCentre_Tooltip`, `_SendToTradeCentre`) is this call.
-  `RequestTransportToQuarantine(e)` **does** book a keeper: PZ2QoL's "Quarantine sick animals first"
-  (`tradeq:`) sends a sick animal there, so in an outbreak Auto mode's Thin out queued dozens of
-  warthogs for keepers, and while queued the game refused other moves for them ("already being moved"). **Pitfall (proven):** `AttemptRequestToTransportAnimalToTarget(e,
+  `RequestTransportToQuarantine(e)` books staff (the info panel's quarantine button shows
+  `tTransportData.nAssignedStaffMemberEntity` / `bHasTransportJob`). PZ2QoL's "Quarantine sick
+  animals first" (`tradeq:`, sick = `IsAnimalInfected` or `IsAnimalInjured`) takes that path.
+  **Guess**, not seen in game: in the 2026-10-24 outbreak this queued Auto mode's Thin out sends
+  (36 of 48 warthogs it had sent away were sick or incubating, and stayed in their habitats while
+  the game refused other moves for them). Unknown: whether `IsAnimalInfected` is true while a
+  disease is still incubating. **Pitfall (proven):** `AttemptRequestToTransportAnimalToTarget(e,
   tc, nType)` (as in `RelocateAnimalsPopup._AttemptSendToTradeCentre`) returns true for a habitat animal
   but nothing happens: no transport job, the animal stays. Used in `pz2qol.kin.lua` `Kin.Move`.
 - **The Animals list's own bulk Send to Trade Centre is all-or-nothing** (1.0.5, **offline**,
