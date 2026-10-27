@@ -13,7 +13,6 @@
 //                      next,                                 the park calendar month of the next run
 //                      last: { real, run, moves, skipped, note } } },
 //     pins: { guid: 1 },             hands off (the card menu)
-//     manual: { guid: until },       the player moved it (calendar years: months / 12)
 //     leave: { guid: 1 },            Auto sent it to the trade centre
 //     hist: { guid: [[name, hid, t], ...] }, habitats it left (newest last)
 //     fails: { 'guid>dest': [n, realMs, t] },
@@ -32,7 +31,7 @@ export const SAVE_BUDGET = 12000;
 export const MAP_MAX = 150;         // animals kept per memory (history, refusals...)
 
 export function emptyLedger() {
-    return { v: LEDGER_VERSION, sp: {}, pins: {}, manual: {}, leave: {}, hist: {}, fails: {}, rev: {}, stopped: {}, log: [], run: 0, clock: 0, seq: 0 };
+    return { v: LEDGER_VERSION, sp: {}, pins: {}, leave: {}, hist: {}, fails: {}, rev: {}, stopped: {}, log: [], run: 0, clock: 0, seq: 0 };
 }
 
 const obj = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
@@ -49,7 +48,8 @@ export function normalizeLedger(raw) {
         if (s && s.last && typeof s.last === 'object') n.last = Object.assign({}, s.last);
         e.sp[sp] = n;
     }
-    for (const k of ['pins', 'manual', 'leave', 'hist', 'fails', 'rev', 'stopped']) e[k] = Object.assign({}, obj(raw[k]));
+    // (the old "moved by you" holds, raw.manual, are dropped)
+    for (const k of ['pins', 'leave', 'hist', 'fails', 'rev', 'stopped']) e[k] = Object.assign({}, obj(raw[k]));
     e.log = Array.isArray(raw.log) ? raw.log.filter(x => x && typeof x === 'object').slice(-LOG_MAX) : [];
     e.run = Number(raw.run) || 0;
     e.clock = Number(raw.clock) || 0;
@@ -170,7 +170,6 @@ export function ledgerView(l, model, clock, realNow) {
     }
     return {
         pinned: ids(l.pins),
-        manual: ids(l.manual, until => clock < Number(until)),
         cooled,
         leaving: ids(l.leave),
         recentFrom,
@@ -244,44 +243,19 @@ export function settleAction(l, e, x, ok, { clock, realNow, why = '', noFail = f
     else delete l.leave[e.g];
 }
 
-// The player (or the game) moved these animals: hands off for a while.
-export function noteManualMoves(l, model, ids, clock) {
-    for (const id of ids) {
-        const g = guidOf(model, id);
-        if (!g) continue;
-        l.manual[g] = Math.round((clock + AUTO_LIMITS.manualYears) * 1000) / 1000;
-        delete l.leave[g];
-    }
-}
-
 // A move the mod's own plan made from the Species board or the Breeding
 // window (not a drag, not Auto mode's run): kept like one of Auto mode's,
-// so the animal stays put for Auto mode's cooldown, not the 2 years of
-// "moved by you". from: its habitat before the move (or TRADE).
+// so the animal stays put for Auto mode's cooldown. from: its habitat
+// before the move (or TRADE).
 export function noteModMove(l, model, id, from, to, clock) {
     const g = guidOf(model, id);
     if (!g) return;
-    delete l.manual[g];
     const f = habRef(model, from);
     const h = Array.isArray(l.hist[g]) ? l.hist[g] : [];
     if (f.n || f.h) h.push([f.n, f.h, clock]);
     l.hist[g] = h.slice(-4);
     if (String(to) === TRADE) l.leave[g] = 1;
     else delete l.leave[g];
-}
-
-// The player lets Auto mode move these again now ("moved by you" ends).
-// -> how many were held
-export function releaseManual(l, model, ids) {
-    let n = 0;
-    for (const id of ids) {
-        const g = guidOf(model, id);
-        if (g && l.manual[g] != null) {
-            delete l.manual[g];
-            n++;
-        }
-    }
-    return n;
 }
 
 // A move back to a habitat left within the window: two of them for one
@@ -312,11 +286,6 @@ export function isPinnedAnimal(l, model, id) {
     return !!(g && l && l.pins[g]);
 }
 
-export function isManualAnimal(l, model, id, clock) {
-    const g = guidOf(model, id);
-    return !!(g && l && l.manual[g] != null && clock < Number(l.manual[g]));
-}
-
 // ---------------------------------------------------------------- undo
 
 // The move that undoes a log entry, if it is still possible: back to where
@@ -335,11 +304,16 @@ export function undoOf(l, model, e) {
     return { action: { id: a.id, to: back } };
 }
 
-// The player undid it: Auto mode must not do it again for a while.
+// The player undid it: Auto mode must not do it again for a while. The
+// animal left where Auto mode had put it: its cooldown, and a move back
+// there counts as a reversal.
 export function noteUndone(l, model, e, clock) {
     e.u = 1;
-    const a = Array.from(model ? model.animals.values() : []).find(x => x.guid && x.guid === e.g);
-    if (a) noteManualMoves(l, model, [a.id], clock);
+    if (!e.g) return;
+    const h = Array.isArray(l.hist[e.g]) ? l.hist[e.g] : [];
+    if (e.to || e.toh) h.push([e.to, e.toh, clock]);
+    l.hist[e.g] = h.slice(-4);
+    delete l.leave[e.g];
 }
 
 // --------------------------------------------------------------- tidy
@@ -350,11 +324,10 @@ export function pruneLedger(l, model, clock) {
     const present = new Set();
     for (const a of model ? model.animals.values() : []) if (a.guid) present.add(a.guid);
     if (!present.size) return l;
-    for (const key of ['pins', 'manual', 'leave', 'hist']) {
+    for (const key of ['pins', 'leave', 'hist']) {
         for (const g of Object.keys(l[key])) if (!present.has(g)) delete l[key][g];
     }
     for (const k of Object.keys(l.fails)) if (!present.has(k.split('>')[0])) delete l.fails[k];
-    for (const [g, until] of Object.entries(l.manual)) if (clock >= Number(until)) delete l.manual[g];
     for (const [g, list] of Object.entries(l.hist)) {
         const keep = Array.isArray(list) ? list.filter(h => clock - Number(h[2]) <= AUTO_LIMITS.reversalYears) : [];
         if (keep.length) l.hist[g] = keep;

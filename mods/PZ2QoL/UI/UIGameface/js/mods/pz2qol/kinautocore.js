@@ -4,11 +4,13 @@
 // run one at a time like the board's Execute (kinauto.js). Pure, no game
 // imports (Node tests). Design: docs/DESIGN-autopilot.md section 16.
 //
-// Never moved by Auto mode: animals the player marked "hands off", animals
-// the player moved by hand (for a while), pregnant females, animals on the
-// move. Animals Auto mode sent to the trade centre stay there (the
-// programme never brings them back), so Thin out and the programme can't
-// trade an animal back and forth.
+// Never moved by Auto mode: animals the player marked "hands off", pregnant
+// females, animals on the move. The player's own moves hold nothing: Auto
+// mode places those animals like any other (the developer, 2026-10-27: an
+// escaped animal put back anywhere was left there for 2 years; "hands off"
+// is the way to keep one). Animals Auto mode sent to the trade centre stay
+// there (the programme never brings them back), so Thin out and the
+// programme can't trade an animal back and forth.
 //
 // Why it settles: on a zoo that does not change, the programme's plan only
 // ever raises its own score (every move it keeps gains something), and
@@ -40,7 +42,6 @@ export const SPECIES_DEFAULTS = Object.freeze({
 export const AUTO_SEARCH = Object.freeze({ maxEvaluations: 3000000, timeBudgetMs: 6000 });
 
 export const AUTO_LIMITS = Object.freeze({
-    manualYears: 2,             // an animal the player moved stays put this long (years of the park's calendar)
     cooldownYears: 1,           // an animal Auto mode moved stays put this long: as births and
                                 // ageing change the zoo, the programme's best layout shifts, and
                                 // without this it would move some animals back and forth
@@ -90,25 +91,25 @@ function homeOf(a) {
     return a.hab || (a.lt === 'trade' ? TRADE : '');
 }
 
-// The ledger's view for this load, checked: { pinned, manual, leaving,
+// The ledger's view for this load, checked: { pinned, cooled, leaving,
 // recentFrom: Map(id -> Set(hab)), blocked: Set('id>to') }.
 function viewOf(v) {
     const o = v || {};
     const recent = new Map();
     const src = o.recentFrom instanceof Map ? o.recentFrom : new Map(Object.entries(o.recentFrom || {}));
     for (const [k, s] of src) recent.set(String(k), asSet(s));
-    return { pinned: asSet(o.pinned), manual: asSet(o.manual), cooled: asSet(o.cooled), leaving: asSet(o.leaving), recentFrom: recent, blocked: asSet(o.blocked) };
+    return { pinned: asSet(o.pinned), cooled: asSet(o.cooled), leaving: asSet(o.leaving), recentFrom: recent, blocked: asSet(o.blocked) };
 }
 
-// The animals Auto mode leaves where they are (hands off, moved by the
-// player, moved by Auto mode itself lately), and those the programme
-// treats as fixed (also the ones it sent away, which stay away).
+// The animals Auto mode leaves where they are (hands off, moved by Auto
+// mode itself lately), and those the programme treats as fixed (also the
+// ones it sent away, which stay away).
 export function locksOf(model, species, view) {
     const v = viewOf(view);
     const locked = new Set();
     for (const a of model.animals.values()) {
         if (a.species !== species) continue;
-        if (v.pinned.has(a.id) || v.manual.has(a.id) || v.cooled.has(a.id)) locked.add(a.id);
+        if (v.pinned.has(a.id) || v.cooled.has(a.id)) locked.add(a.id);
     }
     const pins = new Set(locked);
     for (const id of v.leaving) {
@@ -155,8 +156,8 @@ export function prepareAutoRun(input) {
         const keepIds = new Set(locked);
         for (const id of view.recentFrom.keys()) keepIds.add(id);
         // the game's own most per sex outranks Auto mode's own cooldown (it
-        // put the second male there), never the player's hands off or move
-        const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id) || view.manual.has(id)));
+        // put the second male there), never the player's hands off
+        const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id)));
         const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, tuningCull(input.tune)) });
         out.thin = c;
         if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overCooldown: !!m.limit, limit: !!m.limit, yields: !!m.yields });
@@ -232,14 +233,14 @@ export function projectGrownUp(model, species, info, years) {
 }
 
 // overCooldown: the game's own rules (its most per sex, an old leader)
-// outrank Auto mode's own cooldown, never the player's hands off or move.
+// outrank Auto mode's own cooldown, never the player's hands off.
 // limit: Thin out sends it away for the game's most per sex (move.limit).
 // yields: ... a breeding core, best genes or a strand's carrier giving way to
 // one that can't go (move.yields): no carrier guard holds it.
 function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = false, yields = false } = {}) {
     const { out, locked, taken, view } = prep;
     if (!a || !canMove(a) || isPinned(a) || taken.has(a.id)) return false;
-    if (locked.has(a.id) && !(overCooldown && !view.pinned.has(a.id) && !view.manual.has(a.id))) return false;
+    if (locked.has(a.id) && !(overCooldown && !view.pinned.has(a.id))) return false;
     if (String(to) === homeOf(a)) return false;
     if (view.blocked.has(`${a.id}>${to}`)) {
         out.held.push({ id: a.id, why: 'the game refused this move recently' });
@@ -408,7 +409,7 @@ function keepGameLimits(input, out) {
 function overLimitNotes(input, out) {
     const { model } = input;
     const keepWhy = new Map();
-    for (const h of (out.thin && out.thin.habitats) || []) for (const k of h.keep || []) keepWhy.set(String(k.id), k.why === 'your choice' ? 'left alone for now' : k.why);
+    for (const h of (out.thin && out.thin.habitats) || []) for (const k of h.keep || []) keepWhy.set(String(k.id), k.why === 'your choice' ? 'hands off' : k.why);
     for (const o of (out.thin && out.thin.overLimit) || []) {
         const place = (model && model.habitats.get(o.hab) || {}).name || 'A habitat';
         const names = o.ids.map(id => {
@@ -533,33 +534,6 @@ export function speciesFingerprints(model) {
     }
     for (const [sp, list] of parts) out.set(sp, list.sort().join('|'));
     return out;
-}
-
-// What changed that Auto mode did not do: the player (or the game) moved an
-// animal. seen: { id: { hab } } (this load); expected: Map(id -> { to })
-// for Auto mode's own moves. -> { seen, moved: [id] }
-export function observeChanges(seen, model, expected) {
-    const next = {};
-    const moved = [];
-    const exp = expected instanceof Map ? expected : new Map();
-    for (const a of model ? model.animals.values() : []) {
-        if (a.exhibit) continue;
-        const stable = !a.moving && (a.lt === 'habitat' || a.lt === 'trade');
-        const here = homeOf(a);
-        const was = seen && seen[a.id];
-        if (!was) {
-            next[a.id] = { hab: stable ? here : '' };
-            continue;
-        }
-        const e = exp.get(a.id);
-        const rec = { hab: was.hab };
-        if (stable) {
-            if (was.hab && here !== was.hab && !(e && e.to != null && String(e.to) === here)) moved.push(a.id);
-            rec.hab = here;
-        }
-        next[a.id] = rec;
-    }
-    return { seen: next, moved };
 }
 
 // ------------------------------------------------------------------ texts

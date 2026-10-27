@@ -7,12 +7,12 @@ import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/
 import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
 import { PROGRAMME_STEPS, planProgramme } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import {
-    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, leaderBlockers, locksOf, normalizeSpecies, observeChanges,
+    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, leaderBlockers, locksOf, normalizeSpecies,
     planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
-    LEDGER_VERSION, emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves,
-    noteModMove, noteReversal, noteUndone, pruneLedger, refusedMoves, releaseManual, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
+    LEDGER_VERSION, emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger,
+    noteModMove, noteReversal, noteUndone, pruneLedger, refusedMoves, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
     speciesSettings, togglePinAnimal, undoOf,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
 import { makeZoo, rng } from './helpers/zoogen.mjs';
@@ -127,17 +127,16 @@ test('a run is the Breeding programme\'s plan when nothing is held back', () => 
     }
 });
 
-test('hands off and moved by the player: never moved, by the programme or by Thin out', () => {
+test('hands off: never moved, by the programme or by Thin out', () => {
     for (let seed = 30; seed <= 50; seed++) {
         const z = makeZoo(seed, { assign: false });
         const model = buildKinModel(z.snap);
         const r0 = rng(seed);
         const all = Array.from(model.animals.values());
         const pinned = new Set(all.filter(() => r0.chance(0.25)).map(a => a.id));
-        const manual = new Set(all.filter(a => !pinned.has(a.id) && r0.chance(0.2)).map(a => a.id));
         for (const sp of z.species) {
-            const r = planAutoRun({ model, species: sp, info: z.info[sp], destinations: z.dest, settings: { thin: true, fill: 'strict' }, view: { pinned, manual } });
-            for (const m of r.moves) assert.ok(!pinned.has(m.id) && !manual.has(m.id), `seed ${seed}: ${m.id} moved`);
+            const r = planAutoRun({ model, species: sp, info: z.info[sp], destinations: z.dest, settings: { thin: true, fill: 'strict' }, view: { pinned } });
+            for (const m of r.moves) assert.ok(!pinned.has(m.id), `seed ${seed}: ${m.id} moved`);
             for (const m of r.moves) {
                 const a = model.animals.get(m.id);
                 assert.ok(!a.preg && !a.moving, 'never a pregnant female or one on the move');
@@ -336,31 +335,32 @@ test("the game's most per sex: a run never brings a second male or female into a
     assert.deepEqual(free.moves.map(m => m.id), ['y']);
 });
 
-test("the game's most per sex: Thin out sends a second male away even in Auto mode's cooldown, never one the player moved", () => {
+test("the game's most per sex: Thin out sends a second male away even in Auto mode's cooldown, never one marked hands off", () => {
     const model = buildKinModel(snap([an('x', M, '1', [], { genes: G('A', 'B') }), an('y', M, '1'), an('f', F, '1'), an('z', M, '2'), an('h', F, '2')]));
     const run = view => planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view, tradeFree: null, ratio: '1:1' });
     const cooled = run({ cooled: ['y'] });
     const send = cooled.moves.find(m => m.id === 'y');
     assert.ok(send && send.to === TRADE && /extra male/.test(send.reason), JSON.stringify(cooled.moves));
     // the player moved y: he stays, x (the breeding core) gives way, carrier or not
-    const manual = run({ manual: ['y'] });
-    assert.ok(!manual.moves.some(m => m.id === 'y'), JSON.stringify(manual.moves));
-    const out = manual.moves.find(m => m.id === 'x');
-    assert.ok(out && out.to === TRADE && /extra male/.test(out.reason) && out.yields, JSON.stringify(manual.moves));
-    const ceiling = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { manual: ['y'] }, tradeFree: null, ratio: '1:1', tune: { goal: 'ceiling' } });
+    // y marked hands off: he stays, x (the breeding core) gives way, carrier or not
+    const kept = run({ pinned: ['y'] });
+    assert.ok(!kept.moves.some(m => m.id === 'y'), JSON.stringify(kept.moves));
+    const out = kept.moves.find(m => m.id === 'x');
+    assert.ok(out && out.to === TRADE && /extra male/.test(out.reason) && out.yields, JSON.stringify(kept.moves));
+    const ceiling = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { pinned: ['y'] }, tradeFree: null, ratio: '1:1', tune: { goal: 'ceiling' } });
     assert.ok(ceiling.moves.some(m => m.id === 'x' && m.to === TRADE), JSON.stringify([ceiling.moves, ceiling.held]));
-    // both the player's (moved by hand, hands off): both stay, named
-    const both = run({ manual: ['y'], pinned: ['x'] });
+    // both hands off: both stay, named
+    const both = run({ pinned: ['x', 'y'] });
     assert.ok(!both.moves.some(m => m.id === 'x' || m.id === 'y'), JSON.stringify(both.moves));
-    assert.ok(both.notes.some(t => /H1 holds more adult males than the game allows \(1\): N[xy] \(left alone for now\) must stay/.test(t)), JSON.stringify(both.notes));
+    assert.ok(both.notes.some(t => /H1 holds more adult males than the game allows \(1\): N[xy] \(hands off\) must stay/.test(t)), JSON.stringify(both.notes));
 });
 
-// Cradle #2's leopards (2026-10-27): the player put young Kwame (not yet of
-// age) in with a new female; Auto mode had moved Fadil there. Kwame holds the
+// Cradle #2's leopards (2026-10-27): young Kwame (not yet of age) with a new
+// female; Auto mode had moved Fadil there. Kwame marked hands off holds the
 // habitat's one place for a male, Fadil goes, even in Auto mode's cooldown.
-test("the game's most per sex: a young male the player moved in holds his place against Auto mode's", () => {
+test("the game's most per sex: a young male marked hands off holds his place against Auto mode's", () => {
     const model = buildKinModel(snap([an('fadil', M, '3', [], { age: 10, genes: G('A', 'B') }), an('kwame', M, '3', [], { age: 1.5, infertile: true }), an('z', M, '2'), an('h', F, '2')]));
-    const r = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { cooled: ['fadil'], manual: ['kwame'] }, tradeFree: null, ratio: '1:1' });
+    const r = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { cooled: ['fadil'], pinned: ['kwame'] }, tradeFree: null, ratio: '1:1' });
     const out = r.moves.find(m => m.id === 'fadil');
     assert.ok(out && out.to === TRADE && /extra male/.test(out.reason), JSON.stringify([r.moves, r.held, r.notes]));
     assert.ok(!r.moves.some(m => m.id === 'kwame'), JSON.stringify(r.moves));
@@ -392,7 +392,6 @@ test('an old leader that blocks its group goes; a group of old ones only stays',
     assert.ok(send && send.to === TRADE && /too old to breed, and it leads its group/.test(send.reason), JSON.stringify(r.moves));
     assert.ok(run({ cooled: ['o'] }).moves.some(m => m.id === 'o'), "Auto mode's own cooldown gives way");
     assert.ok(!run({ pinned: ['o'] }).moves.some(m => m.id === 'o'), 'hands off stays');
-    assert.ok(!run({ manual: ['o'] }).moves.some(m => m.id === 'o'), 'moved by the player stays');
     const off = planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(HABS), assignments: null, settings: { thin: false, trade: false }, view: {}, tradeFree: null });
     assert.ok(!off.moves.some(m => m.id === 'o'), 'no trade centre: stays');
 });
@@ -433,16 +432,18 @@ test('runs settle: a zoo left alone needs no more moves after a few runs, and no
 
 // --------------------------------------------------------------- watching
 
-test('observeChanges: the player\'s moves are noticed, Auto mode\'s own are not', () => {
-    const m1 = buildKinModel(snap(RISKY()));
-    const s1 = observeChanges({}, m1, new Map()).seen;
-    const moved = RISKY().map(a => (a.id === 'b' ? Object.assign(a, { hab: '3' }) : a.id === 'c' ? Object.assign(a, { hab: '3' }) : a));
-    const m2 = buildKinModel(snap(moved));
-    const obs = observeChanges(s1, m2, new Map([['c', { to: '3' }]]));
-    assert.deepEqual(obs.moved, ['b']);
-    // on the move: not counted until it arrives
-    const m3 = buildKinModel(snap(RISKY().map(a => (a.id === 'a' ? Object.assign(a, { moving: true, hab: '' , lt: 'transit' }) : a))));
-    assert.deepEqual(observeChanges(s1, m3, new Map()).moved, []);
+// The player's own moves hold nothing (the developer, 2026-10-27): a run
+// places an animal the player just moved like any other; hands off keeps one.
+test("the player's own moves hold nothing: only hands off keeps an animal", () => {
+    const model = buildKinModel(snap(RISKY()));
+    const v = locksOf(model, 'Lion', { manual: ['d'], pinned: ['a'] });
+    assert.deepEqual(Array.from(v.locked), ['a']);
+    assert.equal(v.view.manual, undefined);
+    // the old "moved by you" holds in a saved ledger are dropped
+    const old = emptyLedger();
+    old.manual = { gd: 99 };
+    assert.equal(normalizeLedger(JSON.parse(JSON.stringify(old))).manual, undefined);
+    assert.equal(ledgerView(old, model, 1, 0).manual, undefined);
 });
 
 test('fingerprints follow where the animals live, not their age', () => {
@@ -485,7 +486,7 @@ test('ledger: the old zoo-wide data starts afresh; settings per species; turning
     assert.equal(back.sp.Lion.thin, false);
 });
 
-test('ledger: what was done, refusals, the trade centre, the player\'s moves, pins and Undo', () => {
+test('ledger: what was done, refusals, the trade centre, the mod\'s own moves, pins and Undo', () => {
     const model = buildKinModel(snap(RISKY()));
     const l = emptyLedger();
     // a move to the trade centre: remembered as leaving
@@ -509,25 +510,13 @@ test('ledger: what was done, refusals, the trade centre, the player\'s moves, pi
     const z = { id: 'c', to: '3' };
     settleAction(l, logAction(l, model, z, { run: 2, clock: 2, realNow: 2000, species: 'Lion' }), z, false, { clock: 2, realNow: 2000, why: 'busy', noFail: true });
     assert.ok(!Object.keys(l.fails).some(k => k.startsWith('gc>')));
-    // the player moved one: held for a while, and no longer "leaving"
-    noteManualMoves(l, model, ['d'], 2);
-    assert.ok(!l.leave.gd);
-    assert.ok(ledgerView(l, model, 2 + AUTO_LIMITS.manualYears - 0.1, 0).manual.has('d'));
-    assert.ok(!ledgerView(l, model, 2 + AUTO_LIMITS.manualYears + 0.1, 0).manual.has('d'));
-    assert.ok(isManualAnimal(l, model, 'd', 2.5));
-    // the player lets Auto mode move it now
-    assert.equal(releaseManual(l, model, ['d', 'a']), 1);
-    assert.ok(!isManualAnimal(l, model, 'd', 2.5));
-    noteManualMoves(l, model, ['d'], 2);
     // a move by the mod's own plan (the board, the Breeding window): Auto
-    // mode's cooldown, not "moved by you"; to the trade centre: leaving
+    // mode's cooldown; to the trade centre: leaving
     noteModMove(l, model, 'd', '1', TRADE, 2);
-    assert.ok(!isManualAnimal(l, model, 'd', 2.5), 'no longer held as moved by the player');
     assert.ok(l.leave.gd);
     assert.ok(ledgerView(l, model, 2 + AUTO_LIMITS.cooldownYears - 0.1, 0).cooled.has('d'));
     assert.ok(!ledgerView(l, model, 2 + AUTO_LIMITS.cooldownYears + 0.1, 0).cooled.has('d'));
     assert.ok(ledgerView(l, model, 2.5, 0).recentFrom.get('d').has('1'));
-    noteManualMoves(l, model, ['d'], 2);
     // pins
     assert.equal(togglePinAnimal(l, model, 'a'), true);
     assert.ok(isPinnedAnimal(l, model, 'a'));
@@ -540,7 +529,12 @@ test('ledger: what was done, refusals, the trade centre, the player\'s moves, pi
     noteUndone(l, moved, e, 3);
     assert.equal(e.u, 1);
     assert.equal(undoOf(l, moved, e).why, 'already undone');
-    assert.ok(l.manual.gd > 3, 'what Undo restores is left alone');
+    // what Undo restores is left alone for Auto mode's cooldown, and a move
+    // back to where Auto mode had put it counts as a reversal
+    const undone = ledgerView(l, moved, 3.5, 0);
+    assert.ok(undone.cooled.has('d') && undone.recentFrom.get('d').has(TRADE), JSON.stringify(l.hist.gd));
+    assert.ok(!ledgerView(l, moved, 3 + AUTO_LIMITS.cooldownYears + 0.1, 0).cooled.has('d'));
+    assert.ok(!l.leave.gd, 'no longer leaving');
 });
 
 test('ledger: memories run out, gone animals are forgotten, the saved size stays in budget', () => {
@@ -549,13 +543,11 @@ test('ledger: memories run out, gone animals are forgotten, the saved size stays
     l.hist.gd = [['H1', 'h1', 0]];
     l.hist.gone = [['H1', 'h1', 0]];
     l.pins.gone = 1;
-    l.manual.ga = 1;
     l.fails['gb>H3'] = [1, 0, 0];
     l.rev.Lion = [0];
     pruneLedger(l, model, 5);
     assert.deepEqual(l.hist, {});
     assert.ok(!l.pins.gone);
-    assert.ok(!l.manual.ga);
     assert.deepEqual(l.fails, {});
     assert.deepEqual(l.rev, {});
     const big = emptyLedger();

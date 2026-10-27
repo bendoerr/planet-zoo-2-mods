@@ -15,8 +15,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
 import { TRADE } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
-import { AUTO_LIMITS, observeChanges, planAutoRun } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
-import { emptyLedger, ledgerView, logAction, noteManualMoves, pruneLedger, settleAction } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
+import { planAutoRun } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
+import { emptyLedger, ledgerView, logAction, pruneLedger, settleAction } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
 import { makeZoo, rng, childGenes, founderGenes, SPECIES } from './helpers/zoogen.mjs';
 
 const STEP = 0.25;          // park years per step (one run per species per step)
@@ -32,11 +32,8 @@ function soak(seed, settings) {
     let animals = snap.animals.map(a => Object.assign({}, a));
     let nextId = 10000;
     const l = emptyLedger();
-    let seen = null;
-    const expected = new Map();
-    const stats = { steps: 0, emptied: 0, moves: 0, logged: 0, reversals: 0, churn: 0, manualMoved: 0, pinnedMoved: 0, births: 0, inbredBirths: 0, maxAnimals: 0, riskSteps: 0, tradeHeld: 0 };
+    const stats = { steps: 0, emptied: 0, moves: 0, logged: 0, reversals: 0, churn: 0, pinnedMoved: 0, births: 0, inbredBirths: 0, maxAnimals: 0, riskSteps: 0, tradeHeld: 0 };
     const movedAt = new Map();       // guid -> [t]
-    const manualUntil = new Map();   // guid -> t
     // two animals the player marked hands off
     for (const a of animals.filter(x => !x.juv).slice(0, 2)) l.pins[a.guid] = 1;
     const build = () => buildKinModel(Object.assign({}, snap, { animals }));
@@ -92,19 +89,15 @@ function soak(seed, settings) {
             if (cand.length) {
                 const a = r.pick(cand);
                 const to = r.pick(Object.entries(z.dest.bySpecies[a.species]).filter(([h, d]) => d.ok && h !== a.hab).map(([h]) => h));
+                // the player's own move: it holds nothing (Auto mode may place it again)
                 if (to) {
                     a.hab = to;
                     a.loc = 'Habitat ' + to;
-                    manualUntil.set(a.guid, t + AUTO_LIMITS.manualYears);
                 }
             }
         }
-        // ---- Auto mode: what the runtime notices, then one run per species
+        // ---- Auto mode: one run per species
         let model = build();
-        const obs = observeChanges(seen || {}, model, expected);
-        if (seen) noteManualMoves(l, model, obs.moved, t);
-        seen = obs.seen;
-        expected.clear();
         pruneLedger(l, model, t);
         l.clock = t;
         let tradeFree = Math.max(0, TRADE_MAX - animals.filter(a => a.lt === 'trade').length);
@@ -118,7 +111,6 @@ function soak(seed, settings) {
             const all = res.moves.concat(res.waits);
             for (const x of all) {
                 const a = animals.find(y => y.id === x.id);
-                if (manualUntil.has(a.guid) && t < manualUntil.get(a.guid)) stats.manualMoved++;
                 if (l.pins[a.guid]) stats.pinnedMoved++;
                 if (x.reversal) stats.reversals++;
                 const list = (movedAt.get(a.guid) || []).filter(s => t - s < 1);
@@ -127,7 +119,6 @@ function soak(seed, settings) {
                 if (list.length > 2) stats.churn++;
                 const e = logAction(l, model, x, { run: l.run, clock: t, realNow: step * 1e6, species: sp });
                 stats.logged++;
-                expected.set(a.id, { to: x.to });
                 if (x.to === TRADE) {
                     a.hab = '';
                     a.lt = 'trade';
@@ -153,7 +144,6 @@ function soak(seed, settings) {
             }
         }
         const after = build();
-        seen = observeChanges(seen, after, expected).seen;
         if (after.pairs.some(p => p.severity === 'risk')) stats.riskSteps++;
         stats.maxAnimals = Math.max(stats.maxAnimals, animals.length);
         if (process.env.SOAK_DEBUG > 1 && step % 8 === 0) {
@@ -186,7 +176,6 @@ for (const c of CASES) {
             if (process.env.SOAK_DEBUG) console.log(tag);
             assert.equal(s.reversals, 0, tag);
             assert.equal(s.churn, 0, tag);
-            assert.equal(s.manualMoved, 0, tag);
             assert.equal(s.pinnedMoved, 0, tag);
             assert.equal(s.logged, s.moves, tag);
             if (c.settings.thin) assert.ok(s.maxAnimals < 400, `the population stays in hand: ${tag}`);

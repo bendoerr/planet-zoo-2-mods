@@ -788,7 +788,7 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
     keep value; `move.limit`), its breeding core keeps no more of a sex than the mixed-group limit,
     and a habitat's target never exceeds its room (a core of 1 + 2 over a room of 2 had hidden the
     third leopard). Fixed ones over the limit stay and are listed (`overLimit`). In Auto mode only
-    the player's keeps hold over the limit (`limitKeepIds`: hands off, moved by the player), not
+    the player's keeps hold over the limit (`limitKeepIds`: hands off; until 2026-10-27 also moved by the player), not
     Auto mode's own cooldown; `kinautocore.js` `addMove` lets such a send pass the cooldown. The
     strand guard gives way too unless the animal is a best strand's last carrier among those staying
     (`kinstrands.js` `lastCarrier`, in Thin out and in `keepCarriers` for `move.limit` sends: the

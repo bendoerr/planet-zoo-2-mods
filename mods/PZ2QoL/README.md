@@ -710,12 +710,12 @@ which male and female in the same habitat are related and would inbreed. Collect
   **The game's most per sex:** Thin out holds every habitat to the game's own most adults of each
   sex, in a breeding group and in a one-sex group. A leopard habitat, for example, takes one male
   and one female, one male alone, or two females, so a second male or female goes even with room.
-  Your hands-off animals and the ones you moved yourself stay; Auto mode's own "moved lately" does
-  not keep an extra one, and with Push the ceiling a best strand's carrier gives way as long as
-  another carrier of that strand stays. Your keep holds its place even when it is young and not yet
-  of age: the other one goes, even the habitat's breeding core. Other young not yet of age are left
-  for the programme to place. When two that can't go are over the limit (both yours, pregnant), the
-  Auto panel names them. Auto mode never moves an animal into a habitat that would then be over the game's most of
+  Your hands-off animals stay; Auto mode's own "moved lately" does not keep an extra one, and with
+  Push the ceiling a best strand's carrier gives way as long as another carrier of that strand
+  stays. A hands-off animal holds its place even when it is young and not yet of age: the other one
+  goes, even the habitat's breeding core. Other young not yet of age are left for the programme to
+  place. When two that can't go are over the limit (both hands off, pregnant), the Auto panel names
+  them. Auto mode never moves an animal into a habitat that would then be over the game's most of
   its sex.
   The group make-up now comes from the game's own
   animal data: the most males and females per breeding group, and a harem (one breeding male per
@@ -824,12 +824,14 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
   move, or animals you marked **Auto mode: hands off** (an animal card's menu); brings back an
   animal it sent to the trade centre.
 - **You stay in charge:**
-  - An animal **you** move (in the game, or a drag or Move now on the board) is left where you
-    put it for two game years ("moved by you" on its card). **Let Auto move them** in the panel,
-    or **Auto mode may move it now** in the card's menu, ends that early.
+  - An animal **you** move (in the game, or a drag or Move now on the board) is not held: Auto mode
+    places it like any other on its next run, so an escaped animal you put back in any habitat is
+    sorted out for you. To keep one where it is, mark it **Auto mode: hands off** (an animal
+    card's menu).
   - A **Run** in the Breeding window, or the programme and Thin out moves of an **Execute plan**
     on the board, are the mod's plan: Auto mode keeps them like its own moves (left alone for one
-    game year), not as moved by you.
+    game year).
+  - **Undo** in the panel puts an animal back and Auto mode leaves it there for a game year.
   - While you work on that species on the board (a staged plan with its animals, its Breeding
     programme or Thin out, a drag, a Move now), Auto mode waits.
   - If it would move an animal back where it just came from twice, it stops for that species and
@@ -845,8 +847,7 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
 - **Old leaders:** where the game lets only a group's leader breed and the eldest leads (African
   wild dogs: only the leading pair breeds), an adult too old to breed blocks its whole group. Auto
   mode sends it to the trade centre (with Thin out on or off) so a younger one leads, then fills the
-  gaps. A habitat of old animals only is left alone, and so are your hands-off animals and the
-  ones you moved yourself. The market doesn't take animals too old to breed: release them, or keep
+  gaps. A habitat of old animals only is left alone, and so are your hands-off animals. The market doesn't take animals too old to breed: release them, or keep
   them in a habitat of their own.
 - **The panel** also shows the animals left alone and the last runs, each move with its reason
   and **Undo** (one move or the whole run).

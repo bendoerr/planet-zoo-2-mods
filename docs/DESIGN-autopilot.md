@@ -169,8 +169,9 @@ panels and the toasts with Autopilot off must match today's apart from the launc
 
 - Sell, release, list on the market, buy, or anything in the hub or with money / CC.
 - Exhibit animals, shoals and colonies (Kin already leaves them out).
-- Anything pinned by the player, an animal the player moved or contracepted by hand (section 7),
-  pregnant females (no move, no thin out), an animal on the move, boxed or at the vet.
+- Anything pinned by the player, an animal the player contracepted by hand (section 7),
+  pregnant females (no move, no thin out), an animal on the move, boxed or at the vet. (An
+  animal the player moved by hand was held too until 2026-10-27; see section 16.)
 - Found a new group in an empty habitat that is not assigned to that species (section 8.1).
 - Split a bonded monogamous pair, except to fix an inbreeding risk or for a large genetics gain
   (section 8.2; never in Guardian).
@@ -393,9 +394,8 @@ keeps running). The veto window can be set to 0 (silent) by the player.
   with it off the board has no new items (section 0a).
 - **Implicit respect.** Autopilot remembers the state it left each animal in. If an animal's
   habitat or contraception changes and Autopilot didn't do it, the player (or the game) did:
-  - moved by the player → that animal is locked for 2 in-game years (or until unpinned), and its
-    new home is treated as intended (no "fix" that sends it straight back unless it's a P0 risk,
-    and then it asks instead of acting: Needs you "You moved Kito in with his sister");
+  - moved by the player → nothing (until 2026-10-27 the animal was locked for 2 in-game years;
+    dropped, section 16: the player keeps one with hands off);
   - contraception changed by the player → Autopilot never touches that animal's contraception
     again (until unpinned).
 - **The Species board wins.** While the board has a staged plan, a Thin out or programme panel
@@ -774,8 +774,8 @@ programme's settings; on Auto it needs no human maintenance.
   moves ... Best genetics** (starts at the player's slider position), **Bring breeders from the
   trade centre**, **Thin out** with its fill level (on, Balanced, by default), the animals left
   alone, the plan waiting for the click (Franchise) and the last runs with Undo.
-- Cards: "hands off" (the card menu's **Auto mode: hands off**), "moved by you", "auto" (moved by
-  Auto mode in the last 2 hours). The species rail says "auto" for species on Auto.
+- Cards: "hands off" (the card menu's **Auto mode: hands off**), "auto" (moved by Auto mode in the
+  last 2 hours). The species rail says "auto" for species on Auto.
 - Notices: **Auto mode is ready** (Franchise: Run now / Show / Skip), a short "N moved" after a
   run, and "stopped" if it would move animals back and forth.
 - Nothing else changes while no species is on Auto: no listeners, timers, scans or saves (the
@@ -792,9 +792,16 @@ programme's settings; on Auto it needs no human maintenance.
 3. The moves: Thin out's first, then the programme's, one at a time through the board's own
    `runPlan` (each confirmed by the game, a refusal skipped), the game's gate before each.
 
-Never moved: pregnant females, animals on the move, animals marked hands off, animals the player
-moved by hand (2 park years), animals Auto mode moved itself in the last park year, young (by
-Thin out). An animal Auto mode sent to the trade centre is never brought back (pinned in the
+Never moved: pregnant females, animals on the move, animals marked hands off, animals Auto mode
+moved itself in the last park year, young (by Thin out).
+
+**The player's own moves hold nothing** (2026-10-27, the developer: an escaped animal put back in
+whichever habitat came first, and a young male put in by hand, were left there for 2 park years;
+"hands off" on the board is the way to keep one). Auto mode no longer watches for the player's
+moves (`observeChanges`, the ledger's `manual`, the panel's "Moved by you lately" and **Let Auto
+move them**, the card tag and menu item are gone; a saved ledger's `manual` is dropped on load).
+An **Undo** still holds: the animal gets Auto mode's cooldown, with the habitat Auto mode had put it
+in as one it left (`noteUndone`), so a move back there counts as a reversal. An animal Auto mode sent to the trade centre is never brought back (pinned in the
 programme). The last breeding male or female of the species is never sent to the trade centre:
 in a species where everyone is related the programme would otherwise empty it, one leftover at a
 time (the soak showed a closed zoo dying out in 35 park years). Moves the game refused lately are
@@ -827,7 +834,7 @@ age count as breeders within half a park year, like juveniles (`projectGrownUp`)
 
 **The player's keep holds its place** (2026-10-27, Cradle #2's leopards: the player put a young
 male, not yet of age, in with a new female; Auto mode had moved an older male there). Over the
-game's most per sex, what can't go at all (the player's keep, pregnant, on the move, away) holds
+game's most per sex, what can't go at all (hands off, pregnant, on the move, away) holds
 its place first, a not-yet-of-age one included (the game counts it); the breeding core, the best
 genes and a strand's last carrier give way to it (`move.yields`, which the carrier guard does not
 hold). Two that can't go both stay and are named, as before. A not-yet-of-age one that is free to
@@ -914,7 +921,7 @@ animal back where it came from, two such runs stop Auto mode for the species wit
 
 | File | Role |
 |---|---|
-| `kinautocore.js` | Pure: settings (`SPECIES_DEFAULTS`, `EVERY_CHOICES`), `prepareAutoRun` / `finishAutoRun` / `planAutoRun`, `projectGrownUp`, the locks, fingerprints, park clock, `observeChanges` |
+| `kinautocore.js` | Pure: settings (`SPECIES_DEFAULTS`, `EVERY_CHOICES`), `prepareAutoRun` / `finishAutoRun` / `planAutoRun`, `projectGrownUp`, the locks, fingerprints, park clock |
 | `kinautoledger.js` | Pure: the per-zoo memory `kinAuto` v2 (per-species settings and countdown, pins, the player's moves, history and cooldown, refusals, the log, Undo), budget 12 KB |
 | `kinauto.js` | Runtime: store binding, schedule, gate, Franchise click, runs through `runPlan`, Undo, pins |
 | `kinautoui.js` | The board extension (button, panel, tags, menu item) and the notices |
@@ -930,7 +937,7 @@ the veto window, contraception, the commit gate, the zoo-wide objective.
 
 | Test | What |
 |---|---|
-| `tests/kinauto.test.mjs` | Settings, the board's programme options per step, `pinIds`, a run equals the programme's plan (with its waiting moves), locks, trade-centre memory, Thin out first, refusals and reversals, cooldown, growing up (also adults in looks not yet of age), the last breeder, one male per group (who waits, trading places, ready and dropped), the game's most per sex (no move into an over-limit habitat after a held send, Thin out past Auto mode's cooldown but not the player's move, the player's young male holding his place against Auto mode's, the notes), runs settle on 50 seeded zoos, the ledger |
+| `tests/kinauto.test.mjs` | Settings, the board's programme options per step, `pinIds`, a run equals the programme's plan (with its waiting moves), locks, trade-centre memory, Thin out first, refusals and reversals, cooldown, growing up (also adults in looks not yet of age), the last breeder, one male per group (who waits, trading places, ready and dropped), the game's most per sex (no move into an over-limit habitat after a held send, Thin out past Auto mode's cooldown but not hands off, a young male marked hands off holding his place against Auto mode's, the notes), the player's own moves holding nothing, runs settle on 50 seeded zoos, the ledger |
 | `tests/kinauto_runtime.test.mjs` | Fake game: nothing on Auto sends or writes nothing; an offline run by itself, logged and kept; the schedule; the player's move held; another zoo gets nothing; Franchise waits for the click and makes a stale plan again; Run now; off removes every hook; slow keepers: a male moves in only after the leaving male has gone, and stays when that move never happens |
 | `tests/kinauto_soak.test.mjs` | 50 park years, 3 settings, 3 seeds: no reversal, no churn, no move of a held or pinned animal, every move logged, inbred births at most 2 %, no species dies out, the population in hand with Thin out |
 | `tests/engines_equivalence.test.mjs` | The board's engines answer as before (golden recorded from main's code) |

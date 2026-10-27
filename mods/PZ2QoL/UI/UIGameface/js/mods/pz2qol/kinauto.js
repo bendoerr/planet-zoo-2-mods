@@ -25,11 +25,11 @@ import { cpuOf, deepJob } from '/js/mods/pz2qol/kinprogdeep.js';
 import { getPref } from '/js/mods/pz2qol/prefs.js';
 import { TUNE_PREF } from '/js/mods/pz2qol/kinprogtune.js';
 import {
-    AUTO_LIMITS, calendarMonths, finishAutoRun, observeChanges, prepareAutoRun, programmeOptionsFor, speciesFingerprints, waitsReady,
+    AUTO_LIMITS, calendarMonths, finishAutoRun, prepareAutoRun, programmeOptionsFor, speciesFingerprints, waitsReady,
 } from '/js/mods/pz2qol/kinautocore.js';
 import {
-    emptyLedger, fitBudget, isManualAnimal, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteManualMoves, noteModMove, noteReversal,
-    noteUndone, pruneLedger, releaseManual, resumeSpecies, setSpeciesSettings, settleAction, speciesOn, speciesSettings, togglePinAnimal, undoOf,
+    emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteModMove, noteReversal,
+    noteUndone, pruneLedger, resumeSpecies, setSpeciesSettings, settleAction, speciesOn, speciesSettings, togglePinAnimal, undoOf,
 } from '/js/mods/pz2qol/kinautoledger.js';
 
 const DATA_KEY = 'kinAuto';
@@ -53,8 +53,6 @@ const A = {
     cal: null,               // the park's calendar: { months, at, rate (months per ms), base }
     calAsking: false,
     monthSec: null,          // the game's month length at 1x (GetMonthDurationInSeconds)
-    seen: null,
-    expected: new Map(),     // id -> { to, until }
     modFrom: new Map(),      // id -> where it was when a board or Breeding window move started
     prints: new Map(),       // species -> fingerprint
     queue: [],               // species waiting for their turn, in order (one run at a time)
@@ -310,7 +308,6 @@ function start() {
     A.loadAt = Date.now();
     A.lastTick = Date.now();
     A.scans = 0;
-    A.seen = null;
     A.cal = null;
     A.unsub.push(onKin((model, scope) => {
         if (scope && scope !== 'park') return;
@@ -340,7 +337,6 @@ function stop() {
     setKinAlertFilter(null);
     A.quiet.clear();
     A.prints.clear();
-    A.expected.clear();
     A.modFrom.clear();
     A.pausedUntil.clear();
     A.queue = [];
@@ -350,7 +346,6 @@ function stop() {
     // nothing of the old zoo is used again (a new zoo's model and gate come fresh)
     A.model = null;
     A.lastGate = null;
-    A.seen = null;
     A.cal = null;
     A.calAsking = false;
 }
@@ -365,9 +360,9 @@ function stillHere() {
 // ------------------------------------------------------------- watching
 
 // A run from the Species board or the Breeding window moves animals by the
-// mod's own plan: Auto mode expects those moves and keeps them like its own
-// (its cooldown), not as "moved by you" (2 years). A move the player planned
-// by hand on the board (a drag, Move N here) is still the player's.
+// mod's own plan: Auto mode keeps those moves like its own (its cooldown). A
+// move the player planned by hand on the board (a drag, Move N here) holds
+// nothing, like the player's other moves.
 function onModMove(m, owner, phase) {
     if (owner === 'autopilot' || owner === 'undo' || m.byPlayer) return;
     const id = String(m.id);
@@ -375,15 +370,11 @@ function onModMove(m, owner, phase) {
         const model = getKinModel() || A.model;
         const a = model && model.animals.get(id);
         A.modFrom.set(id, a ? (a.hab || (a.lt === 'trade' ? TRADE : '')) : '');
-        A.expected.set(id, { to: m.to, until: Date.now() + 60 * 60 * 1000 });
         return;
     }
     const from = A.modFrom.get(id) || '';
     A.modFrom.delete(id);
-    if (phase === 'refused') {
-        A.expected.delete(id);
-        return;
-    }
+    if (phase === 'refused') return;
     if (phase === 'done' && A.ledger && storeReady()) {
         noteModMove(A.ledger, getKinModel() || A.model, id, from, m.to, parkYears());
         A.saveDirty = true;
@@ -398,7 +389,6 @@ function settled() {
 function onModel(model) {
     if (!model || model.scope !== 'park') {
         A.model = null;
-        A.seen = null;
         return;
     }
     // another zoo load (or a store read pending): the ledger may belong to
@@ -412,8 +402,6 @@ function onModel(model) {
         A.epoch = userDataEpoch();
         A.loadAt = Date.now();
         A.scans = 0;
-        A.seen = null;
-        A.expected.clear();
         A.lastPlan.clear();
         A.waits.clear();
         A.cal = null;
@@ -423,27 +411,6 @@ function onModel(model) {
     A.lastScan = Date.now();
     const l = A.ledger;
     if (A.cal) l.clock = parkYears();
-    const now = Date.now();
-    for (const [id, e] of A.expected) {
-        const a = model.animals.get(id);
-        if (now > e.until && !(a && a.moving)) A.expected.delete(id);
-    }
-    // what changed that Auto mode did not do
-    const first = !A.seen;
-    const obs = observeChanges(A.seen || {}, model, A.expected);
-    A.seen = obs.seen;
-    // arrived where Auto mode sent it: no longer expected
-    for (const [id, e] of A.expected) {
-        const a = model.animals.get(id);
-        if (!a || a.moving) continue;
-        const here = a.hab || (a.lt === 'trade' ? TRADE : '');
-        if (here === String(e.to)) A.expected.delete(id);
-    }
-    if (!first && obs.moved.length) {
-        noteManualMoves(l, model, obs.moved, parkYears());
-        A.saveDirty = true;
-        breadcrumb('auto_manual_move');
-    }
     pruneLedger(l, model, parkYears());
     A.prints = speciesFingerprints(model);
     if (A.saveDirty) saveLedger(false);
@@ -885,7 +852,6 @@ async function startRun(plans, how) {
             const entries = new Map();
             for (const x of plan.moves) {
                 entries.set(x.id, logAction(l, model, x, { run, clock: parkYears(), realNow: Date.now(), species }));
-                A.expected.set(String(x.id), { to: x.to, until: Date.now() + 60 * 60 * 1000 });
             }
             A.quiet.set(species, Infinity);
             A.acting = { species, step: 0, total: plan.moves.length, text: 'Moving animals, one at a time' };
@@ -930,10 +896,7 @@ async function startRun(plans, how) {
                 const why = notRun ? (res.detail || 'not run') : gated.get(id) || (tried ? (logRow && logRow.detail) || 'not confirmed' : (logRow && logRow.detail) || 'not run (stopped)');
                 settleAction(l, entries.get(x.id), x, ok, { why: ok ? '' : why, clock: parkYears(), realNow: Date.now(), noFail: notRun || !tried });
                 if (ok) moved++;
-                else {
-                    A.expected.delete(id);
-                    if (tried) skipped++;
-                }
+                else if (tried) skipped++;
             }
             if (notRun) {
                 enqueue(species, true);
@@ -979,7 +942,6 @@ export async function undoEntries(entries) {
         }
         moves.push(u.action);
         byId.set(String(u.action.id), e);
-        A.expected.set(String(u.action.id), { to: u.action.to, until: Date.now() + 60 * 60 * 1000 });
     }
     let done = 0;
     if (moves.length) {
@@ -994,10 +956,7 @@ export async function undoEntries(entries) {
                 if (A.ledger === led) noteUndone(led, after, e, parkYears());
                 done++;
             }
-            else {
-                A.expected.delete(String(m.id));
-                why.push(`${e.n}: the game did not move it`);
-            }
+            else why.push(`${e.n}: the game did not move it`);
         }
     }
     saveLedger(true);
@@ -1020,21 +979,6 @@ export function toggleAutoPin(id) {
 
 export function isAutoPinned(id) {
     return !!A.ledger && isPinnedAnimal(A.ledger, getKinModel(), id);
-}
-
-// Moved by the player lately: Auto mode leaves it where it is for a while.
-export function isAutoHeld(id) {
-    return !!A.ledger && isManualAnimal(A.ledger, getKinModel(), id, parkYears());
-}
-
-// "Auto mode may move it now": "moved by you" ends for these animals.
-// -> how many were held
-export function releaseAutoHeld(ids) {
-    if (!A.ledger || !storeReady()) return 0;
-    const n = releaseManual(A.ledger, getKinModel(), ids);
-    if (n) saveLedger(true);
-    notify();
-    return n;
 }
 
 // --------------------------------------------------------------- install

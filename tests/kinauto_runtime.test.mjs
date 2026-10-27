@@ -178,22 +178,21 @@ test('the schedule is game time: nothing while the calendar stands still, a run 
     assert.equal(auto.getSpeciesAuto('Lion').last.note, 'nothing to change');
 });
 
-test('the player\'s own move is noticed and that animal is left where it was put', async () => {
+test('the player\'s own move holds nothing: Auto mode keeps no memory of it', async () => {
     const c = fake.animals.find(x => x.id === 'c');
+    const histBefore = JSON.stringify(auto.getAutopilotLedger().hist.gc || null);
     c.hab = c.hab === '3' ? '2' : '3';
     publish();
     await sleep(300);
-    assert.ok(auto.getAutopilotLedger().manual.gc, JSON.stringify(auto.getAutopilotLedger().manual));
-    assert.equal(auto.isAutoHeld('c'), true);
+    const l = auto.getAutopilotLedger();
+    assert.equal(l.manual, undefined);
+    assert.equal(JSON.stringify(l.hist.gc || null), histBefore, 'no cooldown either');
+    assert.equal(auto.isAutoHeld, undefined, 'no "moved by you" any more');
 });
 
-test('a Run from the Breeding window is the mod\'s plan, not "moved by you"; a drag on the board is the player\'s; the player can let Auto move it now', async () => {
+test('a Run from the Breeding window is the mod\'s plan (Auto mode\'s cooldown); a drag on the board holds nothing', async () => {
     const moveMod = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinmoves.js');
-    // "moved by you" ends when the player says so
-    assert.equal(auto.releaseAutoHeld(['c']), 1);
-    assert.equal(auto.isAutoHeld('c'), false);
-    assert.ok(!auto.getAutopilotLedger().manual.gc);
-    // the Breeding window's Run: Auto mode expects it and keeps it as its own (the cooldown)
+    // the Breeding window's Run: Auto mode keeps it as its own (the cooldown)
     const c = fake.animals.find(x => x.id === 'c');
     const from = c.hab;
     const to = from === '3' ? '2' : '3';
@@ -202,14 +201,14 @@ test('a Run from the Breeding window is the mod\'s plan, not "moved by you"; a d
     publish();
     await sleep(300);
     const l = auto.getAutopilotLedger();
-    assert.equal(auto.isAutoHeld('c'), false, 'not moved by you');
     assert.ok(Array.isArray(l.hist.gc) && l.hist.gc.some(h => h[0] === 'H' + from), JSON.stringify(l.hist.gc));
     // the board's run of a move the player planned by hand (a drag): the player's
     const r2 = await moveMod.runPlan([{ id: 'c', to: from, byPlayer: true }]);
     assert.equal(r2.ok, true, JSON.stringify(r2));
+    const histRun = JSON.stringify(l.hist.gc);
     publish();
     await sleep(300);
-    assert.equal(auto.isAutoHeld('c'), true, 'a drag is the player\'s own move');
+    assert.equal(JSON.stringify(auto.getAutopilotLedger().hist.gc), histRun, 'a drag is the player\'s own move: nothing kept');
 });
 
 test('hands off: a pinned animal is never in a plan', async () => {
@@ -377,12 +376,13 @@ test('an Undo the game refuses is not marked undone, and the animal is not held'
     const l = auto.getAutopilotLedger();
     const e = l.log.slice().reverse().find(x => x.o === 'ok' && !x.u);
     assert.ok(e, 'an entry to undo');
+    const histBefore = JSON.stringify(l.hist[e.g] || null);
     fake.refuse = true;
     const r = await auto.undoEntries([e]);
     fake.refuse = false;
     assert.equal(r.done, 0, JSON.stringify(r));
     assert.ok(!e.u, 'not marked undone');
-    assert.ok(!l.manual[e.g], 'not held as moved by the player');
+    assert.equal(JSON.stringify(l.hist[e.g] || null), histBefore, 'nothing kept for an undo the game refused');
 });
 
 test('the Breeding goal set in the Breeding window reaches Auto mode\'s Thin out and programme', async () => {
@@ -464,7 +464,6 @@ test('one male per group: a male moves in only after the male leaving has gone; 
     assert.ok(log.filter(e => e.o === 'ok').length >= 2, JSON.stringify(log));
     assert.ok(log.some(e => e.c > runBefore && /after N/.test(e.r)), 'the follow-up run says why it waited');
     assert.ok(auto.getSpeciesAuto('Sable').last.moves >= 2, JSON.stringify(auto.getSpeciesAuto('Sable').last));
-    assert.ok(!A.ledger.manual['g' + first] && !A.ledger.manual['g' + other], 'not "moved by you"');
     // 2. back the way they were (a fresh zoo for this species), and this time the keeper never comes
     auto.setSpeciesAuto('Sable', { on: false });
     for (const [id, hab] of [['sa', '1'], ['sb', '2']]) Object.assign(fake.animals.find(x => x.id === id), { hab, loc: 'H' + hab });
