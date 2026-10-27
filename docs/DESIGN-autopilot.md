@@ -808,6 +808,12 @@ within minutes while the male leaving that habitat was still there days later: t
 habitat and none in the other. So a male the run brings into a habitat waits until the adult male
 leaving it has gone (`kinautocore.js` `waitForLeavingMales`, `out.waits`). Two males trading
 places: the first in the run goes now, the other once he has left (a round of three likewise).
+**Old leaders** (2026-10-27, African wild dogs: only the leader pair mates, the eldest leads,
+infertile from 10): before the programme, `leaderBlockers` sends away the adults of a leader-only
+sex (`info.leaderMale` / `leaderFemale`) that can no longer breed, from habitats where an adult
+can still breed (not a group of old ones only; not the player's keeps; Auto mode's own cooldown
+gives way; not with the trade centre off). The programme then fills the gaps.
+
 **The game's most per sex** (2026-10-26, leopards: one male and one female to a mixed group,
 one male alone): Thin out sends the extra ones away for both sexes and both kinds of group
 (`kincull.js` `sexLimit`, the game's `Requirements_GroupComposition` mixed and bachelor limits,

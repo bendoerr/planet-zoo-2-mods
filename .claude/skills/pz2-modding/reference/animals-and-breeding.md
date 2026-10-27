@@ -764,6 +764,18 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   Thin out then sends a second adult male away from a habitat with an adult female even with room
   (`kincull.js`; a bachelor group is left alone). `leaderFemale` (not monogamy or polygyny; meerkat,
   spotted hyena) gives one breeding female per habitat (*:1).
+- **Old leaders block a group** (2026-10-27, a developer report: no female in Wild Dog 01 could
+  breed). African wild dog (`Dog_AfricanWild`): `Social_MatingRules` MaleHasSingleMate 1,
+  FemaleHasSingleMate 1, OnlyLeaderMaleCanMate 1, OnlyLeaderFemaleCanMate 1, MourningSeasons 4;
+  `Social_LeadershipRules` both sexes FightsForLeader 0, PromoteEldestPeacefully 1; maturity 1.5,
+  ElderlyAge 10, InfertileWhenElderly 1, litter 1-6, breeds in summer only; group 2-27. So the
+  pack's eldest male and eldest female lead and are its only breeders: an elderly (infertile)
+  leader stops the pack. In the save, packs 01, 03 and 04 were led by dogs of 10-12 years. The
+  programme ignores the leader rules for a monogamous species (`groupRule` uses them only for
+  harems and reverse harems), and Thin out sends the old away only from a habitat over its room.
+  PZ2QoL: `kinautocore.js` `leaderBlockers` (before the programme, Auto mode only). Leadership
+  details (who leads after a move into an existing group) are not modelled: PromoteEldestPeacefully
+  reads as "when the leader leaves", not "the eldest takes over at once" (meerkats, 2026-10-24).
 - **The game's most per sex, both kinds of group** (2026-10-26, a developer report: Auto mode left
   two male leopards together, and two females). `Requirements_GroupComposition` for
   `Leopard_African`: MaxPopulation 2, MaxMixedMale 1, MaxMixedFemale 1, MaxBachelorMale 1,

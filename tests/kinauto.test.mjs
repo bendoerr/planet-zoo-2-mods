@@ -7,7 +7,7 @@ import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/
 import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
 import { PROGRAMME_STEPS, planProgramme } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import {
-    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, locksOf, normalizeSpecies, observeChanges,
+    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, leaderBlockers, locksOf, normalizeSpecies, observeChanges,
     planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
@@ -355,6 +355,27 @@ test('a youngster about to grow up counts as a breeder, an adult in looks not ye
     assert.deepEqual([t.juv, t.infertile, t.age], [false, false, 3], 'not yet of age: grown');
     assert.deepEqual([j.juv, j.age], [false, 3], 'a juvenile: grown');
     assert.deepEqual([s.infertile, s.age], [true, 1], 'far from it: as it is');
+});
+
+// Only the leader pair mates and the eldest leads (African wild dogs,
+// 2026-10-27: old dogs led three of four packs and none bred): an adult too
+// old to breed leaves a group where another can still breed; a group of old
+// ones only stays, and so do the player's keeps.
+test('an old leader that blocks its group goes; a group of old ones only stays', () => {
+    const PACK = Object.assign(INFO(HABS), { mating: 'monogamy', leaderMale: true, leaderFemale: true });
+    const old = { age: 16, ageQ: 3, infertile: true };
+    const model = buildKinModel(snap([an('o', F, '1', [], old), an('m', M, '1'), an('y', F, '1'), an('p', M, '2', [], old), an('q', F, '2', [], old)]));
+    assert.deepEqual(leaderBlockers(model, 'Lion', PACK).map(a => a.id), ['o'], 'H2 holds old ones only');
+    assert.deepEqual(leaderBlockers(model, 'Lion', INFO(HABS)), [], 'not a leader-only species: nobody');
+    const run = view => planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(HABS), assignments: null, settings: { thin: false }, view, tradeFree: null });
+    const r = run({});
+    const send = r.moves.find(m => m.id === 'o');
+    assert.ok(send && send.to === TRADE && /too old to breed, and it leads its group/.test(send.reason), JSON.stringify(r.moves));
+    assert.ok(run({ cooled: ['o'] }).moves.some(m => m.id === 'o'), "Auto mode's own cooldown gives way");
+    assert.ok(!run({ pinned: ['o'] }).moves.some(m => m.id === 'o'), 'hands off stays');
+    assert.ok(!run({ manual: ['o'] }).moves.some(m => m.id === 'o'), 'moved by the player stays');
+    const off = planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(HABS), assignments: null, settings: { thin: false, trade: false }, view: {}, tradeFree: null });
+    assert.ok(!off.moves.some(m => m.id === 'o'), 'no trade centre: stays');
 });
 
 test('runs settle: a zoo left alone needs no more moves after a few runs, and nothing goes back and forth', () => {

@@ -159,7 +159,14 @@ export function prepareAutoRun(input) {
         const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id) || view.manual.has(id)));
         const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, tuningCull(input.tune)) });
         out.thin = c;
-        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overLimit: !!m.limit });
+        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overCooldown: !!m.limit, limit: !!m.limit });
+    }
+    // only the leader of a sex mates and the eldest leads: an adult too old to
+    // breed blocks its group, so it leaves (the programme then fills the gap)
+    if (settings.trade !== false) {
+        for (const a of leaderBlockers(model, species, info)) {
+            addMove(prep, a, TRADE, `too old to breed, and it leads its group: only the leaders breed`, 'programme', { overCooldown: true });
+        }
     }
     if (out.moves.length) {
         prep.model = simulatePlan(model, out.moves, destinations);
@@ -167,6 +174,32 @@ export function prepareAutoRun(input) {
     }
     if (AUTO_LIMITS.growUpYears > 0) prep.model = projectGrownUp(prep.model, species, info, AUTO_LIMITS.growUpYears);
     return prep;
+}
+
+// Where only the leader of a sex mates (the game's mating rules,
+// info.leaderMale / leaderFemale) and the eldest leads, an adult of that sex
+// that can no longer breed (too old, or infertile) leads its group and so
+// blocks every younger one: old African wild dogs led three of four packs
+// and none bred (2026-10-27). -> those adults, in habitats where an adult of
+// the species can still breed (a group of old ones only is left alone).
+export function leaderBlockers(model, species, info) {
+    const sexes = [];
+    if (info && info.leaderMale === true) sexes.push(Sex.Male);
+    if (info && info.leaderFemale === true) sexes.push(Sex.Female);
+    if (!model || !sexes.length) return [];
+    const ended = a => a.fert && (a.fert.state === 'old' || a.fert.state === 'sterile');
+    const byHab = new Map();
+    for (const a of model.animals.values()) {
+        if (a.species !== species || a.exhibit || a.alive === false || !a.hab || a.juv) continue;
+        if (!byHab.has(a.hab)) byHab.set(a.hab, []);
+        byHab.get(a.hab).push(a);
+    }
+    const out = [];
+    for (const group of byHab.values()) {
+        if (!group.some(a => !ended(a) && !a.contra)) continue;
+        for (const a of group) if (sexes.includes(a.sex) && ended(a) && !a.preg) out.push(a);
+    }
+    return out;
 }
 
 // The zoo with the species' young that grow up within `years` shown as
@@ -198,12 +231,13 @@ export function projectGrownUp(model, species, info, years) {
     return buildKinModel(Object.assign({}, model.snapshot, { animals, normalized: true }), opts);
 }
 
-// overLimit: Thin out sends it away for the game's most per sex, which
-// outranks Auto mode's own cooldown (never the player's hands off or move)
-function addMove(prep, a, to, reason, stage, { overLimit = false } = {}) {
+// overCooldown: the game's own rules (its most per sex, an old leader)
+// outrank Auto mode's own cooldown, never the player's hands off or move.
+// limit: Thin out sends it away for the game's most per sex (move.limit).
+function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = false } = {}) {
     const { out, locked, taken, view } = prep;
     if (!a || !canMove(a) || isPinned(a) || taken.has(a.id)) return false;
-    if (locked.has(a.id) && !(overLimit && !view.pinned.has(a.id) && !view.manual.has(a.id))) return false;
+    if (locked.has(a.id) && !(overCooldown && !view.pinned.has(a.id) && !view.manual.has(a.id))) return false;
     if (String(to) === homeOf(a)) return false;
     if (view.blocked.has(`${a.id}>${to}`)) {
         out.held.push({ id: a.id, why: 'the game refused this move recently' });
@@ -217,7 +251,7 @@ function addMove(prep, a, to, reason, stage, { overLimit = false } = {}) {
         prep.tradeLeft--;
     }
     const back = view.recentFrom.get(a.id);
-    out.moves.push(Object.assign({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) }, overLimit ? { limit: true } : {}));
+    out.moves.push(Object.assign({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) }, limit ? { limit: true } : {}));
     taken.add(a.id);
     return true;
 }

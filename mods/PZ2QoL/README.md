@@ -839,6 +839,12 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
   trading places: one goes first, the other follows once he has left. The panel shows who is
   waiting; if the first male's move never happens, the other stays where he is and the panel says
   so.
+- **Old leaders:** where the game lets only a group's leader breed and the eldest leads (African
+  wild dogs: only the leading pair breeds), an adult too old to breed blocks its whole group. Auto
+  mode sends it to the trade centre (with Thin out on or off) so a younger one leads, then fills the
+  gaps. A habitat of old animals only is left alone, and so are your hands-off animals and the
+  ones you moved yourself. The market doesn't take animals too old to breed: release them, or keep
+  them in a habitat of their own.
 - **The panel** also shows the animals left alone and the last runs, each move with its reason
   and **Undo** (one move or the whole run).
 - **Kept** with your habitat assignments in your player profile on this PC (settings, pins and the
