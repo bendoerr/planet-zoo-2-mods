@@ -159,7 +159,7 @@ export function prepareAutoRun(input) {
         const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id) || view.manual.has(id)));
         const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, tuningCull(input.tune)) });
         out.thin = c;
-        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overCooldown: !!m.limit, limit: !!m.limit });
+        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overCooldown: !!m.limit, limit: !!m.limit, yields: !!m.yields });
     }
     // only the leader of a sex mates and the eldest leads: an adult too old to
     // breed blocks its group, so it leaves (the programme then fills the gap)
@@ -234,7 +234,9 @@ export function projectGrownUp(model, species, info, years) {
 // overCooldown: the game's own rules (its most per sex, an old leader)
 // outrank Auto mode's own cooldown, never the player's hands off or move.
 // limit: Thin out sends it away for the game's most per sex (move.limit).
-function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = false } = {}) {
+// yields: ... a breeding core, best genes or a strand's carrier giving way to
+// one that can't go (move.yields): no carrier guard holds it.
+function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = false, yields = false } = {}) {
     const { out, locked, taken, view } = prep;
     if (!a || !canMove(a) || isPinned(a) || taken.has(a.id)) return false;
     if (locked.has(a.id) && !(overCooldown && !view.pinned.has(a.id) && !view.manual.has(a.id))) return false;
@@ -251,7 +253,7 @@ function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = fal
         prep.tradeLeft--;
     }
     const back = view.recentFrom.get(a.id);
-    out.moves.push(Object.assign({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) }, limit ? { limit: true } : {}));
+    out.moves.push(Object.assign({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) }, limit ? { limit: true } : {}, yields ? { yields: true } : {}));
     taken.add(a.id);
     return true;
 }
@@ -330,6 +332,8 @@ function keepCarriers(input, out) {
         const m = out.moves[i];
         if (m.to !== TRADE) continue;
         const a = model.animals.get(String(m.id));
+        // giving way to one that can't go (move.yields): it goes
+        if (m.yields) continue;
         const why = m.limit ? (a ? lastCarrier(stats, a, staying) : '') : keep.get(m.id);
         if (!why) continue;
         out.moves.splice(i, 1);

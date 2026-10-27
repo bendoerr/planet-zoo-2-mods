@@ -794,6 +794,13 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
     (`kinstrands.js` `lastCarrier`, in Thin out and in `keepCarriers` for `move.limit` sends: the
     first fix still kept two Longevity carriers, two males, in one leopard habitat). Not yet of age
     (`fert.state 'young'`) is never sent for a limit: the programme places it.
+  - **The player's keep holds its place** (2026-10-27): what can't go at all (`limitKeepIds`,
+    pregnant, moving, away) counts against the limit even when not yet of age (the game counts
+    every adult: two leopard males of 2.4 and 5.2 fought, light injuries on both) and holds a place
+    first; the breeding core, the species' best genes and a strand's last carrier give way to it
+    (`move.yields`; `keepCarriers` does not hold such a send). Without it a young male the player
+    put there and Auto mode's older male (the habitat's breeding core) both stayed until the young
+    one came of age.
   - **The cause, seen offline on the save**: the programme planned four pairs that relied on sending
     three males to the trade centre; the carrier guard (Breeding goal "Push the ceiling") held them,
     and the moves into their habitats still ran. `keepGameLimits` (after the holds) drops moves into
@@ -942,6 +949,14 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   - `kinboard.js`: its card shows "at the vet", "quarantine" or "in transit".
   - `canMove` is unchanged, so it's never moved while away.
 - **Tests:** Lua (a vet animal gets `hab` + `away`) and kinprogramme (never moved, still pairs).
+- **On its way** (2026-10-27, Cradle #2's leopards): `animals:GetAnimalTransportData(e)` gives
+  `bHasTransportJob`, `nTransportTargetEntity` (where the keeper takes it), `sTransportTargetName`
+  and `nAssignedStaffMemberEntity` (`AnimalInfoPopUp` reads all four). Carried (`transit`) or with
+  the location `Habitat` but not in `GetAnimalsInHabitat` (a box set down in a habitat, not opened
+  yet): `hab` = the keeper's target when it is a habitat of the scan, else the assigned habitat;
+  `away = 'transit'`. Before, a box in a habitat counted nowhere (`lt` habitat, no `hab`) and a
+  run planned a second male into it. The game's location types: `CurrentLocationType_Habitat`,
+  `_TradeCentre`, `_VetSurgery`, `_Quarantine`, `_FreeRoaming` (escaped), `_BeingCarried`.
 
 ## Colourmorphs (game 1.0.5, 2026-10-17)
 

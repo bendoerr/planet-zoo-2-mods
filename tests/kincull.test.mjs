@@ -223,9 +223,12 @@ test('one male per group: a second adult male goes even with room', async () => 
     const one = cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1 } });
     assert.deepEqual(one.moves.map(x => x.id), ['a2'], 'the weaker male goes');
     assert.match(one.moves[0].reason, /extra male \(harem: one breeding male per habitat\)/);
-    // the player's keep wins: the weaker male kept, the better one is the
-    // habitat's breeding core, so both stay
-    assert.deepEqual(cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1, keepIds: new Set(['a2']) } }).moves, []);
+    // the player's keep wins: the weaker male kept, the better one (the
+    // habitat's breeding core) gives way
+    const kept = cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1, keepIds: new Set(['a2']) } });
+    assert.deepEqual(kept.moves.map(x => [x.id, x.limit, x.yields]), [['a1', true, true]]);
+    // both kept: both stay
+    assert.deepEqual(cullPlan(m, 'Lemur', ZEBRA, { options: { fill: 1, keepIds: new Set(['a1', 'a2']) } }).moves, []);
     // a bachelor group: males only
     n = 0;
     const bach = model([an(M, '2', 6), an(M, '2', 3), an(M, '2', 4)]);
@@ -268,18 +271,44 @@ test("the game's most per sex: two male or two female leopards never share a hab
     assert.equal(cullPlan(model([an(M, '1', 6), an(M, '1', 3)]), 'Lemur', { social: { max: 6 }, mating: 'mixed' }, { options: { fill: 1 } }).moves.length, 0);
 });
 
-test("the game's most per sex: the player's keep holds and is named; Auto mode's own cooldown does not", () => {
+test("the game's most per sex: the player's keep holds its place; Auto mode's own cooldown does not", () => {
     const LEOPARD = { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 } };
     n = 0;
     const m = model([an(M, '1', 6), an(M, '1', 3)]);
-    // the player's keep (hands off, moved by hand): the weaker male stays, listed
+    // the player's keep (hands off, moved by hand): the weaker male stays,
+    // the better one (the breeding core) gives way
     const kept = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a2']) } });
-    assert.deepEqual(kept.moves, []);
-    assert.deepEqual(kept.overLimit, [{ hab: '1', sex: M, limit: 1, ids: ['a2'] }]);
+    assert.deepEqual(kept.moves.map(x => [x.id, x.limit, x.yields]), [['a1', true, true]]);
+    assert.deepEqual(kept.overLimit, []);
+    // both kept: both stay, the extra one listed
+    const both = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a1', 'a2']) } });
+    assert.deepEqual(both.moves, []);
+    assert.deepEqual(both.overLimit, [{ hab: '1', sex: M, limit: 1, ids: ['a2'] }]);
     // Auto mode's cooldown only (keepIds, not limitKeepIds): he goes
     const cooled = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a2']), limitKeepIds: new Set() } });
     assert.deepEqual(cooled.moves.map(x => x.id), ['a2']);
     assert.deepEqual(cooled.overLimit, []);
+});
+
+// Cradle #2's leopards (2026-10-27): the player put a young male (not yet of
+// age) with a new female; Auto mode had moved an older male in. The young
+// one can't go (the player's move), so he holds the habitat's one place for
+// a male and the older one, its breeding core, gives way. Not of age and
+// free to go: the programme places him, Thin out leaves him (f477682).
+test("the game's most per sex: a young male the player put there holds his place", () => {
+    const LEOPARD = { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 } };
+    n = 0;
+    const m = model([an(M, '1', 6, { age: 10 }), an(M, '1', 3, { age: 1.5, infertile: true })]);
+    assert.equal(m.animals.get('a2').fert.state, 'young');
+    const kept = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a2']) } });
+    assert.deepEqual(kept.moves.map(x => [x.id, x.limit, x.yields]), [['a1', true, true]]);
+    assert.match(kept.moves[0].reason, /extra male \(the game allows 1 adult male in a group of males only\)/);
+    // free to go: Thin out leaves the young one to the programme, the core stays
+    assert.deepEqual(cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1' } }).moves, []);
+    // carried in by a keeper: he holds his place too
+    n = 0;
+    const carried = model([an(M, '1', 6, { age: 10 }), an(M, '1', 3, { age: 1.5, infertile: true, moving: true, away: 'transit', lt: 'transit' })]);
+    assert.deepEqual(cullPlan(carried, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1' } }).moves.map(x => x.id), ['a1']);
 });
 
 test('one breeding female (*:1): males beyond one for her are extra when a habitat is over its room', async () => {

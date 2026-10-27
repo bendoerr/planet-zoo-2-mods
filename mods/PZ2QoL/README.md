@@ -150,6 +150,8 @@ animals (a setting, on by default).
 - Pregnant animals are never moved by a plan. Contraception advice comes with a one-click
   Contraception button.
 - Animals at the vet, in quarantine or in transit still count in their habitat and are never moved.
+  An animal on its way somewhere (carried by a keeper, or boxed in a habitat and not let out yet)
+  counts in the habitat it is going to, so Auto mode never plans a second male into it meanwhile.
 - Fixed: plans going over a species' group limit (e.g. 1 ♂ + 2 ♀ Sumatran tigers).
 
 **Species board**
@@ -710,9 +712,10 @@ which male and female in the same habitat are related and would inbreed. Collect
   and one female, one male alone, or two females, so a second male or female goes even with room.
   Your hands-off animals and the ones you moved yourself stay; Auto mode's own "moved lately" does
   not keep an extra one, and with Push the ceiling a best strand's carrier gives way as long as
-  another carrier of that strand stays. Young not yet of age are left for the programme to place.
-  When an extra one must stay (your keep, pregnant, a strand's last carrier), the Auto panel names
-  it. Auto mode never moves an animal into a habitat that would then be over the game's most of
+  another carrier of that strand stays. Your keep holds its place even when it is young and not yet
+  of age: the other one goes, even the habitat's breeding core. Other young not yet of age are left
+  for the programme to place. When two that can't go are over the limit (both yours, pregnant), the
+  Auto panel names them. Auto mode never moves an animal into a habitat that would then be over the game's most of
   its sex.
   The group make-up now comes from the game's own
   animal data: the most males and females per breeding group, and a harem (one breeding male per

@@ -294,6 +294,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
     const moves = [];
     const overLimit = [];   // [{ hab, sex, limit, ids }]: over the game's limit, but kept (fixed)
     const overLimitCull = new Set();  // sent away for the game's most per sex (move.limit)
+    const givesWay = new Set();       // ... a breeding core, best genes or carrier giving way (move.yields)
     for (const [hab, group] of byHab) {
         const adults = group.filter(a => !a.juv);
         const r = habitatCapacity(infoX, hab, NaN); // NaN: the game gave no room for it
@@ -326,7 +327,12 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         // over the game's most per sex only these keeps hold (Auto mode's
         // cooldown does not: limitKeepIds)
         const limitKeeps = opts.limitKeepIds instanceof Set ? opts.limitKeepIds : keepIds;
-        const fixedForLimit = a => limitKeeps.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || lastOne(a);
+        // what can't go at all (the player's keep, pregnant, on the move,
+        // away) holds its place first; the breeding core, the best genes and
+        // a strand's last carrier give way to it
+        const heldForLimit = a => limitKeeps.has(a.id) || a.preg || a.moving || a.away;
+        const fixedForLimit = a => heldForLimit(a) || core.has(a.id) || protectedBest.has(a.id) || lastOne(a);
+        const limitTier = a => (heldForLimit(a) ? 2 : fixedForLimit(a) ? 1 : 0);
         const why = new Map();
         // the player's choices first
         // (never a pregnant one: she can't be sold and has to give birth first)
@@ -348,17 +354,22 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         for (const sex of [Sex.Male, Sex.Female]) {
             const limit = sexLimit(rule, sex, group);
             if (limit == null) continue;
-            // (not yet of age: the programme places it in a group of its own)
-            const here = scored.filter(x => x.a.sex === sex && !x.a.juv && !why.has(x.a.id) && !(x.a.fert && x.a.fert.state === 'young'))
-                .sort((x, y) => (fixedForLimit(y.a) ? 1 : 0) - (fixedForLimit(x.a) ? 1 : 0) || y.k.value - x.k.value);
+            // (not yet of age: the programme places it in a group of its own;
+            // one that can't go holds a place the game counts: a young male
+            // the player put there, Cradle #2's leopards 2026-10-27)
+            const here = scored.filter(x => x.a.sex === sex && !x.a.juv && !why.has(x.a.id) && (!(x.a.fert && x.a.fert.state === 'young') || heldForLimit(x.a)))
+                .sort((x, y) => limitTier(y.a) - limitTier(x.a) || y.k.value - x.k.value);
+            // the places taken by ones that can't go: the rest give way
+            const heldPlaces = here.slice(0, limit).some(x => heldForLimit(x.a));
             const stuck = [];
             for (const x of here.slice(limit)) {
-                if (fixedForLimit(x.a)) {
+                if (heldForLimit(x.a) || (fixedForLimit(x.a) && !heldPlaces)) {
                     stuck.push(x.a.id);
                     continue;
                 }
                 why.set(x.a.id, extraSexWhy(rule, sex, limit, group));
                 overLimitCull.add(x.a.id);
+                if (fixedForLimit(x.a)) givesWay.add(x.a.id);
                 sentForLimit.add(x.a.id);
                 over--;
             }
@@ -387,7 +398,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         }));
         habitats.push({ hab, adults: adults.length, juveniles: group.length - adults.length, capacity, room: room != null, target, keep, cull,
             keptAdults: keep.filter(x => !model.animals.get(x.id).juv).length });
-        for (const c of cull) moves.push(Object.assign({ id: c.id, to: TRADE, reason: c.reason }, overLimitCull.has(c.id) ? { limit: true } : {}));
+        for (const c of cull) moves.push(Object.assign({ id: c.id, to: TRADE, reason: c.reason }, overLimitCull.has(c.id) ? { limit: true } : {}, givesWay.has(c.id) ? { yields: true } : {}));
     }
     habitats.sort((x, y) => (y.adults - y.target) - (x.adults - x.target));
     const avg = list => {

@@ -722,9 +722,16 @@ local function ageQuarter(animals, e)
 	return bOk and type(n) == "number" and n or nil
 end
 
-local function hasTransportJob(animals, e)
+-- the game's transport data: bHasTransportJob, nTransportTargetEntity (where
+-- the keeper takes it), nAssignedStaffMemberEntity (AnimalInfoPopUp)
+local function transportOf(animals, e)
 	local bOk, t = pcall(animals.GetAnimalTransportData, animals, e)
-	return bOk and type(t) == "table" and t.bHasTransportJob == true
+	return bOk and type(t) == "table" and t or nil
+end
+
+local function hasTransportJob(animals, e)
+	local t = transportOf(animals, e)
+	return t ~= nil and t.bHasTransportJob == true
 end
 
 -- The age (in GetAge years) at which a juvenile counts as an adult: the info
@@ -825,24 +832,35 @@ Kin._AddParkAnimal = function(self, tJob, animals, e, t)
 	local tStatic = self:_Static(animals, e)
 	local h = tJob.tHabOf[e]
 	self:_HabitatName(tJob, h, t.sLocation)
+	local tTransport = transportOf(animals, e)
+	local bMoving = tTransport ~= nil and tTransport.bHasTransportJob == true
 	-- away for a while (the vet, a quarantine, carried by a keeper): it still
 	-- belongs to its assigned habitat, so the board and the breeding programme
-	-- count it there (sAway = where it is now)
+	-- count it there (sAway = where it is now). Carried, or boxed in a habitat
+	-- and not let out yet: the habitat it is going to (the keeper's target,
+	-- else its assigned one), so no plan puts another male there meanwhile
+	-- (Cradle #2's leopards, 2026-10-27)
 	local sAway = nil
 	if h == nil then
 		local sKind = locationKind(animals, t, tJob)
-		if sKind == "vet" or sKind == "quarantine" or sKind == "transit" then
-			local hA = try(animals, "GetAssignedHabitatEntityID", e)
-			if type(hA) == "number" and hA ~= 0 then
-				if tJob.tHabSet == nil then
-					tJob.tHabSet = {}
-					for _, x in ipairs(tJob.tAllHabs or {}) do
-						tJob.tHabSet[x] = true
-					end
+		if sKind == "vet" or sKind == "quarantine" or sKind == "transit" or sKind == "habitat" then
+			if tJob.tHabSet == nil then
+				tJob.tHabSet = {}
+				for _, x in ipairs(tJob.tAllHabs or {}) do
+					tJob.tHabSet[x] = true
 				end
+			end
+			local hA = nil
+			if bMoving and (sKind == "transit" or sKind == "habitat") then
+				hA = tTransport.nTransportTargetEntity
+			end
+			if not (type(hA) == "number" and tJob.tHabSet[hA]) then
+				hA = try(animals, "GetAssignedHabitatEntityID", e)
+			end
+			if type(hA) == "number" and hA ~= 0 then
 				if tJob.tHabSet[hA] then
 					h = hA
-					sAway = sKind
+					sAway = sKind == "habitat" and "transit" or sKind
 					if tJob.tHabitatNames[hA] == nil then
 						local bN, sName = pcall(api.ui2.GetEntityName, hA)
 						self:_HabitatName(tJob, hA, bN and sName or nil)
@@ -869,7 +887,7 @@ Kin._AddParkAnimal = function(self, tJob, animals, e, t)
 		lt = sAway or (h ~= nil and "habitat" or locationKind(animals, t, tJob)),
 		-- away from its assigned habitat for now (vet, quarantine, transit)
 		away = sAway,
-		moving = hasTransportJob(animals, e),
+		moving = bMoving,
 		-- in a transport box (the Animals list's bBoxed): the boxed-animal alert
 		boxed = t.bBoxed == true or nil,
 		-- sick or injured: quarantine before the trade centre (kinmoves.js)

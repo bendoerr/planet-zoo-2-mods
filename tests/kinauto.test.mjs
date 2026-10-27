@@ -342,9 +342,28 @@ test("the game's most per sex: Thin out sends a second male away even in Auto mo
     const cooled = run({ cooled: ['y'] });
     const send = cooled.moves.find(m => m.id === 'y');
     assert.ok(send && send.to === TRADE && /extra male/.test(send.reason), JSON.stringify(cooled.moves));
+    // the player moved y: he stays, x (the breeding core) gives way, carrier or not
     const manual = run({ manual: ['y'] });
     assert.ok(!manual.moves.some(m => m.id === 'y'), JSON.stringify(manual.moves));
-    assert.ok(manual.notes.some(t => /H1 holds more adult males than the game allows \(1\): Ny \(left alone for now\) must stay/.test(t)), JSON.stringify(manual.notes));
+    const out = manual.moves.find(m => m.id === 'x');
+    assert.ok(out && out.to === TRADE && /extra male/.test(out.reason) && out.yields, JSON.stringify(manual.moves));
+    const ceiling = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { manual: ['y'] }, tradeFree: null, ratio: '1:1', tune: { goal: 'ceiling' } });
+    assert.ok(ceiling.moves.some(m => m.id === 'x' && m.to === TRADE), JSON.stringify([ceiling.moves, ceiling.held]));
+    // both the player's (moved by hand, hands off): both stay, named
+    const both = run({ manual: ['y'], pinned: ['x'] });
+    assert.ok(!both.moves.some(m => m.id === 'x' || m.id === 'y'), JSON.stringify(both.moves));
+    assert.ok(both.notes.some(t => /H1 holds more adult males than the game allows \(1\): N[xy] \(left alone for now\) must stay/.test(t)), JSON.stringify(both.notes));
+});
+
+// Cradle #2's leopards (2026-10-27): the player put young Kwame (not yet of
+// age) in with a new female; Auto mode had moved Fadil there. Kwame holds the
+// habitat's one place for a male, Fadil goes, even in Auto mode's cooldown.
+test("the game's most per sex: a young male the player moved in holds his place against Auto mode's", () => {
+    const model = buildKinModel(snap([an('fadil', M, '3', [], { age: 10, genes: G('A', 'B') }), an('kwame', M, '3', [], { age: 1.5, infertile: true }), an('z', M, '2'), an('h', F, '2')]));
+    const r = planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view: { cooled: ['fadil'], manual: ['kwame'] }, tradeFree: null, ratio: '1:1' });
+    const out = r.moves.find(m => m.id === 'fadil');
+    assert.ok(out && out.to === TRADE && /extra male/.test(out.reason), JSON.stringify([r.moves, r.held, r.notes]));
+    assert.ok(!r.moves.some(m => m.id === 'kwame'), JSON.stringify(r.moves));
 });
 
 test('a youngster about to grow up counts as a breeder, an adult in looks not yet of age too', () => {

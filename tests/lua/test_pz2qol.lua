@@ -1078,6 +1078,52 @@ do
 	fireUI(oHUD, "PZ2QoL_KinForget")
 end
 
+-- carried by a keeper, or boxed in a habitat and not let out yet: counted in
+-- the habitat it is going to (the keeper's target, else its assigned one), so
+-- no plan puts another male there meanwhile (Cradle #2's leopards, 2026-10-27)
+do
+	local nOldLt = tParkAnimals[5].nLocationType
+	local fnOldAssigned = animalsAPI.GetAssignedHabitatEntityID
+	local fnOldTransport = animalsAPI.GetAnimalTransportData
+	local function animal5()
+		tCalls = {}
+		fireUI(oHUD, "PZ2QoL_KinForget")
+		scan(oHUD, "board")
+		local tSnap = snapshotFrom(kinChunks(oHUD))
+		for _, a in ipairs(tSnap and tSnap.animals or {}) do
+			if a.id == "5" then return a end
+		end
+		return nil
+	end
+	animalsAPI.GetAssignedHabitatEntityID = function(self, e) return (e >= 1 and e <= 5) and 101 or nil end
+	-- carried to habitat 102: the keeper's target, not the assigned habitat
+	tParkAnimals[5].nLocationType = 3
+	animalsAPI.GetAnimalTransportData = function(self, e)
+		if e == 5 then return { bHasTransportJob = true, nTransportTargetEntity = 102 } end
+		return { bHasTransportJob = tJobs[e] == true }
+	end
+	local a5 = animal5()
+	check(a5 ~= nil and a5.hab == "102" and a5.away == "transit" and a5.lt == "transit" and a5.moving == true,
+		"carried: counted in the keeper's target habitat (" .. tostring(a5 and a5.hab) .. "/" .. tostring(a5 and a5.away) .. ")")
+	-- carried somewhere that is no habitat (the trade centre): its assigned habitat
+	animalsAPI.GetAnimalTransportData = function(self, e)
+		if e == 5 then return { bHasTransportJob = true, nTransportTargetEntity = 555 } end
+		return { bHasTransportJob = tJobs[e] == true }
+	end
+	a5 = animal5()
+	check(a5 ~= nil and a5.hab == "101" and a5.away == "transit", "carried elsewhere: its assigned habitat (" .. tostring(a5 and a5.hab) .. ")")
+	-- boxed in a habitat, not among its animals yet, no keeper: its assigned habitat
+	tParkAnimals[5].nLocationType = 1
+	animalsAPI.GetAnimalTransportData = fnOldTransport
+	a5 = animal5()
+	check(a5 ~= nil and a5.hab == "101" and a5.away == "transit" and a5.lt == "transit",
+		"boxed in a habitat: counted there (" .. tostring(a5 and a5.hab) .. "/" .. tostring(a5 and a5.lt) .. ")")
+	tParkAnimals[5].nLocationType = nOldLt
+	animalsAPI.GetAssignedHabitatEntityID = fnOldAssigned
+	tCalls = {}
+	fireUI(oHUD, "PZ2QoL_KinForget")
+end
+
 -- destinations: the game's own checks per habitat
 tCalls = {}
 fireUI(oHUD, "PZ2QoL_KinDestinations", "r1", "2,3")
