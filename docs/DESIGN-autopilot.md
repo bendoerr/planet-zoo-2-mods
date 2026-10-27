@@ -813,7 +813,8 @@ one male alone): Thin out sends the extra ones away for both sexes and both kind
 (`kincull.js` `sexLimit`, the game's `Requirements_GroupComposition` mixed and bachelor limits,
 the latter now sent by `Kin.SpeciesInfo` as `bachelorMax`), even when Auto mode moved them lately
 (not when the player did). After the holds (the last breeder, the carrier guard, a full trade
-centre) `keepGameLimits` drops the moves into a habitat that would then be over a limit: a held
+centre) `keepGameLimits` drops the moves into a habitat that would then be over a limit (and the
+strand guard keeps a limit send back only for a strand's last carrier, `lastCarrier`): a held
 send no longer leaves an incoming male with the one that was meant to leave. What must stay over
 a limit is named in the run's notes (`overLimitNotes`). Young adults in looks that are not yet of
 age count as breeders within half a park year, like juveniles (`projectGrownUp`).

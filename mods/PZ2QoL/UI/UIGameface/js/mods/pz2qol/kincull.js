@@ -52,7 +52,7 @@
 import { ownGrades, fertilityText, Sex } from './kincore.js';
 import { TRADE } from './kinboardcore.js';
 import { habitatCapacity, estimateSpacePerAdult, groupRule, ratioKey, relatedBy, youngByHabitat } from './kinprogramme.js';
-import { breedingValue, carrierKeepers, ceilingWaiting, copiesText, outclasses, speciesStrands, usefulCopies } from './kinstrands.js';
+import { breedingValue, carrierKeepers, ceilingWaiting, copiesText, lastCarrier, outclasses, speciesStrands, usefulCopies } from './kinstrands.js';
 
 export const FILL_STEPS = Object.freeze([
     { id: 'core', label: 'Core only', fill: 0 },
@@ -255,6 +255,10 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         if (w) poor.set(a.id, w);
     }
     const carriers = ceilingGoal ? carrierKeepers(strands, inHabitats, breedsNow) : new Map();
+    // over the game's most per sex only a strand's last carrier must stay:
+    // another carrier keeps it in the zoo (sentForLimit: the ones sent so far)
+    const sentForLimit = new Set();
+    const lastOne = a => ceilingGoal && !!lastCarrier(strands, a, inHabitats.filter(b => !sentForLimit.has(b.id)));
     // ... and who goes first from a habitat over its room: no copy of either
     // best strand (tier 0), a breeder outclassed by a fertile animal of its
     // sex with more copies (tier 1), the rest (2)
@@ -322,7 +326,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         // over the game's most per sex only these keeps hold (Auto mode's
         // cooldown does not: limitKeepIds)
         const limitKeeps = opts.limitKeepIds instanceof Set ? opts.limitKeepIds : keepIds;
-        const fixedForLimit = a => limitKeeps.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || carriers.has(a.id);
+        const fixedForLimit = a => limitKeeps.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || lastOne(a);
         const why = new Map();
         // the player's choices first
         // (never a pregnant one: she can't be sold and has to give birth first)
@@ -344,7 +348,8 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         for (const sex of [Sex.Male, Sex.Female]) {
             const limit = sexLimit(rule, sex, group);
             if (limit == null) continue;
-            const here = scored.filter(x => x.a.sex === sex && !x.a.juv && !why.has(x.a.id))
+            // (not yet of age: the programme places it in a group of its own)
+            const here = scored.filter(x => x.a.sex === sex && !x.a.juv && !why.has(x.a.id) && !(x.a.fert && x.a.fert.state === 'young'))
                 .sort((x, y) => (fixedForLimit(y.a) ? 1 : 0) - (fixedForLimit(x.a) ? 1 : 0) || y.k.value - x.k.value);
             const stuck = [];
             for (const x of here.slice(limit)) {
@@ -354,6 +359,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
                 }
                 why.set(x.a.id, extraSexWhy(rule, sex, limit, group));
                 overLimitCull.add(x.a.id);
+                sentForLimit.add(x.a.id);
                 over--;
             }
             if (stuck.length) overLimit.push({ hab, sex, limit, ids: stuck });

@@ -777,7 +777,11 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
     and a habitat's target never exceeds its room (a core of 1 + 2 over a room of 2 had hidden the
     third leopard). Fixed ones over the limit stay and are listed (`overLimit`). In Auto mode only
     the player's keeps hold over the limit (`limitKeepIds`: hands off, moved by the player), not
-    Auto mode's own cooldown; `kinautocore.js` `addMove` lets such a send pass the cooldown.
+    Auto mode's own cooldown; `kinautocore.js` `addMove` lets such a send pass the cooldown. The
+    strand guard gives way too unless the animal is a best strand's last carrier among those staying
+    (`kinstrands.js` `lastCarrier`, in Thin out and in `keepCarriers` for `move.limit` sends: the
+    first fix still kept two Longevity carriers, two males, in one leopard habitat). Not yet of age
+    (`fert.state 'young'`) is never sent for a limit: the programme places it.
   - **The cause, seen offline on the save**: the programme planned four pairs that relied on sending
     three males to the trade centre; the carrier guard (Breeding goal "Push the ceiling") held them,
     and the moves into their habitats still ran. `keepGameLimits` (after the holds) drops moves into

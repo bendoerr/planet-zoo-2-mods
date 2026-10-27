@@ -11,7 +11,7 @@ import { planProgramme, relatedBy, youngQuality } from '../mods/PZ2QoL/UI/UIGame
 import { cullPlan, keepValue } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
 import { planAutoRun, programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
-    breedingValue, carrierKeepers, ceilingText, ceilingWaiting, copiesText, outclasses, speciesStrands, usefulCopies, youngDistribution, youngImmunity, youngUpside,
+    breedingValue, carrierKeepers, ceilingText, ceilingWaiting, copiesText, lastCarrier, outclasses, speciesStrands, usefulCopies, youngDistribution, youngImmunity, youngUpside,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinstrands.js';
 import { SEEDS } from './helpers/enginedigest.mjs';
 import { makeZoo } from './helpers/zoogen.mjs';
@@ -359,4 +359,41 @@ test('kin rule: by the young\'s genes the programme pairs first cousins the fami
     };
     assert.equal(pairedXY(tree), false, 'the family tree keeps them apart');
     assert.equal(pairedXY(genes), true, `by genes they breed together: ${JSON.stringify(genes.moves)}`);
+});
+
+// The game's most per sex outranks the strand guard while another carrier
+// of the strand stays in the habitats (2026-10-26: two male leopards, both
+// carrying the best Longevity strand, were both kept in one habitat).
+const LEO = { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 }, fertilityAges: { maturity: 3, infertility: 15 } };
+
+test('lastCarrier: the last staying carrier of a best strand, else nobody', () => {
+    const model = buildKinModel(snap([an('a', M, '1', G(3, 3, 5, 2)), an('b', M, '1', G(3, 3, 5, 3)), an('c', F, '2', G(6, 2, 2, 2))]));
+    const st = speciesStrands(model, 'Lion');
+    const [a, b, c] = ['a', 'b', 'c'].map(id => model.animals.get(id));
+    assert.equal(lastCarrier(st, a, [a, b, c]), '', 'b carries it too');
+    assert.match(lastCarrier(st, a, [a, c]), /last carrier of the best Longevity strand \(5\/6\)/);
+    assert.match(lastCarrier(st, c, [a, b, c]), /Vitality/);
+    assert.equal(lastCarrier(st, b, [b]), lastCarrier(st, b, []), 'itself never counts');
+});
+
+test("the game's most per sex: a strand's second carrier gives way, its last one stays and is named", () => {
+    // H1: two males alone, both carry the best Longevity strand; H2: a pair
+    let model = buildKinModel(snap([an('a', M, '1', G(3, 3, 5, 2)), an('b', M, '1', G(3, 3, 5, 3)), an('m', M, '2', G(3, 3, 2, 2)), an('f', F, '2', G(3, 3, 2, 2))]));
+    let plan = cullPlan(model, 'Lion', LEO, { options: { fill: 1, ratio: '1:1', goal: 'ceiling' } });
+    assert.equal(plan.moves.length, 1, JSON.stringify(plan.moves));
+    assert.ok(['a', 'b'].includes(plan.moves[0].id) && plan.moves[0].limit === true);
+    // Auto mode's carrier guard lets that send go (the other carrier stays)
+    const run = planAutoRun({ model, species: 'Lion', info: LEO, destinations: DEST(['1', '2']), assignments: null, settings: { thin: true }, view: {}, tradeFree: null, ratio: '1:1', tune: { goal: 'ceiling' } });
+    assert.ok(run.moves.some(m => m.id === plan.moves[0].id && m.to === TRADE), JSON.stringify([run.moves, run.held]));
+    // each carries a best strand nobody else has: both stay, the one over the limit is named
+    model = buildKinModel(snap([an('a', M, '1', G(6, 2, 2, 2)), an('b', M, '1', G(2, 2, 6, 2)), an('m', M, '2', G(3, 3, 2, 2)), an('f', F, '2', G(3, 3, 2, 2))]));
+    plan = cullPlan(model, 'Lion', LEO, { options: { fill: 1, ratio: '1:1', goal: 'ceiling' } });
+    assert.deepEqual(plan.moves, []);
+    assert.equal(plan.overLimit.length, 1);
+    assert.equal(plan.overLimit[0].hab, '1');
+    // a female not yet of age next to an adult one: not sent away for the
+    // limit (the programme places her); room for three here
+    model = buildKinModel(snap([an('m', M, '1', G(3, 3, 3, 3)), an('f', F, '1', G(3, 3, 3, 3)), an('y', F, '1', G(3, 3, 3, 3), { age: 2.6, infertile: true })]));
+    plan = cullPlan(model, 'Lion', Object.assign({}, LEO, { social: { min: 1, max: 3 } }), { options: { fill: 1, ratio: '1:1' } });
+    assert.ok(!plan.moves.some(m => m.id === 'y'), JSON.stringify(plan.moves));
 });

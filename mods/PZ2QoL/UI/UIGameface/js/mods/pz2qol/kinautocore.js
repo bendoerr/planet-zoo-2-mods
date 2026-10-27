@@ -19,7 +19,7 @@ import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProg
 import { FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
 import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
-import { carrierKeepers, speciesStrands } from './kinstrands.js';
+import { carrierKeepers, lastCarrier, speciesStrands } from './kinstrands.js';
 
 // How often a species' run comes round, in months of the park's calendar
 // (12 a year, 3 a season): game time, so it stops while the game is paused
@@ -217,7 +217,7 @@ function addMove(prep, a, to, reason, stage, { overLimit = false } = {}) {
         prep.tradeLeft--;
     }
     const back = view.recentFrom.get(a.id);
-    out.moves.push({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) });
+    out.moves.push(Object.assign({ id: a.id, to: String(to), reason, stage, reversal: !!(back && back.has(String(to))) }, overLimit ? { limit: true } : {}));
     taken.add(a.id);
     return true;
 }
@@ -286,12 +286,21 @@ function keepCarriers(input, out) {
     const { model, species } = input;
     if (!model) return;
     const all = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false);
-    const keep = carrierKeepers(speciesStrands(model, species, input.info || {}), all.filter(a => a.hab), breedsNow);
+    const stats = speciesStrands(model, species, input.info || {});
+    const keep = carrierKeepers(stats, all.filter(a => a.hab), breedsNow);
+    // Thin out's send for the game's most per sex (move.limit) stops only for
+    // a strand's last carrier among the animals staying in the habitats
+    const leaving = new Set(out.moves.filter(m => m.to === TRADE).map(m => String(m.id)));
+    const staying = all.filter(a => a.hab && !leaving.has(String(a.id)));
     for (let i = out.moves.length - 1; i >= 0; i--) {
         const m = out.moves[i];
-        if (m.to !== TRADE || !keep.has(m.id)) continue;
+        if (m.to !== TRADE) continue;
+        const a = model.animals.get(String(m.id));
+        const why = m.limit ? (a ? lastCarrier(stats, a, staying) : '') : keep.get(m.id);
+        if (!why) continue;
         out.moves.splice(i, 1);
-        out.held.push({ id: m.id, why: keep.get(m.id) });
+        out.held.push({ id: m.id, why });
+        if (a) staying.push(a);
     }
 }
 

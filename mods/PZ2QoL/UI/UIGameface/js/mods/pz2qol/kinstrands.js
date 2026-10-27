@@ -206,6 +206,21 @@ export function carrierKeepers(stats, animals, breedsNow = () => true) {
     return out;
 }
 
+// Whether `a` is the last carrier of a best strand among `staying` (the
+// animals in habitats that stay; `a` itself left out): what the game's most
+// per sex may not send away, so the strand stays in the zoo. -> the reason,
+// or ''.
+export function lastCarrier(stats, a, staying) {
+    if (!stats || stats.past.has(a.id)) return '';
+    const mine = stats.copies.get(a.id) || {};
+    for (const k of STRAND_GENES) {
+        if (stats.best[k] == null || !(mine[k] > 0)) continue;
+        const other = staying.some(b => b.id !== a.id && !stats.past.has(b.id) && (stats.copies.get(b.id) || {})[k] > 0);
+        if (!other) return `the last carrier of the best ${STRAND_NAME[k]} strand (${stats.best[k]}/6)`;
+    }
+    return '';
+}
+
 // The young's four-gene average (the genes with data on both sides) over
 // every equally likely outcome: one strand per gene from each parent, 4 per
 // gene, genes independent (4^4 = 256). -> [count per twelfth of the summed
