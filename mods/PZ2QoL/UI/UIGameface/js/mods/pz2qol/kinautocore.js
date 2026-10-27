@@ -16,7 +16,7 @@
 // something changes in the zoo (a birth, a death, the player).
 import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProgramme } from './kinprogramme.js';
-import { FILL_STEPS, breedsNow, cullPlan } from './kincull.js';
+import { FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
 import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
 import { carrierKeepers, speciesStrands } from './kinstrands.js';
@@ -154,9 +154,12 @@ export function prepareAutoRun(input) {
         // programme's last runs), and so does what it must not touch
         const keepIds = new Set(locked);
         for (const id of view.recentFrom.keys()) keepIds.add(id);
-        const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds }, tuningCull(input.tune)) });
+        // the game's own most per sex outranks Auto mode's own cooldown (it
+        // put the second male there), never the player's hands off or move
+        const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id) || view.manual.has(id)));
+        const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, tuningCull(input.tune)) });
         out.thin = c;
-        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin');
+        if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overLimit: !!m.limit });
     }
     if (out.moves.length) {
         prep.model = simulatePlan(model, out.moves, destinations);
@@ -168,7 +171,10 @@ export function prepareAutoRun(input) {
 
 // The zoo with the species' young that grow up within `years` shown as
 // adults, so the programme places them as breeders (away from a parent)
-// before they can breed. The same model when there are none.
+// before they can breed. Also an adult in looks that is not yet of age (the
+// game reports it infertile until then: a leopard of 2.3, mature at 2.5,
+// was sent away as "not breeding", 2026-10-26). The same model when there
+// are none.
 export function projectGrownUp(model, species, info, years) {
     const facts = (model && model.speciesFacts && model.speciesFacts[species]) || {};
     const ages = (info && info.fertilityAges) || {};
@@ -176,21 +182,28 @@ export function projectGrownUp(model, species, info, years) {
     if (!model || !model.snapshot || maturity == null) return model;
     const soon = new Set();
     for (const a of model.animals.values()) {
-        if (a.species === species && a.juv && !a.exhibit && typeof a.age === 'number' && a.age >= maturity - years) soon.add(a.id);
+        if (a.species !== species || a.exhibit || typeof a.age !== 'number' || a.age < maturity - years) continue;
+        const notOfAge = !a.juv && a.age < maturity && (a.infertile || (a.fert && a.fert.state === 'young'));
+        if (a.juv || notOfAge) soon.add(a.id);
     }
     if (!soon.size) return model;
     const animals = model.snapshot.animals.map(a => {
         if (!soon.has(String(a.id))) return a;
         const fert = a.fert && a.fert.state === 'young' ? Object.assign({}, a.fert, { state: '' }) : a.fert;
-        return Object.assign({}, a, { juv: false, age: Math.max(a.age, maturity), ageQ: 2, fert });
+        // not of age is the only reason it is infertile
+        const infertile = a.age < maturity ? false : a.infertile;
+        return Object.assign({}, a, { juv: false, age: Math.max(a.age, maturity), ageQ: 2, fert, infertile });
     });
     const opts = Object.assign({}, model.opts || { closeKinship: model.closeKinship }, { ped: model.ped || null });
     return buildKinModel(Object.assign({}, model.snapshot, { animals, normalized: true }), opts);
 }
 
-function addMove(prep, a, to, reason, stage) {
+// overLimit: Thin out sends it away for the game's most per sex, which
+// outranks Auto mode's own cooldown (never the player's hands off or move)
+function addMove(prep, a, to, reason, stage, { overLimit = false } = {}) {
     const { out, locked, taken, view } = prep;
-    if (!a || !canMove(a) || isPinned(a) || locked.has(a.id) || taken.has(a.id)) return false;
+    if (!a || !canMove(a) || isPinned(a) || taken.has(a.id)) return false;
+    if (locked.has(a.id) && !(overLimit && !view.pinned.has(a.id) && !view.manual.has(a.id))) return false;
     if (String(to) === homeOf(a)) return false;
     if (view.blocked.has(`${a.id}>${to}`)) {
         out.held.push({ id: a.id, why: 'the game refused this move recently' });
@@ -228,8 +241,10 @@ export function finishAutoRun(input, prep, programme) {
     }
     keepLastBreeders(input, out);
     if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
+    keepGameLimits(input, out);
     waitForLeavingMales(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
+    overLimitNotes(input, out);
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
     if (idle) out.notes.push(`${idle} breeder${idle === 1 ? ' has' : 's have'} no unrelated partner in the zoo: new animals from the market would let ${idle === 1 ? 'it' : 'them'} breed.`);
     return out;
@@ -278,6 +293,85 @@ function keepCarriers(input, out) {
         out.moves.splice(i, 1);
         out.held.push({ id: m.id, why: keep.get(m.id) });
     }
+}
+
+// The game's own most adults per sex in a habitat (kincull.js sexLimit:
+// one male leopard and one female, or two females alone): the run never
+// leaves a habitat over it. A move held back (the last breeder, a carrier)
+// leaves the programme short of a place it planned with; the moves into a
+// habitat that would then be over the limit are dropped too: first those of
+// the sex over it, the newest first, then anything else coming in (a female
+// joining two males, the young following her), until it fits or nothing
+// more is coming in. Two male leopards ended up together that way
+// (2026-10-26). A habitat already over the limit gets nobody new; Thin out
+// sends the extra ones away (or names the ones it must keep,
+// overLimitNotes).
+function keepGameLimits(input, out) {
+    const { model, species } = input;
+    if (!model || !out.moves.length) return;
+    const rule = groupRule(input.info || {}, input.ratio || 'auto');
+    if (!rule.gameMales && !rule.gameFemales && !rule.bachelorMales && !rule.bachelorFemales) return;
+    const adults = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false && !a.juv);
+    for (let round = 0; round < 100; round++) {
+        const to = new Map(out.moves.map(m => [String(m.id), m.to === TRADE ? '' : String(m.to)]));
+        const byHab = new Map();
+        for (const a of adults) {
+            const h = to.has(String(a.id)) ? to.get(String(a.id)) : a.hab;
+            if (!h) continue;
+            if (!byHab.has(h)) byHab.set(h, []);
+            byHab.get(h).push(a);
+        }
+        let dropped = null;
+        for (const [hab, group] of byHab) {
+            for (const sex of [Sex.Male, Sex.Female]) {
+                const limit = sexLimit(rule, sex, group);
+                if (limit == null || group.filter(a => a.sex === sex).length <= limit) continue;
+                const place = (model.habitats.get(hab) || {}).name || 'its habitat';
+                const why = `${place} would hold more adult ${sex === Sex.Male ? 'males' : 'females'} than the game allows (${limit})`;
+                // the newest move bringing one of that sex, else anything coming in
+                const coming = out.moves.map((m, i) => ({ m, i, a: model.animals.get(String(m.id)) }))
+                    .filter(x => String(x.m.to) === hab && x.a).reverse();
+                const pick = coming.find(x => x.a.sex === sex && !x.a.juv) || coming.find(x => !x.a.juv) || coming[0];
+                if (!pick) continue;
+                out.moves.splice(pick.i, 1);
+                dropped = [{ id: pick.a.id, why }];
+                // her young following her there stay with her
+                if (pick.a.sex === Sex.Female) {
+                    for (let i = out.moves.length - 1; i >= 0; i--) {
+                        const m = out.moves[i];
+                        const y = model.animals.get(String(m.id));
+                        if (String(m.to) !== hab || !y || !y.juv || !(y.par || []).includes(pick.a.guid || pick.a.id)) continue;
+                        out.moves.splice(i, 1);
+                        dropped.push({ id: y.id, why: 'stays with its mother' });
+                    }
+                }
+                break;
+            }
+            if (dropped) break;
+        }
+        if (!dropped) return;
+        out.held.push(...dropped);
+    }
+}
+
+// Habitats Thin out leaves over the game's most per sex because the extra
+// ones must stay (the player's keep, pregnant, a breeding core, a best
+// strand's last carriers): named in the run's notes, so the player can move
+// one to storage or another zoo.
+function overLimitNotes(input, out) {
+    const { model } = input;
+    const keepWhy = new Map();
+    for (const h of (out.thin && out.thin.habitats) || []) for (const k of h.keep || []) keepWhy.set(String(k.id), k.why === 'your choice' ? 'left alone for now' : k.why);
+    for (const o of (out.thin && out.thin.overLimit) || []) {
+        const place = (model && model.habitats.get(o.hab) || {}).name || 'A habitat';
+        const names = o.ids.map(id => {
+            const why = keepWhy.get(String(id));
+            return `${(model.animals.get(String(id)) || {}).name || id}${why ? ` (${why})` : ''}`;
+        });
+        const word = o.sex === Sex.Male ? 'male' : 'female';
+        out.notes.push(`${place} holds more adult ${word}s than the game allows (${o.limit}): ${names.join(', ')} must stay, so Auto mode can't fix it. Move one to storage or another zoo.`);
+    }
+    if (out.held.some(x => / than the game allows /.test(x.why))) out.notes.push('Some moves were held back: they would put more adults of a sex in a habitat than the game allows.');
 }
 
 // One adult male per group (the game's own limit, rule.oneMale: Sable

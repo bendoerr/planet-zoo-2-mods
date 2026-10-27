@@ -305,6 +305,58 @@ test('one male per group: a waiting move is ready once the male has left, and dr
     assert.match(waitsReady(buildKinModel(snap(animals.filter(a => a.id !== 'x'))), [w]).dropped[0].why, /no longer in the zoo/);
 });
 
+// The game's most adults per sex (leopards: one male and one female to a
+// mixed group, one male alone; 2026-10-26). A held send (the trade centre
+// full, a carrier) leaves the programme short of the place it planned with:
+// the moves into a habitat that would then be over the limit are dropped,
+// a female's young with her. Thin out sends an extra one away even when Auto
+// mode moved it lately, never when the player did.
+const LEOPARD = habs => Object.assign(INFO(habs), { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 } });
+const leoRun = (model, moves, over = {}) => {
+    const input = Object.assign({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: false }, view: {}, tradeFree: null, ratio: '1:1' }, over);
+    return finishAutoRun(input, prepareAutoRun(input), { moves });
+};
+
+test("the game's most per sex: a run never brings a second male or female into a habitat", () => {
+    const model = buildKinModel(snap([an('x', M, '1'), an('f', F, '1'), an('y', M, '2'), an('z', M, '2'), an('g', F, '3'), an('k', F, '3', ['g'], { juv: true, age: 0.5 })]));
+    // x's send is held (the trade centre is full): y must not join him
+    const held = leoRun(model, [{ id: 'x', to: TRADE }, { id: 'y', to: '1' }], { tradeFree: 0 });
+    assert.deepEqual(held.moves.map(m => m.id), []);
+    assert.ok(held.held.some(h => h.id === 'y' && /H1 would hold more adult males than the game allows \(1\)/.test(h.why)), JSON.stringify(held.held));
+    assert.ok(held.notes.some(t => /held back/.test(t)));
+    // two males alone in H2 already: a female (and her cub) are not brought in
+    const busy = leoRun(model, [{ id: 'g', to: '2' }, { id: 'k', to: '2' }]);
+    assert.deepEqual(busy.moves, []);
+    assert.deepEqual(busy.held.map(h => [h.id, h.why]), [['g', 'H2 would hold more adult males than the game allows (1)'], ['k', 'stays with its mother']]);
+    // the send goes through: y takes x's place once he has left
+    const ok = leoRun(model, [{ id: 'x', to: TRADE }, { id: 'y', to: '1' }]);
+    assert.deepEqual([ok.moves.map(m => m.id), ok.waits.map(m => m.id)], [['x'], ['y']]);
+    // without the game's limits nothing is held
+    const free = leoRun(model, [{ id: 'x', to: TRADE }, { id: 'y', to: '1' }], { tradeFree: 0, info: INFO(HABS) });
+    assert.deepEqual(free.moves.map(m => m.id), ['y']);
+});
+
+test("the game's most per sex: Thin out sends a second male away even in Auto mode's cooldown, never one the player moved", () => {
+    const model = buildKinModel(snap([an('x', M, '1', [], { genes: G('A', 'B') }), an('y', M, '1'), an('f', F, '1'), an('z', M, '2'), an('h', F, '2')]));
+    const run = view => planAutoRun({ model, species: 'Lion', info: LEOPARD(HABS), destinations: DEST(HABS), assignments: null, settings: { thin: true }, view, tradeFree: null, ratio: '1:1' });
+    const cooled = run({ cooled: ['y'] });
+    const send = cooled.moves.find(m => m.id === 'y');
+    assert.ok(send && send.to === TRADE && /extra male/.test(send.reason), JSON.stringify(cooled.moves));
+    const manual = run({ manual: ['y'] });
+    assert.ok(!manual.moves.some(m => m.id === 'y'), JSON.stringify(manual.moves));
+    assert.ok(manual.notes.some(t => /H1 holds more adult males than the game allows \(1\): Ny \(left alone for now\) must stay/.test(t)), JSON.stringify(manual.notes));
+});
+
+test('a youngster about to grow up counts as a breeder, an adult in looks not yet of age too', () => {
+    const FACTS1 = { maturity: 3 };
+    const model = buildKinModel(snap([an('a', M, '1'), an('m', F, '1'), an('t', F, '1', ['a', 'm'], { age: 2.8, infertile: true }), an('j', F, '1', ['a', 'm'], { juv: true, age: 2.7 }), an('s', F, '1', [], { age: 1, infertile: true })]));
+    const grown = projectGrownUp(model, 'Lion', { fertilityAges: FACTS1 }, 0.5);
+    const t = grown.animals.get('t'), j = grown.animals.get('j'), s = grown.animals.get('s');
+    assert.deepEqual([t.juv, t.infertile, t.age], [false, false, 3], 'not yet of age: grown');
+    assert.deepEqual([j.juv, j.age], [false, 3], 'a juvenile: grown');
+    assert.deepEqual([s.infertile, s.age], [true, 1], 'far from it: as it is');
+});
+
 test('runs settle: a zoo left alone needs no more moves after a few runs, and nothing goes back and forth', () => {
     let maxRuns = 0;
     for (let seed = 60; seed <= 110; seed++) {

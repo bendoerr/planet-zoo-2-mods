@@ -764,6 +764,27 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   Thin out then sends a second adult male away from a habitat with an adult female even with room
   (`kincull.js`; a bachelor group is left alone). `leaderFemale` (not monogamy or polygyny; meerkat,
   spotted hyena) gives one breeding female per habitat (*:1).
+- **The game's most per sex, both kinds of group** (2026-10-26, a developer report: Auto mode left
+  two male leopards together, and two females). `Requirements_GroupComposition` for
+  `Leopard_African`: MaxPopulation 2, MaxMixedMale 1, MaxMixedFemale 1, MaxBachelorMale 1,
+  MaxBachelorFemale 2; males and females fight (`Social_FightingRules`), solitary.
+  - Lua `Kin.SpeciesInfo` now also sends `bachelorMax = { male, female }` (from the same row;
+    0 = no limit sent). `groupRule` carries the game's numbers apart from the make-up:
+    `gameMales`, `gameFemales` (mixed group, `sexMax`), `bachelorMales`, `bachelorFemales`.
+  - `kincull.js` `sexLimit(rule, sex, group)`: the mixed-group limit when the other sex's adults
+    live there, else the one-sex limit. Thin out sends the extras away for both sexes (weakest by
+    keep value; `move.limit`), its breeding core keeps no more of a sex than the mixed-group limit,
+    and a habitat's target never exceeds its room (a core of 1 + 2 over a room of 2 had hidden the
+    third leopard). Fixed ones over the limit stay and are listed (`overLimit`). In Auto mode only
+    the player's keeps hold over the limit (`limitKeepIds`: hands off, moved by the player), not
+    Auto mode's own cooldown; `kinautocore.js` `addMove` lets such a send pass the cooldown.
+  - **The cause, seen offline on the save**: the programme planned four pairs that relied on sending
+    three males to the trade centre; the carrier guard (Breeding goal "Push the ceiling") held them,
+    and the moves into their habitats still ran. `keepGameLimits` (after the holds) drops moves into
+    a habitat that would then be over a limit (the sex over it first, then anyone, a female's young
+    with her); `overLimitNotes` names what must stay. And a leopard of 2.3 (mature at 2.5), adult in
+    looks and reported infertile, was a spare to the programme: `projectGrownUp` now also projects
+    such animals (not yet of age within `growUpYears`).
 - **A female counts once** (2026-10-22): `partnersPer` gives every female one partner in the
   pairing (her best male), so under a reverse harem extra males add no young; `overStructure` allows
   k males per breeding female for k:1 and one for *:1, `groupTarget('*:1', room)` = 1 ♀ + 1 ♂, and

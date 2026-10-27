@@ -1379,11 +1379,13 @@ do
 	local t = ask("d1", "Zebra_Plains")
 	check(t.sexMax and t.sexMax.male == 1 and t.sexMax.female == 5 and t.sexMaxFrom == "db", "db: the mixed-group limits, not the bachelor ones (" .. tostring(t.sexMax and t.sexMax.male) .. ")")
 	check(t.leaderMale == true and t.leaderFemale == nil, "db: only the leader male mates")
+	check(t.bachelorMax and t.bachelorMax.male == 6 and t.bachelorMax.female == 6, "db: the one-sex (bachelor) group limits too")
 	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules", "db: the game's own statements")
 	local nRead = #tStatements
 	t = ask("d2", "Lion")
 	check(#tStatements == nRead, "db: read once per session")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
+	check(t.bachelorMax and t.bachelorMax.male == 4 and t.bachelorMax.female == nil, "db: no bachelor females (0) is no limit sent")
 	check(t.dbStatus == nil, "db: no status when the species was read")
 	-- a species the database lacks: the probe, a mixed-group limit before a plain one, never a bachelor one
 	t = ask("d3", "Okapi")

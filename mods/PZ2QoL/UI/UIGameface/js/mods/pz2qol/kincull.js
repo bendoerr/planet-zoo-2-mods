@@ -26,7 +26,11 @@
 //                females (the breeding programme's rule: a harem keeps one,
 //                1:3 keeps one per three females) lower
 // Where the game allows one adult male per mixed group (rule.oneMale), a
-// second adult male goes even from a habitat with room.
+// second adult male goes even from a habitat with room; so does any adult
+// over the game's most of its sex in a mixed group or in a one-sex group
+// (sexLimit: two male leopards fight even without a female).
+// A habitat's target never exceeds its room, and its breeding core keeps no
+// more of a sex than the game allows (two leopards to a habitat).
 // Juveniles are only sent away by hand, or by the gene rules with `young`.
 // Never sent away: pregnant females,
 // animals on the move, the best fertile
@@ -77,6 +81,7 @@ export const CULL_DEFAULTS = Object.freeze({
     coreMales: 1,           // fertile males kept per habitat
     coreFemales: 2,         // fertile females kept per habitat
     keepIds: null,          // Set: the player said keep
+    limitKeepIds: null,     // Set: the keeps the game's most per sex can't override (null: keepIds)
     cullIds: null,          // Set: the player said send away
     ratio: 'auto',          // the group make-up (the breeding programme's RATIO_CHOICES)
     goal: 'average',        // the Breeding goal (kinprogtune.js tuningCull): 'average' | 'ceiling'
@@ -84,6 +89,27 @@ export const CULL_DEFAULTS = Object.freeze({
     kinRule: 'pedigree',    // who counts as related (kinprogramme.js relatedBy): 'pedigree' | 'genes'
     kinFloor: 0.5,
 });
+
+// The game's most adults of a sex in this group (null: no limit known): the
+// mixed-group limit when the other sex's adults live there too, else the
+// one-sex (bachelor) group's.
+export function sexLimit(rule, sex, group) {
+    if (!rule || (sex !== Sex.Male && sex !== Sex.Female)) return null;
+    const other = sex === Sex.Male ? Sex.Female : Sex.Male;
+    const mixed = group.some(a => a.sex === other && !a.juv);
+    const n = sex === Sex.Male ? (mixed ? rule.gameMales : rule.bachelorMales) : (mixed ? rule.gameFemales : rule.bachelorFemales);
+    return n > 0 ? n : null;
+}
+
+function extraSexWhy(rule, sex, limit, group) {
+    const other = sex === Sex.Male ? Sex.Female : Sex.Male;
+    const mixed = group.some(a => a.sex === other && !a.juv);
+    // a harem or a reverse harem says so (its own words, extraMaleWhy)
+    const groups = (rule.m === 1 && rule.f > 1) || (rule.f === 1 && rule.m > 1);
+    if (sex === Sex.Male && mixed && limit === 1 && groups) return extraMaleWhy(rule, 1);
+    const word = sex === Sex.Male ? 'male' : 'female';
+    return `an extra ${word} (the game allows ${limit} adult ${word}${limit === 1 ? '' : 's'} in ${mixed ? 'a mixed group' : `a group of ${word}s only`})`;
+}
 
 // Breeding males a habitat keeps under the make-up: one per f females
 // (at least one) for 1:f, one for a harem; a reverse harem k per breeding
@@ -262,12 +288,20 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
     }
     const habitats = [];
     const moves = [];
+    const overLimit = [];   // [{ hab, sex, limit, ids }]: over the game's limit, but kept (fixed)
+    const overLimitCull = new Set();  // sent away for the game's most per sex (move.limit)
     for (const [hab, group] of byHab) {
         const adults = group.filter(a => !a.juv);
         const r = habitatCapacity(infoX, hab, NaN); // NaN: the game gave no room for it
         const room = Number.isFinite(r) ? r : null;
         const capacity = room != null ? room : adults.length;
-        const target = Math.max(opts.coreMales + opts.coreFemales, Math.floor(capacity * opts.fill + 1e-9));
+        // the breeding core: no more of a sex than the game allows in a mixed group
+        const coreM = Math.min(opts.coreMales, rule.gameMales || Infinity);
+        const coreF = Math.min(opts.coreFemales, rule.gameFemales || Infinity);
+        // never more than the habitat's room (two leopards: a core of three
+        // never let Thin out see the third, 2026-10-26)
+        let target = Math.max(coreM + coreF, Math.floor(capacity * opts.fill + 1e-9));
+        if (room != null) target = Math.min(target, capacity);
         // the fertile males ranked by genes; the make-up says how many stay breeding
         const fertileMales = group.filter(a => a.sex === Sex.Male && breedsNow(a)).sort((x, y) => (score(y) ?? 0) - (score(x) ?? 0));
         const maleRankOf = a => fertileMales.indexOf(a);
@@ -278,13 +312,17 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         const valueOf = new Map(scored.map(x => [x.a.id, x.k.value]));
         const byValue = list => list.slice().sort((x, y) => valueOf.get(y.id) - valueOf.get(x.id));
         const core = new Set();
-        const coreMales = fertileMales.filter(a => !poor.has(a.id)).slice(0, opts.coreMales);
+        const coreMales = fertileMales.filter(a => !poor.has(a.id)).slice(0, coreM);
         coreMales.forEach(a => core.add(a.id));
         const females = group.filter(a => a.sex === Sex.Female && breedsNow(a) && !poor.has(a.id));
         const unrelatedFirst = byValue(females).sort((x, y) => coreMales.some(m => related(model, m, x, opts)) - coreMales.some(m => related(model, m, y, opts)));
-        unrelatedFirst.slice(0, opts.coreFemales).forEach(a => core.add(a.id));
+        unrelatedFirst.slice(0, coreF).forEach(a => core.add(a.id));
         byValue(group.filter(a => a.sex === Sex.Unisex && breedsNow(a) && !poor.has(a.id))).slice(0, opts.coreMales + opts.coreFemales).forEach(a => core.add(a.id));
         const fixed = a => keepIds.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || carriers.has(a.id);
+        // over the game's most per sex only these keeps hold (Auto mode's
+        // cooldown does not: limitKeepIds)
+        const limitKeeps = opts.limitKeepIds instanceof Set ? opts.limitKeepIds : keepIds;
+        const fixedForLimit = a => limitKeeps.has(a.id) || a.preg || a.moving || a.away || core.has(a.id) || protectedBest.has(a.id) || carriers.has(a.id);
         const why = new Map();
         // the player's choices first
         // (never a pregnant one: she can't be sold and has to give birth first)
@@ -297,19 +335,28 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
             why.set(a.id, poor.get(a.id));
             if (!a.juv) over--;
         }
-        // the game allows one adult male per mixed group (rule.oneMale, its
-        // own limit: Plains zebra, 2026-10-22): a second one goes even when
-        // the habitat has room. The best by keep value stays (a fixed one
-        // first); a habitat without adult females is a bachelor group and is
-        // left alone.
-        if (rule.oneMale && group.some(a => a.sex === Sex.Female && !a.juv)) {
-            const menHere = scored.filter(x => x.a.sex === Sex.Male && !x.a.juv && !why.has(x.a.id))
-                .sort((x, y) => (fixed(y.a) ? 1 : 0) - (fixed(x.a) ? 1 : 0) || y.k.value - x.k.value);
-            for (const x of menHere.slice(1)) {
-                if (fixed(x.a)) continue;
-                why.set(x.a.id, extraMaleWhy(rule, 1));
+        // the game's own most adults per sex (rule.oneMale: Plains zebra,
+        // 2026-10-22; sexLimit: two male or two female leopards, 2026-10-26):
+        // the extra ones go even when the habitat has room. The best by keep
+        // value stay (fixed ones first). A one-sex group is held to the
+        // game's one-sex limit only when the game gave one. Fixed ones over
+        // the limit stay and are listed (overLimit).
+        for (const sex of [Sex.Male, Sex.Female]) {
+            const limit = sexLimit(rule, sex, group);
+            if (limit == null) continue;
+            const here = scored.filter(x => x.a.sex === sex && !x.a.juv && !why.has(x.a.id))
+                .sort((x, y) => (fixedForLimit(y.a) ? 1 : 0) - (fixedForLimit(x.a) ? 1 : 0) || y.k.value - x.k.value);
+            const stuck = [];
+            for (const x of here.slice(limit)) {
+                if (fixedForLimit(x.a)) {
+                    stuck.push(x.a.id);
+                    continue;
+                }
+                why.set(x.a.id, extraSexWhy(rule, sex, limit, group));
+                overLimitCull.add(x.a.id);
                 over--;
             }
+            if (stuck.length) overLimit.push({ hab, sex, limit, ids: stuck });
         }
         const rank = new Map(ceiling ? scored.map(x => [x.a.id, strandRank(x.a)]) : []);
         const candidates = scored.filter(x => !fixed(x.a) && !why.has(x.a.id))
@@ -334,7 +381,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         }));
         habitats.push({ hab, adults: adults.length, juveniles: group.length - adults.length, capacity, room: room != null, target, keep, cull,
             keptAdults: keep.filter(x => !model.animals.get(x.id).juv).length });
-        for (const c of cull) moves.push({ id: c.id, to: TRADE, reason: c.reason });
+        for (const c of cull) moves.push(Object.assign({ id: c.id, to: TRADE, reason: c.reason }, overLimitCull.has(c.id) ? { limit: true } : {}));
     }
     habitats.sort((x, y) => (y.adults - y.target) - (x.adults - x.target));
     const avg = list => {
@@ -350,7 +397,7 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         zeroFert: list.filter(a => fertilityGene(a) === 0).length,
     });
     const out = {
-        species, system, rule, fill: opts.fill, moves, habitats, atTrade,
+        species, system, rule, fill: opts.fill, moves, habitats, atTrade, overLimit,
         // poor genes that stay (pregnant, kept, on the move, last breeder)
         poorKept: inHabitats.filter(a => poor.has(a.id) && !culled.has(a.id)).length,
         before: sum(inHabitats),

@@ -704,7 +704,15 @@ which male and female in the same habitat are related and would inbreed. Collect
   stay.
   **One male per group:** where the game itself allows only one adult male in a breeding group
   (Plains zebra and other harem species), a second adult male goes even when the habitat has room;
-  an all-male (bachelor) group is left alone. The group make-up now comes from the game's own
+  an all-male (bachelor) group is left alone unless the game limits it too.
+  **The game's most per sex:** Thin out holds every habitat to the game's own most adults of each
+  sex, in a breeding group and in a one-sex group. A leopard habitat, for example, takes one male
+  and one female, one male alone, or two females, so a second male or female goes even with room.
+  Your hands-off animals and the ones you moved yourself stay; Auto mode's own "moved lately" does
+  not keep an extra one. When an extra one must stay (your keep, pregnant, a best strand's last
+  carrier), the Auto panel names it so you can move one to storage or another zoo. Auto mode never
+  moves an animal into a habitat that would then be over the game's most of its sex.
+  The group make-up now comes from the game's own
   animal data: the most males and females per breeding group, and a harem (one breeding male per
   habitat) where only the leader male mates. Where only the leader female mates (meerkats, spotted
   hyenas), each habitat gets one breeding female with one male: a female has one litter however many

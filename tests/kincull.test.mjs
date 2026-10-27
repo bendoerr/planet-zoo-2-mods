@@ -232,6 +232,56 @@ test('one male per group: a second adult male goes even with room', async () => 
     assert.equal(cullPlan(bach, 'Lemur', ZEBRA, { options: { fill: 1 } }).moves.length, 0, 'no adult female: a bachelor group stays');
 });
 
+// The game's most adults per sex (Requirements_GroupComposition), leopards:
+// one male and one female to a mixed group, one male or two females alone,
+// two adults to a habitat (2026-10-26: Auto mode left two males together,
+// and two females).
+test("the game's most per sex: two male or two female leopards never share a habitat", async () => {
+    const { groupRule } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js');
+    const { sexLimit } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js');
+    const LEOPARD = { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 } };
+    const rule = groupRule(LEOPARD, '1:1');
+    assert.deepEqual([rule.gameMales, rule.gameFemales, rule.bachelorMales, rule.bachelorFemales], [1, 1, 1, 2]);
+    assert.equal(groupRule({ social: { max: 6 }, mating: 'polygyny' }).gameMales, undefined, 'only what the game gave');
+    assert.equal(sexLimit(rule, M, [an(M, '1', 4), an(F, '1', 4)]), 1, 'mixed: one male');
+    assert.equal(sexLimit(rule, M, [an(M, '1', 4), an(M, '1', 4)]), 1, 'males alone: one');
+    assert.equal(sexLimit(rule, F, [an(F, '1', 4), an(F, '1', 4)]), 2, 'females alone: two');
+    assert.equal(sexLimit(groupRule({ social: { max: 6 }, mating: 'polygyny' }), M, [an(M, '1', 4)]), null);
+    // two males alone: the weaker goes, even with room for the habitat's two
+    n = 0;
+    const bach = cullPlan(model([an(M, '1', 6), an(M, '1', 3)]), 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1' } });
+    assert.deepEqual(bach.moves.map(x => x.id), ['a2']);
+    assert.match(bach.moves[0].reason, /extra male \(the game allows 1 adult male in a group of males only\)/);
+    assert.equal(bach.moves[0].limit, true);
+    // a male and two females: the weaker female goes (the breeding core keeps one)
+    n = 0;
+    const two = cullPlan(model([an(M, '1', 5), an(F, '1', 6), an(F, '1', 3)]), 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1' } });
+    assert.deepEqual(two.moves.map(x => x.id), ['a3']);
+    assert.match(two.moves[0].reason, /extra female \(the game allows 1 adult female in a mixed group\)/);
+    // a male, two females and a male: room 2, each sex's extra goes; nobody else
+    n = 0;
+    const four = cullPlan(model([an(M, '1', 5), an(M, '1', 2), an(F, '1', 6), an(F, '1', 3)]), 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1' } });
+    assert.deepEqual(four.moves.map(x => x.id).sort(), ['a2', 'a4']);
+    assert.equal(four.habitats[0].target, 2, 'the target never exceeds the room');
+    // without the game's limits: room left, nobody goes
+    n = 0;
+    assert.equal(cullPlan(model([an(M, '1', 6), an(M, '1', 3)]), 'Lemur', { social: { max: 6 }, mating: 'mixed' }, { options: { fill: 1 } }).moves.length, 0);
+});
+
+test("the game's most per sex: the player's keep holds and is named; Auto mode's own cooldown does not", () => {
+    const LEOPARD = { social: { min: 1, max: 2 }, mating: 'mixed', sexMax: { male: 1, female: 1 }, bachelorMax: { male: 1, female: 2 } };
+    n = 0;
+    const m = model([an(M, '1', 6), an(M, '1', 3)]);
+    // the player's keep (hands off, moved by hand): the weaker male stays, listed
+    const kept = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a2']) } });
+    assert.deepEqual(kept.moves, []);
+    assert.deepEqual(kept.overLimit, [{ hab: '1', sex: M, limit: 1, ids: ['a2'] }]);
+    // Auto mode's cooldown only (keepIds, not limitKeepIds): he goes
+    const cooled = cullPlan(m, 'Lemur', LEOPARD, { options: { fill: 1, ratio: '1:1', keepIds: new Set(['a2']), limitKeepIds: new Set() } });
+    assert.deepEqual(cooled.moves.map(x => x.id), ['a2']);
+    assert.deepEqual(cooled.overLimit, []);
+});
+
 test('one breeding female (*:1): males beyond one for her are extra when a habitat is over its room', async () => {
     const { maleRoom } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js');
     const { parseRatio } = await import('../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js');

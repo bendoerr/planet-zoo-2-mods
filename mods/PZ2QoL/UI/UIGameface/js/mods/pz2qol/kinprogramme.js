@@ -282,6 +282,21 @@ const SYSTEM_RATIO = {
 };
 const GROUP_ORDER = ['mixed', 'mixedLarge', 'pair'];
 
+// The game's own most adults per sex (Requirements_GroupComposition): in a
+// mixed group (info.sexMax: gameMales, gameFemales) and in a one-sex
+// (bachelor) group (info.bachelorMax: bachelorMales, bachelorFemales). Apart
+// from the make-up the programme aims for; Thin out holds to them
+// (kincull.js sexLimit). Only the ones the game gave.
+function gameLimits(info, caps) {
+    const o = {};
+    const b = info && info.bachelorMax && typeof info.bachelorMax === 'object' ? info.bachelorMax : {};
+    if (caps.male > 0) o.gameMales = Math.floor(caps.male);
+    if (caps.female > 0) o.gameFemales = Math.floor(caps.female);
+    if (b.male > 0) o.bachelorMales = Math.floor(b.male);
+    if (b.female > 0) o.bachelorFemales = Math.floor(b.female);
+    return o;
+}
+
 // How the species' breeders form groups:
 //   m, f                 m males with f females (null: mixed groups)
 //   maxMales, maxFemales the game's most breeders of a sex per habitat (or null)
@@ -315,7 +330,7 @@ export function groupRule(info = {}, choice = 'auto') {
         solitary,
     // the game's own limit of one adult male per mixed group (Thin out sends
     // a second one away even with room, kincull.js)
-    }, caps.male > 0 && Math.floor(caps.male) === 1 ? { oneMale: true } : {});
+    }, caps.male > 0 && Math.floor(caps.male) === 1 ? { oneMale: true } : {}, gameLimits(info, caps));
     const mine = parseRatio(choice);
     if (mine) return out(mine === 'mixed' ? null : mine, 'yours');
     // only the group's leader male mates (the game's mating rules,

@@ -2250,6 +2250,12 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	else
 		mark("kin_sexmax_none")
 	end
+	-- the most of one sex in a one-sex (bachelor) group: two male leopards
+	-- can't share a habitat even without a female (Thin out, kincull.js)
+	if tDb ~= nil and ((tDb.nMaxBachelorMale or 0) > 0 or (tDb.nMaxBachelorFemale or 0) > 0) then
+		local nM, nF = tDb.nMaxBachelorMale or 0, tDb.nMaxBachelorFemale or 0
+		tOut.bachelorMax = { male = nM > 0 and nM or nil, female = nF > 0 and nF or nil }
+	end
 	-- only the group's leader male (or female) mates: the game's mating rules
 	if tDb ~= nil and tDb.bLeaderMale then
 		tOut.leaderMale = true

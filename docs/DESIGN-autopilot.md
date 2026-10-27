@@ -808,6 +808,16 @@ within minutes while the male leaving that habitat was still there days later: t
 habitat and none in the other. So a male the run brings into a habitat waits until the adult male
 leaving it has gone (`kinautocore.js` `waitForLeavingMales`, `out.waits`). Two males trading
 places: the first in the run goes now, the other once he has left (a round of three likewise).
+**The game's most per sex** (2026-10-26, leopards: one male and one female to a mixed group,
+one male alone): Thin out sends the extra ones away for both sexes and both kinds of group
+(`kincull.js` `sexLimit`, the game's `Requirements_GroupComposition` mixed and bachelor limits,
+the latter now sent by `Kin.SpeciesInfo` as `bachelorMax`), even when Auto mode moved them lately
+(not when the player did). After the holds (the last breeder, the carrier guard, a full trade
+centre) `keepGameLimits` drops the moves into a habitat that would then be over a limit: a held
+send no longer leaves an incoming male with the one that was meant to leave. What must stay over
+a limit is named in the run's notes (`overLimitNotes`). Young adults in looks that are not yet of
+age count as breeders within half a park year, like juveniles (`projectGrownUp`).
+
 The runtime (`kinauto.js` `runWaits`) runs a waiting move as a short run of its own once the male
 has left and none of the species is on the move, logged as its own run ("after X left"), counted
 with the run that planned it, the schedule unchanged. It drops it, with a line in the panel's
@@ -899,7 +909,7 @@ the veto window, contraception, the commit gate, the zoo-wide objective.
 
 | Test | What |
 |---|---|
-| `tests/kinauto.test.mjs` | Settings, the board's programme options per step, `pinIds`, a run equals the programme's plan (with its waiting moves), locks, trade-centre memory, Thin out first, refusals and reversals, cooldown, growing up, the last breeder, one male per group (who waits, trading places, ready and dropped), runs settle on 50 seeded zoos, the ledger |
+| `tests/kinauto.test.mjs` | Settings, the board's programme options per step, `pinIds`, a run equals the programme's plan (with its waiting moves), locks, trade-centre memory, Thin out first, refusals and reversals, cooldown, growing up (also adults in looks not yet of age), the last breeder, one male per group (who waits, trading places, ready and dropped), the game's most per sex (no move into an over-limit habitat after a held send, Thin out past Auto mode's cooldown but not the player's move, the notes), runs settle on 50 seeded zoos, the ledger |
 | `tests/kinauto_runtime.test.mjs` | Fake game: nothing on Auto sends or writes nothing; an offline run by itself, logged and kept; the schedule; the player's move held; another zoo gets nothing; Franchise waits for the click and makes a stale plan again; Run now; off removes every hook; slow keepers: a male moves in only after the leaving male has gone, and stays when that move never happens |
 | `tests/kinauto_soak.test.mjs` | 50 park years, 3 settings, 3 seeds: no reversal, no churn, no move of a held or pinned animal, every move logged, inbred births at most 2 %, no species dies out, the population in hand with Thin out |
 | `tests/engines_equivalence.test.mjs` | The board's engines answer as before (golden recorded from main's code) |
