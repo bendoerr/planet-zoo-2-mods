@@ -772,10 +772,11 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   FemaleHasSingleMate 1, OnlyLeaderMaleCanMate 1, OnlyLeaderFemaleCanMate 1, MourningSeasons 4;
   `Social_LeadershipRules` both sexes FightsForLeader 0, PromoteEldestPeacefully 1; maturity 1.5,
   ElderlyAge 10, InfertileWhenElderly 1, litter 1-6, breeds in summer only; group 2-27. So the
-  pack's eldest male and eldest female lead and are its only breeders: an elderly (infertile)
-  leader stops the pack. In the save, packs 01, 03 and 04 were led by dogs of 10-12 years. The
-  programme ignored the leader rules for a monogamous species until 2026-10-28 (packs, below),
-  and Thin out sends the old away only from a habitat over its room.
+  pack's leader male and leader female (the eldest there when the role fell empty) are its only
+  breeders: an elderly (infertile) leader stops the pack. In the save, packs 01, 03 and 04 were
+  led by dogs of 10-12 years. The programme ignored the leader rules for a monogamous species
+  until 2026-10-28 (packs, below), and Thin out sends the old away only from a habitat over its
+  room.
   PZ2QoL: `kinautocore.js` `leaderBlockers` (before the programme, Auto mode only).
   PromoteEldestPeacefully reads as "when the leader leaves", not "the eldest takes over at once"
   (meerkats, 2026-10-24).
@@ -786,11 +787,22 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   both SingleMate flags, `Social_LeadershipRules` both sexes FightsForLeader 0,
   PromoteEldestPeacefully 1. Wild dog: `Requirements_HabitatSpace` 930 m² + 100 per extra,
   `Lifecycle_FertilityData` FertilityValue 0.4, gestation 0.21 y, one litter a year of 1-6.
-  - **Guess**, not seen in game: the leader now (`bAlpha`) keeps leading while it stays, and a
-    newcomer does not displace it; when it leaves, the eldest adult of its sex there is promoted.
-    Weak evidence: Cradle #2's pup Cezanne (0.8) has father Chenzira (4.8), not the older Runako
-    (5.9) of the same pack (when Runako came is not known). Ages come to 0.1 year, so littermates
-    tie; plans count the worse of the pairs they could make.
+  - **Proven 2026-10-28 (Cradle #2's wild dogs: the developer's in-game alphas at 16:34 and
+    19:30, a few seasons apart, with Auto mode's move history and the young's parents):**
+    - A leader (`bAlpha`) keeps leading while it stays, whoever joins: Wild Dog 03's Mosi (3.1)
+      and Chibeka (6.8) still led after Rafiki (7.7), Mapalo (7.7) and the former leaders Tariro
+      and Thembile joined; Wild Dog 04's Tariro had kept leading when Runako (8.6) and Matondo
+      (8.4) joined.
+    - Leadership does not move with an animal: Tariro and Thembile led Wild Dog 04, not 03.
+    - An empty role goes to the eldest adult of that sex there: Wild Dog 02's Gyasi (4.6) over
+      Masamba (4.4) and two of 1.8 that had stayed; Wild Dog 04's Ojore (1.6, adult at 1.5) and
+      Asha once the older dogs had gone.
+    - Not at once, but within days: at 16:34 Wild Dog 03 showed no male leader, yet its six pups,
+      0.0 years old at 19:30 (gestation 0.21 y; 0.23 y had passed), are Mosi's.
+    - Auto mode's first runs on the pack build got the leaders they planned in all four packs.
+    - Unexplained: at 16:34 Morowa (4.1) led Wild Dog 01 over females of 7-9. Most of them came
+      in that day's 15:35 run; when she took over is not known.
+    Ages come to 0.1 year, so littermates tie; plans count the worse of the pairs they could make.
   - `bAlpha` was sent by Lua (`alpha`) but dropped by `kincore.js` `normalizeSnapshot` until
     2026-10-28, so Thin out's alpha bonus never applied. `plannedSnapshot` clears it on a moved
     animal (a newcomer).

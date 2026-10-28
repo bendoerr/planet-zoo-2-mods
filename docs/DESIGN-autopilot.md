@@ -829,11 +829,11 @@ members, elderly ones filling the trade centre): where only the leader male and 
 mate, the programme scores one pair per habitat, its leaders (the leader now while it stays,
 else the eldest there; `kinprogramme.js` `rule.pack`), and makes the best pairs leaders with the
 ones that would lead instead moved out. Thin out keeps the leaders and sends an adult that does
-not lead before it is too old to trade (`retireYears`). The eldest present is promoted when a
-leader leaves, and keepers carry moves in their own time, so a leader moved out waits until the
-run's newcomers of its sex have arrived and the others of its sex leaving have gone
-(`waitForNewLeaders`, wait kind `leader`); a newcomer that never arrives drops the wait and the
-leader stays.
+not lead before it is too old to trade (`retireYears`). The eldest present is promoted within
+days when a leader leaves (seen in game, 2026-10-28), and keepers carry moves in their own time,
+so a leader moved out waits until the run's newcomers of its sex have arrived and the others of
+its sex leaving have gone (`waitForNewLeaders`, wait kind `leader`); a newcomer that never arrives
+drops the wait and the leader stays.
 
 **The game's most per sex** (2026-10-26, leopards: one male and one female to a mixed group,
 one male alone): Thin out sends the extra ones away for both sexes and both kinds of group
