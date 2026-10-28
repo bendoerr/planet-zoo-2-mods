@@ -774,11 +774,42 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   ElderlyAge 10, InfertileWhenElderly 1, litter 1-6, breeds in summer only; group 2-27. So the
   pack's eldest male and eldest female lead and are its only breeders: an elderly (infertile)
   leader stops the pack. In the save, packs 01, 03 and 04 were led by dogs of 10-12 years. The
-  programme ignores the leader rules for a monogamous species (`groupRule` uses them only for
-  harems and reverse harems), and Thin out sends the old away only from a habitat over its room.
-  PZ2QoL: `kinautocore.js` `leaderBlockers` (before the programme, Auto mode only). Leadership
-  details (who leads after a move into an existing group) are not modelled: PromoteEldestPeacefully
-  reads as "when the leader leaves", not "the eldest takes over at once" (meerkats, 2026-10-24).
+  programme ignored the leader rules for a monogamous species until 2026-10-28 (packs, below),
+  and Thin out sends the old away only from a habitat over its room.
+  PZ2QoL: `kinautocore.js` `leaderBlockers` (before the programme, Auto mode only).
+  PromoteEldestPeacefully reads as "when the leader leaves", not "the eldest takes over at once"
+  (meerkats, 2026-10-24).
+- **Packs: only the leader pair breeds** (2026-10-28, a developer report: Cradle #2's wild dog herd
+  stayed at a 69% gene average, strong dogs aged out as pack members, elderly ones filled the trade
+  centre). Both leader flags in `Social_MatingRules`: `Beaver_Eurasian`, `Dog_AfricanWild`,
+  `Gibbon_Siamang`, `Monkey_GoldenLionTamarin`, `Otter_AsianSmallClawed`, `Wolf_Grey`; all with
+  both SingleMate flags, `Social_LeadershipRules` both sexes FightsForLeader 0,
+  PromoteEldestPeacefully 1. Wild dog: `Requirements_HabitatSpace` 930 m² + 100 per extra,
+  `Lifecycle_FertilityData` FertilityValue 0.4, gestation 0.21 y, one litter a year of 1-6.
+  - **Guess**, not seen in game: the leader now (`bAlpha`) keeps leading while it stays, and a
+    newcomer does not displace it; when it leaves, the eldest adult of its sex there is promoted.
+    Weak evidence: Cradle #2's pup Cezanne (0.8) has father Chenzira (4.8), not the older Runako
+    (5.9) of the same pack (when Runako came is not known). Ages come to 0.1 year, so littermates
+    tie; plans count the worse of the pairs they could make.
+  - `bAlpha` was sent by Lua (`alpha`) but dropped by `kincore.js` `normalizeSnapshot` until
+    2026-10-28, so Thin out's alpha bonus never applied. `plannedSnapshot` clears it on a moved
+    animal (a newcomer).
+  - PZ2QoL: `groupRule` `rule.pack` (source `leaders`, 1:1, ahead of the per-sex limits; the
+    player's make-up wins). `kinprogramme.js`: `packLeaders` (per sex: a staying alpha, else the
+    eldest; ties all count), `breedingPairs` (the leader pair, the worst over ties), no related
+    pairs but the leaders', no family-line bonus, no spares (non-breeders stay as members),
+    `installLeaders` / `packKick` (a pair made leaders with the ones that would lead instead moved
+    out in one step), `packLeaveCost` 0.03 (the trade centre costs more than another pack) and
+    `packKeepYears` 1.5 (under it the other way round). `kincull.js`: the core is the leaders
+    (`packLeaderOf`), relatives count 0, `retireYears` 1.5 (a non-leader goes while it can still
+    be traded, best genes too). `kinautocore.js` `waitForNewLeaders`: a leader moved out waits
+    (wait kind `leader`, `at`, `arrive`) until the run's newcomers of its sex have arrived and the
+    others of its sex leaving have gone; `waitsReady` drops it when a newcomer did not arrive.
+  - Simulation (2026-10-28, 15 years from the 14:33 save's 31 dogs, three seeds; only the leader
+    pair breeds, the eldest present is promoted, keepers deliver a run's moves in random order):
+    herd average 69% to 82 / 80 / 76% (before: 71 / 74 / 71%); litters 45 / 48 / 52 (27 / 33 /
+    31); elderly dogs to the trade centre 3 / 6 / 2 (25 / 25 / 22). Longevity stays at 70-75%:
+    the best Longevity strand present is 5/6.
 - **The game's most per sex, both kinds of group** (2026-10-26, a developer report: Auto mode left
   two male leopards together, and two females). `Requirements_GroupComposition` for
   `Leopard_African`: MaxPopulation 2, MaxMixedMale 1, MaxMixedFemale 1, MaxBachelorMale 1,
@@ -818,7 +849,8 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   males in, and 1:1 drew extras through the family-line bonus. Data: leader-female-only species are
   meerkat (MaxMixed 20/20), spotted hyena (2/2) and western chimpanzee (`OnlyLeaderFemaleCanMate`);
   monogamous pack species (wolf, African wild dog, small-clawed otter, beaver, siamang, golden lion
-  tamarin) have both leader flags: only the leader pair breeds (not modelled: 1:1 pairs).
+  tamarin) have both leader flags: only the leader pair breeds (modelled since 2026-10-28: packs,
+  above).
 - PZ2QoL (`pz2qol.kin.lua` `Kin.SpeciesInfo` → `info.groups = [{kind, m, f}]`, `info.sexMax = {male,
   female}`; `kinprogramme.js` `groupRule`): the make-up is the player's choice per species (`kinRatio`
   in the player store, per zoo; `RATIO_CHOICES` 1:1…1:5, 1:*, 2:1, 3:1, *:1, mixed), else the game's

@@ -905,7 +905,7 @@ test('make-up: only the leader female mates -> one breeding female with one male
     assert.equal(ratioKey(groupRule({ mating: 'mixed', leaderFemale: true })), '*:1');
     assert.equal(ratioKey(groupRule({ mating: 'polyandry', leaderFemale: true })), '*:1');
     assert.equal(ratioKey(groupRule({ mating: 'monogamy', leaderFemale: true })), '1:1', 'monogamy stays pairs');
-    assert.equal(ratioKey(groupRule({ mating: 'polygyny', leaderMale: true, leaderFemale: true })), '1:*', 'the leader male rule first');
+    assert.equal(groupRule({ mating: 'polygyny', leaderMale: true, leaderFemale: true }).pack, true, 'both leaders: a pack');
     assert.deepEqual(groupTarget(parseRatio('*:1'), 10), { males: 1, females: 1 });
     assert.deepEqual(groupTarget(parseRatio('*:1'), 1), { males: 0, females: 1 });
     // two females and three males in habitat 1, one pair in 2, an empty 3, eight males waiting
@@ -922,4 +922,81 @@ test('make-up: only the leader female mates -> one breeding female with one male
     }
     assert.equal(plan.after.breedingPairs, 3);
     assert.ok(animals.filter(a => a.id[0] === 't' && ['1', '2', '3'].includes(where(model, plan, a.id))).length <= 1, 'the waiting males stay out (one may fill the empty habitat)');
+});
+
+// Packs (African wild dog, grey wolf...: only the leader male and the leader
+// female mate, and the eldest is promoted): one breeding pair per habitat,
+// its leaders. Until 2026-10-28 a pack counted as 1:1 pairs (Cradle #2's
+// wild dogs: four packs planned as many pairs, the eldest leading).
+const PACK = { mating: 'monogamy', leaderMale: true, leaderFemale: true, social: { max: 27 }, sexMax: { male: 26, female: 26 } };
+
+test('packs: one breeding pair per habitat, its leaders', () => {
+    const r = groupRule(PACK);
+    assert.deepEqual([ratioKey(r), r.pack, r.source], ['1:1', true, 'leaders']);
+    assert.deepEqual(groupTarget(r, 10), { males: 1, females: 1 });
+    assert.equal(groupRule(PACK, '1:1').pack, undefined, "the player's make-up wins");
+    assert.match(makeupDbNote(Object.assign({ dbStatus: 'x' }, PACK), r), /the game's mating rules/);
+    // two males and two females, all unrelated: four pairs as 1:1, one as a pack
+    const animals = [an('m1', M, '1', [], { age: 6, genes: G('A', 'B') }), an('m2', M, '1', [], { age: 4, genes: G('C', 'D') }),
+        an('f1', F, '1', [], { age: 6, genes: G('E', 'F') }), an('f2', F, '1', [], { age: 3, genes: G('G', 'H') })];
+    const model = buildKinModel(snap(animals, ['1']));
+    const plan = planProgramme(model, 'Lion', PACK, DEST(['1']));
+    assert.equal(plan.before.breedingPairs, 1, 'only the leaders breed');
+    assert.equal(plan.before.idle, 0, 'the others are pack members, not idle breeders');
+    assert.deepEqual(plan.groups.find(g => g.hab === '1').leaders, ['m1', 'f1'], 'the eldest of each sex leads');
+    assert.equal(plan.moves.length, 0, 'nothing to gain');
+    // the leader now (alpha) leads while it stays, older or not
+    const led = buildKinModel(snap(animals.map(a => (a.id === 'm2' ? Object.assign({}, a, { alpha: true }) : a)), ['1']));
+    assert.deepEqual(planProgramme(led, 'Lion', PACK, DEST(['1'])).groups.find(g => g.hab === '1').leaders, ['m2', 'f1']);
+});
+
+test('packs: a strong animal that does not lead is made a leader; the ones that would lead instead leave', () => {
+    // the leader male and an older male share the leader female's strands
+    // (poor young); the young male's are new. Both older ones must leave at
+    // once (one alone leaves the other leading): installLeaders
+    const animals = [an('mA', M, '1', [], { age: 8, alpha: true, genes: G('A', 'B') }), an('mO', M, '1', [], { age: 6, genes: G('A', 'B') }),
+        an('mS', M, '1', [], { age: 3, genes: G('E', 'F') }), an('fA', F, '1', [], { age: 6, alpha: true, genes: G('A', 'B') })];
+    const model = buildKinModel(snap(animals, ['1']));
+    for (const exactLimit of [0, 20000]) {
+        const plan = planProgramme(model, 'Lion', PACK, DEST(['1']), { options: { exactLimit } });
+        assert.equal(where(model, plan, 'mA'), TRADE, `${exactLimit}: ${JSON.stringify(plan.moves)}`);
+        assert.equal(where(model, plan, 'mO'), TRADE);
+        assert.equal(where(model, plan, 'mS'), '1');
+        assert.deepEqual(plan.groups.find(g => g.hab === '1').leaders, ['mS', 'fA']);
+        assert.ok(plan.after.youngQuality > plan.before.youngQuality);
+        assert.match(plan.moves.find(m => m.id === 'mA').reason, /it led its pack: a better pair leads now/);
+        assert.match(plan.moves.find(m => m.id === 'mO').reason, /it would lead its pack \(the eldest leads\)/);
+    }
+});
+
+test('packs: a leader goes to lead elsewhere; relatives in a pack are no related pair, related leaders are', () => {
+    // pack 1: leaders mA x fA (shared strands); pack 2: leaders mB x fB (shared
+    // strands). Crossing the leaders gives the best young
+    const animals = [an('mA', M, '1', [], { age: 8, alpha: true, genes: G('A', 'B') }), an('fA', F, '1', [], { age: 6, alpha: true, genes: G('A', 'B') }),
+        an('mB', M, '2', [], { age: 7, alpha: true, genes: G('C', 'D') }), an('fB', F, '2', [], { age: 5, alpha: true, genes: G('C', 'D') }),
+        // the leaders' grown young in pack 1: related to both, they don't mate
+        an('y1', M, '1', ['mA', 'fA'], { age: 2, genes: G('A', 'B') }), an('y2', F, '1', ['mA', 'fA'], { age: 2, genes: G('A', 'B') })];
+    const model = buildKinModel(snap(animals, ['1', '2']));
+    const plan = planProgramme(model, 'Lion', PACK, DEST(['1', '2']));
+    assert.equal(plan.before.relatedPairs, 0, 'the young are no related pair');
+    assert.ok(plan.after.youngQuality > plan.before.youngQuality, JSON.stringify(plan.moves));
+    const leaders = new Set(plan.groups.flatMap(g => g.leaders || []));
+    for (const id of ['mA', 'fA', 'mB', 'fB']) assert.ok(leaders.has(id), `${id} still leads (${JSON.stringify(plan.groups)})`);
+    assert.ok(plan.moves.every(m => /lead a pack/.test(m.reason)), JSON.stringify(plan.moves));
+    // a pack whose leaders are related: a related pair
+    const sibs = buildKinModel(snap([an('m', M, '1', ['p', 'q'], { age: 5 }), an('f', F, '1', ['p', 'q'], { age: 4 })], ['1']));
+    const s = planProgramme(sibs, 'Lion', PACK, DEST(['1']));
+    assert.equal(s.before.relatedPairs, 1);
+    assert.equal(s.before.idle, 2, 'leaders with no unrelated partner');
+});
+
+test('packs: a leader that cannot breed blocks its pack; the plan does not count it as breeding', () => {
+    // an old leader male (too old to breed: fixed); the young male cannot lead
+    const animals = [an('old', M, '1', [], { age: 12, alpha: true, infertile: true }), an('m', M, '1', [], { age: 3, genes: G('E', 'F') }),
+        an('f', F, '1', [], { age: 4, alpha: true, genes: G('A', 'B') })];
+    const model = buildKinModel(snap(animals, ['1']));
+    const plan = planProgramme(model, 'Lion', Object.assign({ fertilityAges: { maturity: 1.5, infertility: 10 } }, PACK), DEST(['1']));
+    assert.equal(plan.after.breedingPairs, 0);
+    assert.ok(!plan.moves.some(m => m.id === 'old'), 'not a breeder: the programme does not move it (Auto mode: leaderBlockers)');
+    assert.ok(!plan.moves.some(m => m.to === TRADE && m.spare), 'no make-up places in a pack: nobody leaves as a spare');
 });

@@ -824,6 +824,17 @@ sex (`info.leaderMale` / `leaderFemale`) that can no longer breed, from habitats
 can still breed (not a group of old ones only; not the player's keeps; Auto mode's own cooldown
 gives way; not with the trade centre off). The programme then fills the gaps.
 
+**Packs** (2026-10-28, Cradle #2's wild dogs: a herd stuck at 69%, strong dogs ageing out as pack
+members, elderly ones filling the trade centre): where only the leader male and the leader female
+mate, the programme scores one pair per habitat, its leaders (the leader now while it stays,
+else the eldest there; `kinprogramme.js` `rule.pack`), and makes the best pairs leaders with the
+ones that would lead instead moved out. Thin out keeps the leaders and sends an adult that does
+not lead before it is too old to trade (`retireYears`). The eldest present is promoted when a
+leader leaves, and keepers carry moves in their own time, so a leader moved out waits until the
+run's newcomers of its sex have arrived and the others of its sex leaving have gone
+(`waitForNewLeaders`, wait kind `leader`); a newcomer that never arrives drops the wait and the
+leader stays.
+
 **The game's most per sex** (2026-10-26, leopards: one male and one female to a mixed group,
 one male alone): Thin out sends the extra ones away for both sexes and both kinds of group
 (`kincull.js` `sexLimit`, the game's `Requirements_GroupComposition` mixed and bachelor limits,

@@ -26,7 +26,8 @@
 // with three females, 1:any a harem (one breeding male per habitat), any:1
 // one breeding female per habitat, or mixed groups (every female with her
 // best unrelated male). First found: the player's choice for the species,
-// the game's most of each sex per habitat (its mixed-group limits), a harem
+// packs where only the leader male and the leader female mate (below), the
+// game's most of each sex per habitat (its mixed-group limits), a harem
 // where only the leader male mates (info.leaderMale), one breeding female per
 // habitat where only the leader female mates (info.leaderFemale; she counts
 // once, with one male), the game's own social groups for
@@ -37,11 +38,27 @@
 // penalty, so the surplus moves on, and open places draw breeders in from
 // the trade centre and from other habitats' surplus.
 //
+// Packs (rule.pack): where the game lets only the leader male and the leader
+// female mate (both leader flags: African wild dog, grey wolf, small-clawed
+// otter, Eurasian beaver, siamang, golden lion tamarin) a habitat has one
+// breeding pair, its leaders: per sex the leader now (the game's alpha flag)
+// while it stays, else the eldest adult of that sex there (the game promotes
+// the eldest, Social_LeadershipRules; packLeaders). Only that pair scores,
+// and only it counts as related; the other adults are pack members that take
+// room. So a strong animal that does not lead breeds nothing, and the search
+// moves it where it leads, with the ones that would lead instead moved out
+// (installLeaders). Non-breeding adults stay (no make-up places to fill); an
+// old one that would lead blocks its pack (Auto mode sends it away first,
+// kinautocore.js leaderBlockers). Until 2026-10-28 a pack counted as 1:1
+// pairs: Cradle #2's four wild dog packs of 5 to 9 were planned as many
+// pairs, while the eldest led them and their young would average 55-68 in a
+// herd averaging 69.
+//
 // Habitat room (adults of this species) comes from the species' social
-// maximum and the habitat's space (estimated per animal from the game's own
-// requirement for the current population, juveniles included). Juveniles
-// stay where they are and don't count against the adults' room (the
-// developer, 2026-10-19). Young waiting at the trade centre go back to a
+// maximum and the habitat's space (the game's rule: space for the first
+// animal and for each one more, habitatCapacity). The young living there
+// keep their places (2026-10-28; until then they did not count, the
+// developer 2026-10-19). Young waiting at the trade centre go back to a
 // habitat (option youngBack): their mother's, else their father's, else
 // the one with the most room. The programme never sends a juvenile to the
 // trade centre.
@@ -123,7 +140,16 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // Best genetics had no move cost).
     overCapacityPenalty: 2,  // per adult over capacity
     structurePenalty: 2,     // per breeder over the group make-up or the game's most per sex
-    lineBonus: 0.01,         // per distinct family line in a habitat (future flexibility)
+    lineBonus: 0.01,         // per distinct family line in a habitat (future flexibility; not in packs)
+    // packs: an animal sent to the trade centre, over the move's cost: more
+    // than joining another pack, so one that must make way for new leaders
+    // stays in the zoo where a pack can take it (2026-10-28: with moves free,
+    // Cradle #2's young wild dogs went to the trade centre); one with under
+    // packKeepYears of breeding left the other way round (a third of it to
+    // join another pack: it goes while it can be traded, as Thin out's
+    // retireYears)
+    packLeaveCost: 0.03,
+    packKeepYears: 1.5,
     maxEvaluations: 600000,  // search budget: layout changes scored (about 0.4 s for 100 breeders)
     timeBudgetMs: 1500,      // safety net: stop searching after this long
     exactLimit: 20000,       // score every layout when there are no more than this many
@@ -300,7 +326,10 @@ function gameLimits(info, caps) {
 // How the species' breeders form groups:
 //   m, f                 m males with f females (null: mixed groups)
 //   maxMales, maxFemales the game's most breeders of a sex per habitat (or null)
-//   source               'yours' (the player's choice), 'game' (the game's most
+//   pack                 one breeding pair per habitat, its leaders (the game
+//                        lets only the leader male and female mate)
+//   source               'yours' (the player's choice), 'leaders' (a pack: the
+//                        game's mating rules), 'game' (the game's most
 //                        per sex), 'groups' (the game's social groups for the
 //                        species), 'mating' (the mating system; 'mixed' for
 //                        Polygyandry, where both sexes take several mates),
@@ -333,6 +362,9 @@ export function groupRule(info = {}, choice = 'auto') {
     }, caps.male > 0 && Math.floor(caps.male) === 1 ? { oneMale: true } : {}, gameLimits(info, caps));
     const mine = parseRatio(choice);
     if (mine) return out(mine === 'mixed' ? null : mine, 'yours');
+    // only the leader male and the leader female mate (the monogamous pack
+    // species): one breeding pair per habitat, its leaders (packLeaders)
+    if (info && info.leaderMale === true && info.leaderFemale === true) return Object.assign(out({ m: 1, f: 1 }, 'leaders'), { pack: true });
     // only the group's leader male mates (the game's mating rules,
     // info.leaderMale; Plains zebra): a harem, one breeding male per habitat,
     // whatever the per-sex limits allow (they still cap the males)
@@ -388,7 +420,7 @@ export function unknownMakeupText(info = {}) {
 // mixed-group limits, leader-only mating; Kin.SpeciesInfo) were not read:
 // why, and where the make-up came from instead. '' when they were read or
 // the player chose the make-up.
-const MAKEUP_FROM = { game: "the game's per-sex limits", groups: "the game's social groups", mating: 'the mating system', none: 'a guess (mixed groups)' };
+const MAKEUP_FROM = { leaders: "the game's mating rules", game: "the game's per-sex limits", groups: "the game's social groups", mating: 'the mating system', none: 'a guess (mixed groups)' };
 export function makeupDbNote(info = {}, rule = null) {
     if (!info || !info.dbStatus || (rule && rule.source === 'yours')) return '';
     const from = (rule && MAKEUP_FROM[rule.source]) || "the game's other data";
@@ -418,6 +450,8 @@ function malesPerFemale(r) {
 export function groupTarget(rule, room) {
     if (!rule || rule.m == null || !(room >= 1)) return null;
     room = Math.floor(room);
+    // a pack: its leader pair (the other adults are pack members)
+    if (rule.pack) return { males: room >= 2 ? 1 : 0, females: 1 };
     // one breeding female per habitat (*:1): her and one male
     if (rule.m === Infinity && rule.f === 1) return { males: room >= 2 && (rule.maxMales ?? 1) >= 1 ? 1 : 0, females: 1 };
     const scarceIsMale = rule.m === 1;
@@ -741,7 +775,31 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
         // random words for the score cache's keys (32 + 21 bits)
         zA: new Uint32Array(n), zB: new Uint32Array(n), zpA: new Uint32Array(P), zpB: new Uint32Array(P),
         all: Array.from({ length: n }, (_, i) => i),
+        // packs (packLeaders): each breeder's age and the game's leader flag
+        age: Float64Array.from(breeders.map(a => (typeof a.age === 'number' ? a.age : 0))),
+        alpha: Uint8Array.from(breeders.map(a => (a.alpha ? 1 : 0))),
+        // packs: worth keeping in the zoo (moveCost's packLeaveCost): breeding
+        // years ahead, not near the end (then it goes while it can be traded)
+        packKeep: Uint8Array.from(breeders.map(a => {
+            const left = fertileYearsLeft(a, info);
+            return left == null || left >= opts.packKeepYears ? 1 : 0;
+        })),
+        packFixed: null,
     };
+    if (rule.pack) {
+        // per place and sex, the staying adults that can't breed: whether
+        // one of them leads now, and the eldest one's age
+        ctx.packFixed = placeKeys.map(() => ({ m: { n: 0, alpha: false, eldest: -Infinity }, f: { n: 0, alpha: false, eldest: -Infinity } }));
+        for (const a of all) {
+            if (breeders.includes(a) || spareSet.has(a) || a.juv || !a.hab || !placeOf.has(a.hab)) continue;
+            const s = a.sex === Sex.Male ? 'm' : a.sex === Sex.Female ? 'f' : null;
+            if (!s) continue;
+            const x = ctx.packFixed[placeOf.get(a.hab)][s];
+            x.n++;
+            if (a.alpha) x.alpha = true;
+            if (typeof a.age === 'number' && a.age > x.eldest) x.eldest = a.age;
+        }
+    }
     const zr = randomSource(hashSeed(`z|${n}|${P}`));
     for (let i = 0; i < n; i++) {
         ctx.zA[i] = Math.floor(zr() * 4294967296);
@@ -910,6 +968,69 @@ function overStructure(ctx, nm, nf) {
     return Math.max(0, nm - allowM) + Math.max(0, nf - allowF);
 }
 
+// A pack's leaders (rule.pack), as the game has them: per sex the leader
+// now (the alpha flag) while it stays at home, else the eldest adult of that
+// sex there. Ages come to a tenth of a year, so animals of the same age
+// (littermates) may each be the one promoted: all of them are returned
+// (lower id first). A staying adult that can't breed leads when it is the
+// leader now or among the eldest. -> { m: [...], f: [...] }: breeders'
+// indices, -1 for such a non-breeder (then that pack breeds nothing), [-2]
+// for nobody.
+function packLeaders(ctx, p, list) {
+    const fx = ctx.packFixed[p];
+    const lead = (sex, f) => {
+        if (f.alpha) return [-1];
+        let top = -Infinity;
+        for (const i of list) {
+            if (ctx.sex[i] !== sex) continue;
+            if (ctx.alpha[i] && ctx.home[i] === p) return [i];
+            if (ctx.age[i] > top) top = ctx.age[i];
+        }
+        if (f.n && f.eldest > top + EPS) return [-1];
+        const out = list.filter(i => ctx.sex[i] === sex && ctx.age[i] > top - EPS).sort((x, y) => (String(ctx.B[x].id) < String(ctx.B[y].id) ? -1 : 1));
+        if (f.n && f.eldest > top - EPS) out.push(-1);
+        return out.length ? out : [-2];
+    };
+    return { m: lead(Sex.Male, fx.m), f: lead(Sex.Female, fx.f) };
+}
+
+// The breeders that may lead a pack (packLeaders, both sexes).
+const leadersIn = L => L.m.concat(L.f).filter(i => i >= 0);
+
+// The leader of one sex among a habitat's animals, as packLeaders sees it:
+// its leader now (alpha), else its eldest grown animal (equal ages: the
+// lower id). null: none of that sex. Thin out and Auto mode (kincull.js,
+// kinautocore.js).
+export function packLeaderOf(group, sex) {
+    let best = null;
+    for (const a of group || []) {
+        if (!a || a.juv || a.sex !== sex) continue;
+        if (a.alpha) return a;
+        const age = typeof a.age === 'number' ? a.age : 0;
+        const bAge = best && typeof best.age === 'number' ? best.age : 0;
+        if (!best || age > bAge + EPS || (age > bAge - EPS && String(a.id) < String(best.id))) best = a;
+    }
+    return best;
+}
+
+// The pairs that breed in one place's breeders: a pack's leader pair (a
+// related one with value -1; with animals of the same age that may lead, the
+// worst of the pairs they could make), or the best pairs under the make-up.
+// -> [[value, male, female]]
+function breedingPairs(ctx, list, p) {
+    if (!ctx.rule.pack) return groupPairs(ctx, list, p);
+    const L = packLeaders(ctx, p, list);
+    let worst = null;
+    for (const m of L.m) {
+        for (const f of L.f) {
+            // a leader that can't breed, or none: nothing
+            const v = m >= 0 && f >= 0 ? ctx.pv(m, f) : 0;
+            if (!worst || v < worst[0]) worst = [v, m, f];
+        }
+    }
+    return worst && worst[1] >= 0 && worst[2] >= 0 ? [worst] : [];
+}
+
 // Score of one place's breeders (indices); cached by who is there.
 function placeScore(ctx, p, list) {
     if (!ctx.groupPlace[p] || !list.length) return 0;
@@ -923,8 +1044,19 @@ function placeScore(ctx, p, list) {
     const hit = ctx.memo.get(key);
     if (hit !== undefined) return hit;
     const P = ctx.opts;
-    let value = 0, penalty = relatedCount(ctx, list) * P.relatedPenalty;
-    for (const pr of groupPairs(ctx, list, p)) value += pr[0];
+    let value = 0, penalty = 0;
+    if (ctx.rule.pack) {
+        // a pack: its leaders only (the others don't mate, so they are not
+        // related pairs either)
+        for (const [v] of breedingPairs(ctx, list, p)) {
+            if (v < 0) penalty += P.relatedPenalty;
+            else value += v;
+        }
+    }
+    else {
+        penalty = relatedCount(ctx, list) * P.relatedPenalty;
+        for (const pr of groupPairs(ctx, list, p)) value += pr[0];
+    }
     let nm = 0, nf = 0;
     for (const i of list) {
         if (ctx.sex[i] === Sex.Male) nm++;
@@ -934,9 +1066,13 @@ function placeScore(ctx, p, list) {
     const adults = list.length + ctx.fixed[p];
     const cap = ctx.cap[p];
     if (cap != null && adults > cap) penalty += (adults - cap) * P.overCapacityPenalty;
-    const lines = new Set();
-    for (const i of list) lines.add(ctx.line[i]);
-    value += lines.size * P.lineBonus;
+    // (a pack's other members never mate: their lines are no choice of
+    // mates, and moving them for it is churn)
+    if (!ctx.rule.pack) {
+        const lines = new Set();
+        for (const i of list) lines.add(ctx.line[i]);
+        value += lines.size * P.lineBonus;
+    }
     const s = value - penalty;
     if (ctx.memo.size > 200000) ctx.memo.clear();
     ctx.memo.set(key, s);
@@ -945,7 +1081,8 @@ function placeScore(ctx, p, list) {
 
 function moveCost(ctx, i, p) {
     if (p === ctx.home[i]) return 0;
-    return ctx.opts.moveCost + (ctx.groupPlace[p] && ctx.estab[p] ? ctx.opts.outsiderCost : 0);
+    return ctx.opts.moveCost + (ctx.groupPlace[p] && ctx.estab[p] ? ctx.opts.outsiderCost : 0)
+        + (ctx.rule.pack ? (ctx.packKeep[i] ? (p === ctx.trade ? ctx.opts.packLeaveCost : 0) : (ctx.groupPlace[p] ? ctx.opts.packLeaveCost / 3 : 0)) : 0);
 }
 
 // a bond is broken when one of the two moved and they live apart
@@ -1132,7 +1269,84 @@ function* localSearch(ctx, st, { swaps = true, pairs = true, only = null } = {})
             apply(st, best);
             improved = true;
         }
+        if (improved || !ctx.rule.pack) continue;
+        const ev = installLeaders(ctx, st);
+        if (ev) {
+            apply(st, ev);
+            improved = true;
+        }
+        yield progress(ctx);
     }
+}
+
+// Packs: the best pairs tried as a habitat's leaders (installLeaders).
+const PACK_PAIRS = 40;
+
+// The changes that make male m and female f the leaders of habitat q (a
+// pack): both move in, and every animal of their sex there that would lead
+// instead (the leader now, or one at least as old) moves to where the new
+// leader came from when that is a habitat, else to the trade centre. null
+// when a staying animal that can't breed (or a pinned one) would still lead.
+function installChanges(ctx, st, m, f, q) {
+    if (!ctx.canGo(m, q) || !ctx.canGo(f, q)) return null;
+    const changes = [];
+    if (st.place[m] !== q) changes.push([m, q]);
+    if (st.place[f] !== q) changes.push([f, q]);
+    for (const [lead, fx] of [[m, ctx.packFixed[q].m], [f, ctx.packFixed[q].f]]) {
+        if (fx.alpha) return null;
+        // the leader now, staying: nobody else leads
+        if (ctx.alpha[lead] && ctx.home[lead] === q) continue;
+        if (fx.n && fx.eldest > ctx.age[lead] - EPS) return null;
+        const from = st.place[lead];
+        for (const i of st.members[q]) {
+            if (i === lead || ctx.sex[i] !== ctx.sex[lead]) continue;
+            if (!(ctx.alpha[i] && ctx.home[i] === q) && ctx.age[i] < ctx.age[lead] - EPS) continue;
+            if (ctx.pinned[i]) return null;
+            changes.push([i, from !== q && ctx.groupPlace[from] && ctx.canGo(i, from) ? from : ctx.trade]);
+        }
+    }
+    return changes.length ? changes : null;
+}
+
+// The best pairs (PACK_PAIRS, by value) made a habitat's leaders at once: the
+// best such change that gains, or null. Single moves can't do it: the one
+// that would lead instead must leave in the same step.
+function installLeaders(ctx, st) {
+    const pairs = [];
+    for (const m of ctx.maleSide) {
+        for (const f of ctx.femaleSide) {
+            if (m === f) continue;
+            const v = ctx.pv(m, f);
+            if (v > 0) pairs.push([v, m, f]);
+        }
+    }
+    pairs.sort((x, y) => y[0] - x[0] || x[1] - y[1] || x[2] - y[2]);
+    let best = null;
+    for (const [, m, f] of pairs.slice(0, PACK_PAIRS)) {
+        if (ctx.budget.out()) break;
+        for (const q of ctx.groupPlaces) {
+            const changes = installChanges(ctx, st, m, f, q);
+            const ev = changes && evaluate(ctx, st, changes);
+            if (ev && ev.d > EPS && (!best || ev.d > best.d)) best = ev;
+        }
+    }
+    return best;
+}
+
+// A pack's kick: one of the best pairs made the leaders of a habitat at
+// random, gain or not. -> the breeders it moved.
+function packKick(ctx, st, rnd) {
+    const pairs = [];
+    for (const m of ctx.maleSide) for (const f of ctx.femaleSide) if (m !== f && ctx.pv(m, f) > 0) pairs.push([ctx.pv(m, f), m, f]);
+    if (!pairs.length || !ctx.groupPlaces.length) return [];
+    pairs.sort((x, y) => y[0] - x[0] || x[1] - y[1] || x[2] - y[2]);
+    const [, m, f] = pairs[Math.floor(rnd() * Math.min(PACK_PAIRS, pairs.length))];
+    const q = ctx.groupPlaces[Math.floor(rnd() * ctx.groupPlaces.length)];
+    const changes = installChanges(ctx, st, m, f, q);
+    const ev = changes && evaluate(ctx, st, changes);
+    if (!ev) return [];
+    apply(st, ev);
+    return Array.from(ev.moved.keys());
 }
 
 function shuffle(list, rnd) {
@@ -1398,6 +1612,8 @@ function reassignScarce(ctx, st, side) {
 // Place each sex at once (the plentiful one, then the scarce one) until
 // that no longer helps.
 function intensify(ctx, st, rounds = 6) {
+    // (a pack has one breeding pair: no sex to place around the other)
+    if (ctx.rule.pack) return false;
     let any = false;
     const sides = plentifulSides(ctx);
     const scarce = sides.length === 1 ? (sides[0] === 'F' ? 'M' : 'F') : null;
@@ -1424,8 +1640,13 @@ function intensify(ctx, st, rounds = 6) {
 
 // A kick: move one or two breeders of the scarce sex (or anyone, now and
 // then) somewhere at random, then place the plentiful sex again around
-// them. -> the breeders the kick moved.
+// them; in packs half the time new leaders for a habitat (packKick). -> the
+// breeders the kick moved.
 function kick(ctx, st, rnd) {
+    if (ctx.rule.pack && rnd() < 0.5) {
+        const moved = packKick(ctx, st, rnd);
+        if (moved.length) return moved;
+    }
     const side = plentifulSides(ctx)[0];
     const scarce = ctx.all.filter(i => ctx.sex[i] !== (side === 'F' ? Sex.Female : Sex.Male));
     const pool = scarce.length && rnd() < 0.8 ? scarce : ctx.all;
@@ -1863,9 +2084,10 @@ function prepare(model, species, info, destinations, assignments, options) {
     const tradeWaiting = all.filter(a => inTrade(a) && isBreeder(a, info) && canMoveA(a)).length;
     const home = new Map(all.map(a => [a.id, a.hab || (a.lt === 'trade' ? TRADE : AWAY)]));
     // non-breeding adults that may leave if the make-up has no place for them
+    // (a pack has no such places: they stay as its members)
     const pinSet = new Set(Array.isArray(opts.pinIds) ? opts.pinIds.map(String) : opts.pinIds instanceof Set ? Array.from(opts.pinIds, String) : []);
     const ruleNow = groupRule(info, opts.ratio);
-    const spares = opts.spareOut === false || !ruleNow || ruleNow.m == null ? [] : all.filter(a => a.hab && !a.juv && !breeders.includes(a)
+    const spares = opts.spareOut === false || !ruleNow || ruleNow.m == null || ruleNow.pack ? [] : all.filter(a => a.hab && !a.juv && !breeders.includes(a)
         && canMoveA(a) && a.lt !== 'trade' && !a.preg && !a.away && !pinSet.has(String(a.id))
         && (a.sex === Sex.Male || a.sex === Sex.Female));
     // where the species may live
@@ -1991,13 +2213,33 @@ function* programmeSteps(model, species, info, destinations, assignments, option
     ctx.fixed = withSpares(kept);
     for (const a of kept) ctx.fixedAdults.set(a.hab, (ctx.fixedAdults.get(a.hab) || 0) + 1);
     const finalState = makeState(ctx, Int32Array.from(place));
+    // packs: who leads before and after (the reasons say so)
+    const leadersOf = s => {
+        const out = new Set();
+        if (!ctx.rule.pack) return out;
+        for (let p = 0; p < ctx.P; p++) {
+            if (ctx.groupPlace[p]) for (const i of leadersIn(packLeaders(ctx, p, s.members[p]))) out.add(i);
+        }
+        return out;
+    };
+    const ledBefore = leadersOf(startState), ledAfter = leadersOf(finalState);
+    const packReason = (i, to, fromTrade) => {
+        if (to !== TRADE && ledAfter.has(i)) return fromTrade ? 'from the trade centre to lead a pack (only the leaders breed)' : 'to lead a pack (only the leaders breed)';
+        const elsewhere = to === TRADE ? '' : ', so it joins another';
+        if (ledBefore.has(i)) return `it led its pack: a better pair leads now (only the leaders breed)${elsewhere}`;
+        const h = ctx.home[i];
+        const would = ctx.groupPlace[h] ? leadersIn(packLeaders(ctx, h, finalState.members[h].concat([i]))) : [];
+        return would.includes(i) ? `it would lead its pack (the eldest leads): a better pair leads instead${elsewhere}` : null;
+    };
     // the plan: every breeder that ends up somewhere else
     const moves = [];
     breeders.forEach((a, i) => {
         if (place[i] === ctx.home[i]) return;
         const to = ctx.placeKeys[place[i]];
         const fromTrade = ctx.home[i] === ctx.trade;
-        moves.push({ id: a.id, to, fromTrade, reason: to === TRADE ? 'no place in a breeding group' : fromTrade ? 'from the trade centre into a breeding group' : 'breeding programme' });
+        const reason = (ctx.rule.pack && packReason(i, to, fromTrade))
+            || (to === TRADE ? 'no place in a breeding group' : fromTrade ? 'from the trade centre into a breeding group' : 'breeding programme');
+        moves.push({ id: a.id, to, fromTrade, reason });
     });
     for (const a of leave) {
         moves.push({ id: a.id, to: TRADE, fromTrade: false, spare: true, reason: a.contra ? 'over the group make-up (on contraception)' : 'over the group make-up (not breeding)' });
@@ -2102,12 +2344,15 @@ export function programmeProblemSig(model, species, info = {}, destinations = nu
 function problemSig(ctx) {
     const rows = ctx.B.map((a, i) => [a.id, ctx.placeKeys[ctx.home[i]], a.sex, ctx.pinned && ctx.pinned[i] ? 1 : 0,
         (a.mates || []).slice().sort().join('+'), (a.bond && a.bond.mate) || '', (a.fert && a.fert.state) || '',
-        a.genes ? ['F', 'I', 'S', 'L'].map(k => a.genes[k] || '').join('/') : ''].join(','));
+        a.genes ? ['F', 'I', 'S', 'L'].map(k => a.genes[k] || '').join('/') : ''].join(',')
+        // a pack: who leads (ages keep their order as they grow)
+        + (ctx.rule.pack ? `,${a.alpha ? 'lead' : ''}` : ''));
     rows.sort();
     const room = (k, p) => (ctx.cap[p] == null ? '' : habitatCapacity(ctx.info, k, ctx.opts.defaultCapacity, true));
-    const places = ctx.placeKeys.map((k, p) => `${k}:${room(k, p)}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}`).sort();
+    const leads = p => (ctx.packFixed ? `:${ctx.packFixed[p].m.alpha ? 'm' : ''}${ctx.packFixed[p].f.alpha ? 'f' : ''}` : '');
+    const places = ctx.placeKeys.map((k, p) => `${k}:${room(k, p)}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}${leads(p)}`).sort();
     const r = ctx.rule;
-    const facts = [ratioKey(r), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
+    const facts = [ratioKey(r) + (r.pack ? ' pack' : ''), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
         + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
@@ -2167,7 +2412,25 @@ function programmeStats(ctx, place) {
         const list = st.members[p];
         if (!list.length) continue;
         if (!ctx.groupPlace[p]) {
-            idle += list.length;
+            // (a pack's: sent away so a better pair leads, not short of a partner)
+            if (!ctx.rule.pack) idle += list.length;
+            continue;
+        }
+        if (ctx.rule.pack) {
+            // a pack: its leaders breed (or are related); the other adults
+            // are pack members, not idle breeders
+            const pair = breedingPairs(ctx, list, p)[0];
+            if (pair && pair[0] < 0) related++;
+            if (pair && pair[0] >= 0) {
+                pairs++;
+                quality += youngQuality(ctx.B[pair[1]], ctx.B[pair[2]]);
+                chance += conceptionChance(ctx.B[pair[1]], ctx.B[pair[2]], ctx.info);
+                breedingFemales.add(pair[2]);
+            }
+            else {
+                const L = packLeaders(ctx, p, list);
+                idle += (L.m.some(i => i >= 0) ? 1 : 0) + (L.f.some(i => i >= 0) ? 1 : 0);
+            }
             continue;
         }
         related += relatedCount(ctx, list);
@@ -2192,18 +2455,22 @@ function programmeStats(ctx, place) {
     };
 }
 
-// Each place's breeders, with its room and the make-up's target.
+// Each place's breeders, with its room and the make-up's target (a pack:
+// also its leaders, the breeders that lead it: ids).
 function groupsOf(ctx, place) {
     const map = new Map();
     for (let i = 0; i < ctx.n; i++) {
         const k = ctx.placeKeys[place[i]];
         if (!map.has(k)) map.set(k, []);
-        map.get(k).push(ctx.B[i]);
+        map.get(k).push(i);
     }
-    return Array.from(map.entries()).map(([hab, animals]) => {
+    return Array.from(map.entries()).map(([hab, list]) => {
+        const animals = list.map(i => ctx.B[i]);
         const capacity = ctx.capacity.has(hab) ? ctx.capacity.get(hab) : null;
         const staying = ctx.fixedAdults.get(hab) || 0;
-        return {
+        const p = ctx.placeOf.get(hab);
+        const L = ctx.rule.pack && ctx.groupPlace[p] ? packLeaders(ctx, p, list) : null;
+        return Object.assign({
             hab,
             animals,
             males: animals.filter(a => a.sex === Sex.Male).length,
@@ -2211,7 +2478,7 @@ function groupsOf(ctx, place) {
             capacity,
             staying,
             target: hab === TRADE || capacity == null ? null : groupTarget(ctx.rule, capacity - staying),
-        };
+        }, L ? { leaders: leadersIn(L).map(i => ctx.B[i].id) } : {});
     });
 }
 

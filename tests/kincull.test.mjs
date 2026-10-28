@@ -422,3 +422,43 @@ test('the pair setting Never: the gene rules and the game\'s most per sex take t
     assert.deepEqual(never.moves.map(x => [x.id, !!x.limit]), [['a4', true], ['a5', true]]);
     assert.deepEqual(cullPlan(lim, 'Lemur', one, { options: { fill: 1 } }).moves.map(x => x.id), ['a4'], 'Normal: he goes alone');
 });
+
+// Packs (only the leader male and female mate: African wild dog...): the
+// breeding core is the leaders, relatives lower no keep value (only the
+// leaders mate), and one that does not lead goes before it is too old to
+// breed, while it can still be traded (the developer, 2026-10-28: elderly
+// wild dogs filled the trade centre, where they can only be rehomed).
+const PACK = room => ({ social: { max: room }, mating: 'monogamy', leaderMale: true, leaderFemale: true });
+
+test('packs: the leaders are the breeding core; relatives in the pack count for nothing', () => {
+    n = 0;
+    // leaders a1 (weak genes) and a2; their two grown young (related to
+    // both, better genes); a weaker unrelated female a5. Room 4: one goes
+    const animals = [an(M, '1', 2, { alpha: true, age: 8 }), an(F, '1', 3, { alpha: true, age: 7 }),
+        an(M, '1', 5, { par: ['g1', 'g2'], age: 3 }), an(F, '1', 5, { par: ['g1', 'g2'], age: 3 }), an(F, '1', 4, { age: 4 })];
+    const plan = cullPlan(model(animals), 'Lemur', PACK(4), { options: { fill: 1, keepBest: 0 } });
+    assert.deepEqual(plan.moves.map(m => m.id), ['a5'], 'the weakest pack member goes, not the leaders\' young');
+    const h = plan.habitats[0];
+    assert.equal(h.keep.find(k => k.id === 'a1').why, 'leads its pack (only the leaders breed)');
+    assert.equal(h.keep.find(k => k.id === 'a2').why, 'leads its pack (only the leaders breed)');
+    // without a leader flag the eldest leads
+    n = 0;
+    const eldest = [an(M, '1', 2, { age: 8 }), an(M, '1', 6, { age: 3 }), an(F, '1', 3, { age: 7 }), an(F, '1', 6, { age: 3 }), an(F, '1', 1, { age: 2 })];
+    const e = cullPlan(model(eldest), 'Lemur', PACK(4), { options: { fill: 1, keepBest: 0 } });
+    assert.equal(e.habitats[0].keep.find(k => k.id === 'a1').why, 'leads its pack (only the leaders breed)');
+    assert.equal(e.habitats[0].keep.find(k => k.id === 'a3').why, 'leads its pack (only the leaders breed)');
+});
+
+test('packs: one that does not lead goes before it is too old to breed; the leaders stay', () => {
+    n = 0;
+    // fertile until 15: a3 (13.8) has 1.2 years left, a4 (12) has 3
+    const animals = [an(M, '1', 4, { alpha: true, age: 13.8 }), an(F, '1', 4, { alpha: true, age: 6 }),
+        an(M, '1', 5, { age: 13.8 }), an(F, '1', 5, { age: 12 }), an(M, '1', 3, { juv: true, age: 1 })];
+    const plan = cullPlan(model(animals), 'Lemur', PACK(9), { options: { fill: 1 } });
+    assert.deepEqual(plan.moves.map(m => m.id), ['a3'], 'room for all, but a3 goes');
+    assert.match(plan.moves[0].reason, /^fertile for about 1 year more, and it does not lead its pack: it goes while it can still be traded$/);
+    assert.deepEqual(cullPlan(model(animals), 'Lemur', PACK(9), { options: { fill: 1, retireYears: 0 } }).moves, [], 'off');
+    assert.deepEqual(cullPlan(model(animals), 'Lemur', PACK(9), { options: { fill: 1, keepIds: new Set(['a3']) } }).moves, [], "the player's keep stays");
+    // not a pack: nobody
+    assert.deepEqual(cullPlan(model(animals), 'Lemur', { social: { max: 9 }, mating: 'monogamy' }, { options: { fill: 1 } }).moves, []);
+});

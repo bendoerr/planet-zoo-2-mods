@@ -89,6 +89,8 @@ export function normalizeSnapshot(raw) {
         contra: !!a.contra,
         infertile: !!a.infertile,
         preg: !!a.preg,
+        // leads its group (the game's bAlpha; kinprogramme.js packLeaders)
+        alpha: !!a.alpha,
         // at the vet, in a quarantine or carried, but assigned to `hab`
         away: a.away ? String(a.away) : '',
         alive: a.alive !== false,

@@ -222,6 +222,14 @@ Run all of these before installing a build.
   mates" (1:* before the per-sex limits, monogamy and the player's choice kept, two males split) and
   "only the leader female mates" (*:1, `groupTarget('*:1')` = 1 + 1, one female with one male in every
   habitat, the waiting males left out); `kincull.test.mjs` "one breeding female (*:1)" (`maleRoom`).
+- Packs (2026-10-28): `kinprogramme.test.mjs` "packs: …" (`rule.pack`, the eldest or the staying
+  alpha leads, a strong non-leader made leader with both older males out at once (`exactLimit` 0
+  and 20000), leaders crossed between packs, the leaders' young no related pair, a non-breeding
+  leader blocks); `kincull.test.mjs` "packs: …" (the leaders are the core, relatives count for
+  nothing, a non-leader with 1.2 years left goes, keeps and `retireYears: 0` hold it);
+  `kinauto.test.mjs` "Auto mode: packs …" (Thin out's retirement, the best pairs lead, a moved
+  leader loses `alpha`) and "a pack leader leaves once its new leader has arrived"
+  (`waitForNewLeaders`, `waitText`, `waitsReady` still / ready / dropped).
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is

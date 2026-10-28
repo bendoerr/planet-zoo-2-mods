@@ -147,6 +147,7 @@ const PROG_SEARCH = { maxEvaluations: 3000000, timeBudgetMs: 6000 };
 const RATIO_STORE = 'kinRatio';
 const RATIO_SOURCE_WORDS = {
     yours: 'your choice',
+    leaders: "the game's mating rules (only the leaders mate)",
     game: "the game's most per sex",
     groups: "the game's social groups",
     mating: 'the mating system',
@@ -1955,6 +1956,7 @@ function makeupWords(rule) {
     const key = ratioKey(rule);
     let w;
     if (key === 'mixed') w = rule.source === 'none' ? 'Unknown: mixed groups' : 'Mixed groups';
+    else if (rule.pack) w = 'Packs: only the leader pair breeds';
     else if (key === '1:*') w = 'Harem: one breeding male per habitat';
     else if (key === '*:1') w = 'One breeding female per habitat';
     else if (key === '1:1') w = 'Pairs: one partner each';
@@ -1970,7 +1972,8 @@ function programmeKey(p) {
 }
 
 // What the programme depends on in the zoo: the species' animals (where they
-// are, whether they breed or move, their mates) and its habitat assignments.
+// are, whether they breed or move, their mates, who leads) and its habitat
+// assignments.
 // A scan that changes nothing of it (another species, ages creeping up)
 // keeps the plan, so a big species is not searched again and again.
 function programmeSig(model, species) {
@@ -1978,7 +1981,7 @@ function programmeSig(model, species) {
     for (const a of model.animals.values()) {
         if (a.species !== species || a.exhibit) continue;
         rows.push([a.id, a.hab || '', a.lt || '', a.moving ? 1 : 0, a.sex, a.juv ? 1 : 0, a.contra ? 1 : 0, a.infertile ? 1 : 0,
-            a.alive === false ? 0 : 1, (a.fert && a.fert.state) || '', (a.mates || []).join('+'), (a.par || []).join('+'), a.preg ? 1 : 0].join(','));
+            a.alive === false ? 0 : 1, (a.fert && a.fert.state) || '', (a.mates || []).join('+'), (a.par || []).join('+'), a.preg ? 1 : 0, a.alpha ? 1 : 0].join(','));
     }
     rows.sort();
     const assigned = [];

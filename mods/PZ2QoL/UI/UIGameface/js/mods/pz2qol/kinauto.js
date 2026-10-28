@@ -25,7 +25,7 @@ import { cpuOf, deepJob } from '/js/mods/pz2qol/kinprogdeep.js';
 import { getPref } from '/js/mods/pz2qol/prefs.js';
 import { TUNE_PREF } from '/js/mods/pz2qol/kinprogtune.js';
 import {
-    AUTO_LIMITS, calendarMonths, finishAutoRun, prepareAutoRun, programmeOptionsFor, speciesFingerprints, waitsReady,
+    AUTO_LIMITS, calendarMonths, finishAutoRun, prepareAutoRun, programmeOptionsFor, speciesFingerprints, waitText, waitsReady,
 } from '/js/mods/pz2qol/kinautocore.js';
 import {
     emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger, noteModMove, noteReversal,
@@ -210,7 +210,9 @@ export function getAutopilotState() {
 // { settings, status, why, left (months of game time to the next run, null
 //   before the calendar is read), rate (months per real ms, 0 paused),
 //   pausedMs, queued (place in the queue, 1 = next), last, plan, log,
-//   waits: [{ id, hab, names }] (moves waiting until a male has left) }
+//   waits: [{ id, hab, names, kind, at, text }] (moves waiting until a male
+//   has left, or a pack's leader until its new leader is there; text: what
+//   for) }
 //   status: off | stopped | paused | acting | planning | queued | waiting | due
 export function getSpeciesAuto(species) {
     const l = A.ledger && A.ledgerEpoch === userDataEpoch() ? A.ledger : null;
@@ -218,7 +220,7 @@ export function getSpeciesAuto(species) {
     const left = A.cal ? Math.max(0, (s.next || 0) - A.cal.months) : null;
     const out = { settings: s, status: 'off', why: '', left, rate: gameRate(), pausedMs: 0, last: s.last || null, plan: A.lastPlan.get(species) || null, log: [], waits: [] };
     const w = A.waits.get(species);
-    if (w) out.waits = w.items.map(x => ({ id: x.id, hab: x.hab, names: x.names.slice() }));
+    if (w) out.waits = w.items.map(x => ({ id: x.id, hab: x.hab, names: x.names.slice(), kind: x.kind || 'male', at: x.at || x.hab, text: waitText(x) }));
     if (l) out.log = l.log.filter(e => e.sp === species);
     if (!s.on) return out;
     const paused = A.pausedUntil.get(species);
@@ -641,10 +643,12 @@ function tick() {
 }
 
 // Moves a run left waiting until a male has left their habitat
-// (kinautocore.js waitForLeavingMales): run as a short run of their own as
-// soon as he has gone (and none of the species is still on the move);
-// dropped, with a line in the panel, when he stayed or the waiting animal
-// was moved or marked "hands off". The species' next run plans afresh.
+// (kinautocore.js waitForLeavingMales), or a pack's leader until its new
+// leader is there (waitForNewLeaders): run as a short run of their own as
+// soon as that is so (and none of the species is still on the move);
+// dropped, with a line in the panel, when one stayed or did not arrive, or
+// the waiting animal was moved or marked "hands off". The species' next run
+// plans afresh.
 function runWaits() {
     const l = A.ledger;
     for (const [species, w] of A.waits) {
@@ -667,7 +671,7 @@ function runWaits() {
         }
         w.items = r.still;
         if (!w.items.length) A.waits.delete(species);
-        const moves = ready.map(x => ({ id: x.id, to: x.to, reason: `${x.reason}; after ${x.names.join(' and ')} left`, stage: x.stage, reversal: x.reversal }));
+        const moves = ready.map(x => ({ id: x.id, to: x.to, reason: x.kind === 'leader' ? `${x.reason}; once ${waitText(x)}` : `${x.reason}; after ${x.names.join(' and ')} left`, stage: x.stage, reversal: x.reversal }));
         startRun([{ species, moves, waits: [], notes: [], fp: A.prints.get(species), session: A.session, destinations: w.destinations, followUp: true }], 'auto');
         return true;
     }
@@ -679,6 +683,7 @@ function noteDropped(species, dropped) {
     if (!s || !s.last) return;
     const lines = dropped.map(({ wait, why }) => {
         const a = A.model && A.model.animals.get(String(wait.id));
+        if (wait.kind === 'leader') return `${a ? a.name : 'A leader'} still leads its pack (it was to leave once ${waitText(wait).replace(/\bhas\b/g, 'had').replace(/\bhave\b/g, 'had')}): ${why}.`;
         return `${a ? a.name : 'A male'} stayed where he was (he was to follow once ${wait.names.join(' and ')} had left): ${why}.`;
     });
     s.last.notes = lines.concat(s.last.notes || []).slice(0, 3).map(t => String(t).slice(0, 160));

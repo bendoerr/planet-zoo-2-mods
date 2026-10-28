@@ -79,15 +79,16 @@ function destName(model, to, destinations) {
 // destination habitat (or the trade centre, outside any habitat). A move
 // breaks the moved animal's pair bond, and its mate's: neither holds a
 // related pair apart any more (whether a bond comes back when the mate
-// returns is not known, so it does not).
+// returns is not known, so it does not). A moved animal no longer leads
+// (it joins its new group as a newcomer).
 export function plannedSnapshot(model, plan, destinations) {
     const snap = model.snapshot;
     const moves = new Map((plan || []).map(m => [String(m.id), m]));
     const animals = snap.animals.map(a => {
         const m = moves.get(a.id);
         if (!m) return a.bond && moves.has(a.bond.mate) ? Object.assign({}, a, { bond: null }) : a;
-        if (m.to === TRADE) return Object.assign({}, a, { hab: '', loc: destName(model, TRADE, destinations), lt: 'trade', mates: [], bond: null });
-        return Object.assign({}, a, { hab: String(m.to), loc: destName(model, m.to, destinations), lt: 'habitat', mates: [], bond: null });
+        if (m.to === TRADE) return Object.assign({}, a, { hab: '', loc: destName(model, TRADE, destinations), lt: 'trade', mates: [], bond: null, alpha: false });
+        return Object.assign({}, a, { hab: String(m.to), loc: destName(model, m.to, destinations), lt: 'habitat', mates: [], bond: null, alpha: false });
     });
     const habitats = snap.habitats.slice();
     for (const m of moves.values()) {

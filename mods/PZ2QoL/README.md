@@ -713,6 +713,11 @@ which male and female in the same habitat are related and would inbreed. Collect
   target or over its room. On Never the gene rules and the game's most per sex take the mate along
   too; a mate that can't go (hands off, pregnant, the breeding core) keeps both. Your own sends
   still split a pair.
+  **Packs** (African wild dog, grey wolf, small-clawed otter, Eurasian beaver, siamang, golden lion
+  tamarin: the game lets only a pack's leader male and leader female breed): the breeding core is
+  the two leaders, relatives in a pack count against no one (only the leaders mate), and an adult
+  that does not lead goes once it has under 18 months of breeding left, full or not, so it reaches
+  the trade centre while it can still be traded (an elderly one can only be rehomed).
   **One male per group:** where the game itself allows only one adult male in a breeding group
   (Plains zebra and other harem species), a second adult male goes even when the habitat has room;
   an all-male (bachelor) group is left alone unless the game limits it too.
@@ -731,6 +736,15 @@ which male and female in the same habitat are related and would inbreed. Collect
   habitat) where only the leader male mates. Where only the leader female mates (meerkats, spotted
   hyenas), each habitat gets one breeding female with one male: a female has one litter however many
   males live with her, so extra males go to a habitat that needs one, or to the trade centre.
+  Where only the leader male and the leader female mate (packs: African wild dogs and the others
+  above), each habitat has one breeding pair, its leaders: the leader now, or the eldest of that
+  sex there once the leader leaves. The programme makes the best unrelated pairs the leaders and
+  moves out the older ones that would lead instead, to a pack where they don't (else the trade
+  centre); everyone else stays as a pack member. A strong animal that only follows breeds nothing,
+  so it gets a pack to lead where that gains. Until now a pack was planned as many 1:1 pairs: on a
+  simulation of Cradle #2's 31 wild dogs (15 years, three runs) the herd's average genes rose from
+  69% to 76-82% instead of staying at 71-74%, with about 60% more litters and 2-6 elderly dogs sent
+  to the trade centre instead of 22-25.
   If the game's animal data can't be read, the programme says so under its settings, with the
   reason; the make-up then comes from the game's social groups (springbok: 1 ♂ : 2 ♀, so two
   males with four females). Choose it with the **Make-up** arrows (1 ♂ : any ♀ for a harem).
@@ -853,6 +867,10 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
   trading places: one goes first, the other follows once he has left. The panel shows who is
   waiting; if the first male's move never happens, the other stays where he is and the panel says
   so.
+- **New pack leaders:** when a pack's leader leaves, the eldest of its sex still there takes over.
+  So a leader Auto mode moves out waits until the new leader has arrived and the older ones it
+  moves out have gone. The panel shows who is waiting; if the newcomer never arrives, the leader
+  stays and the panel says so.
 - **Old leaders:** where the game lets only a group's leader breed and the eldest leads (African
   wild dogs: only the leading pair breeds), an adult too old to breed blocks its whole group. Auto
   mode sends it to the trade centre (with Thin out on or off) so a younger one leads, then fills the

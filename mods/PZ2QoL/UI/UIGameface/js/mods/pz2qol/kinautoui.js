@@ -303,10 +303,12 @@ function panelEl(model, species, H) {
                 H.renderAll();
             }, 'A small notice after each run that moved animals, and if Auto mode stops for a species. Off: it works quietly; the panel and the log show everything. For all zoos.')),
         para('Off by default. Either way nothing waits for a click.', 'soft')));
-    // a male the last run brings in once the male leaving that habitat has gone
+    // a male the last run brings in once the male leaving that habitat has
+    // gone; a pack's leader that leaves once its new leader is there
     const waits = (sa.waits || []).map(w => {
         const a = model && model.animals.get(String(w.id));
-        return para(`Waiting: ${a ? a.name : 'a male'} ♂ moves to ${model ? H.placeName(model, w.hab) : 'his new habitat'} once ${w.names.join(' and ')} ${w.names.length === 1 ? 'has' : 'have'} left it (one adult male per group).`, 'soft');
+        if (w.kind === 'leader') return para(`Waiting: ${a ? a.name : 'a leader'} leaves ${model ? H.placeName(model, w.at) : 'its pack'} once ${w.text} (the eldest there takes over its pack).`, 'soft');
+        return para(`Waiting: ${a ? a.name : 'a male'} ♂ moves to ${model ? H.placeName(model, w.hab) : 'his new habitat'} once ${w.text} it (one adult male per group).`, 'soft');
     });
     c.appendChild(section('Last runs', ...waits, ...notes.map(t => para(t, 'warn')), runsEl(sa, H)));
     wrap.appendChild(box.wrap);

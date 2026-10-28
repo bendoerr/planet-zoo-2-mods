@@ -8,7 +8,7 @@ import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol
 import { PROGRAMME_STEPS, planProgramme } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import {
     AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, leaderBlockers, locksOf, normalizeSpecies,
-    planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitsReady,
+    planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitText, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
     LEDGER_VERSION, emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger,
@@ -395,6 +395,55 @@ test('an old leader that blocks its group goes; a group of old ones only stays',
     assert.ok(!run({ pinned: ['o'] }).moves.some(m => m.id === 'o'), 'hands off stays');
     const off = planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(HABS), assignments: null, settings: { thin: false, trade: false }, view: {}, tradeFree: null });
     assert.ok(!off.moves.some(m => m.id === 'o'), 'no trade centre: stays');
+});
+
+// Packs (2026-10-28, Cradle #2's wild dogs: the leaders' young would average
+// 55-68 in a herd of 69, strong dogs aged out as pack members, and elderly
+// ones filled the trade centre): Thin out sends one that does not lead
+// before it is too old to breed, and the programme makes the best pairs
+// the leaders.
+test('Auto mode: packs get their best pairs as leaders; one that does not lead goes while it can be traded', () => {
+    const PACK = Object.assign(INFO(HABS), { mating: 'monogamy', leaderMale: true, leaderFemale: true });
+    // each pack's leaders share their strands (half the young's Fertility
+    // and Immunity); s is strong and leads nowhere; r (14, fertile until 15)
+    // does not lead
+    const model = buildKinModel(snap([
+        an('mA', M, '1', [], { age: 12, alpha: true, genes: G('A', 'B') }), an('fA', F, '1', [], { age: 8, alpha: true, genes: G('A', 'B') }),
+        an('s', M, '1', [], { age: 5, genes: G('E', 'F') }), an('r', F, '1', [], { age: 14, genes: G('G', 'H') }),
+        an('mB', M, '2', [], { age: 9, alpha: true, genes: G('C', 'D') }), an('fB', F, '2', [], { age: 7, alpha: true, genes: G('C', 'D') }),
+    ]));
+    const r = planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(HABS), assignments: null, settings: { thin: true, fill: 'full' }, view: {}, tradeFree: null });
+    const rr = r.moves.find(m => m.id === 'r');
+    assert.ok(rr && rr.to === TRADE && rr.stage === 'thin' && /does not lead its pack: it goes while it can still be traded/.test(rr.reason), JSON.stringify(r.moves));
+    assert.equal(r.programme.before.youngQuality, 50);
+    assert.equal(r.programme.after.youngQuality, 75, `every pack led by a pair with new strands: ${JSON.stringify(r.moves)}`);
+    assert.equal(r.programme.after.breedingPairs, 2);
+    // a moved leader no longer leads where it goes (a newcomer)
+    const moved = simulatePlan(model, [{ id: 'mA', to: '2' }], DEST(HABS));
+    assert.equal(moved.animals.get('mA').alpha, false);
+    assert.equal(moved.animals.get('fA').alpha, true);
+});
+
+// The eldest there is promoted when a pack's leader leaves, and keepers
+// carry each move in their own time: the leader waits until the new one has
+// arrived, or the young male still there would lead.
+test('Auto mode: a pack leader leaves once its new leader has arrived', () => {
+    // one pack, the strong male waiting at the trade centre
+    const PACK = Object.assign(INFO(['1']), { mating: 'monogamy', leaderMale: true, leaderFemale: true });
+    const animals = [an('mA', M, '1', [], { age: 9, alpha: true, genes: G('A', 'B') }), an('fA', F, '1', [], { age: 6, alpha: true, genes: G('A', 'B') }),
+        an('k', M, '1', [], { age: 3.5, genes: G('A', 'B') }), an('s', M, '', [], { age: 5, genes: G('E', 'F') })];
+    const model = buildKinModel(snap(animals, ['1']));
+    const r = planAutoRun({ model, species: 'Lion', info: PACK, destinations: DEST(['1']), assignments: null, settings: { thin: false }, view: {}, tradeFree: null });
+    assert.ok(r.moves.some(m => m.id === 's' && m.to === '1'), JSON.stringify(r));
+    assert.equal(r.waits.length, 1, JSON.stringify(r.waits));
+    const w = r.waits[0];
+    assert.deepEqual([w.id, w.kind, w.at, w.arrive], ['mA', 'leader', '1', ['s']]);
+    assert.equal(waitText(w), 'Ns has arrived');
+    assert.ok(!r.moves.some(m => m.id === 'mA'), 'not in this run');
+    const at = (over) => buildKinModel(snap(animals.map(a => (a.id === 's' ? Object.assign({}, a, over) : a)), ['1']));
+    assert.deepEqual(waitsReady(at({ moving: true }), r.waits).still.map(x => x.id), ['mA'], 'on its way');
+    assert.deepEqual(waitsReady(at({ hab: '1', lt: 'habitat' }), r.waits).ready.map(x => x.id), ['mA'], 'arrived');
+    assert.match(waitsReady(model, r.waits).dropped[0].why, /Ns did not arrive/);
 });
 
 test('runs settle: a zoo left alone needs no more moves after a few runs, and nothing goes back and forth', () => {

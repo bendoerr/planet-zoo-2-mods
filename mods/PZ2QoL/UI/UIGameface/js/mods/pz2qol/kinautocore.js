@@ -280,6 +280,7 @@ export function finishAutoRun(input, prep, programme) {
     if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
     keepGameLimits(input, out);
     waitForLeavingMales(input, out);
+    waitForNewLeaders(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
     overLimitNotes(input, out);
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
@@ -476,10 +477,82 @@ function waitForLeavingMales(input, out) {
     }
 }
 
-// The run's waiting moves (waitForLeavingMales) on the zoo as it is now:
-// ready once every male it waits for has left the habitat; dropped when one
-// of them is still there and no longer on the move (his move did not
-// happen), or the waiting animal has gone or moved meanwhile.
+// Packs (rule.pack: only the leaders mate, and the eldest there is promoted
+// when a leader leaves): a leader the run moves out of its habitat waits
+// until the run's newcomers of its sex have arrived there and the others of
+// its sex leaving it have gone, so the one promoted is the one the plan made
+// leader. Keepers carry each move in their own time: with the leader gone
+// first, the eldest still there would lead, perhaps a young one (2026-10-28,
+// Cradle #2's wild dogs). Two leaders trading packs: the first of them in
+// the run goes now. The waits carry kind 'leader', at (its habitat) and
+// arrive (the newcomers).
+function waitForNewLeaders(input, out) {
+    const { model, species } = input;
+    if (!model || !out.moves.length) return;
+    const rule = groupRule(input.info || {}, input.ratio || 'auto');
+    if (!rule.pack) return;
+    const grown = a => !!a && a.species === species && !a.juv && !a.exhibit && a.alive !== false;
+    const deps = new Map();
+    for (const m of out.moves) {
+        const a = model.animals.get(String(m.id));
+        if (!grown(a) || !a.alpha || !a.hab || String(m.to) === a.hab) continue;
+        const arrive = [], after = [];
+        for (const x of out.moves) {
+            const b = model.animals.get(String(x.id));
+            if (!grown(b) || b === a || b.sex !== a.sex) continue;
+            if (String(x.to) === a.hab && b.hab !== a.hab) arrive.push(String(b.id));
+            else if (b.hab === a.hab && String(x.to) !== a.hab) after.push(String(b.id));
+        }
+        if (arrive.length || after.length) deps.set(String(a.id), { arrive, after, at: a.hab });
+    }
+    if (!deps.size) return;
+    // a wait that leads back to itself (leaders trading packs): the first of
+    // them in the run goes now
+    const waiting = new Set(deps.keys());
+    const reaches = (from, target, seen) => {
+        const d = deps.get(from);
+        for (const x of d ? d.arrive.concat(d.after) : []) {
+            if (x === target) return true;
+            if (!waiting.has(x) || seen.has(x)) continue;
+            seen.add(x);
+            if (reaches(x, target, seen)) return true;
+        }
+        return false;
+    };
+    for (const m of out.moves) {
+        const id = String(m.id);
+        if (waiting.has(id) && reaches(id, id, new Set())) waiting.delete(id);
+    }
+    const nameOf = id => model.animals.get(id).name;
+    for (let i = 0; i < out.moves.length; i++) {
+        const m = out.moves[i];
+        const id = String(m.id);
+        if (!waiting.has(id)) continue;
+        const a = model.animals.get(id);
+        const d = deps.get(id);
+        out.waits.push(Object.assign({}, m, { kind: 'leader', from: homeOf(a), hab: String(m.to), at: d.at, arrive: d.arrive, after: d.after,
+            names: d.arrive.concat(d.after).map(nameOf), arriveNames: d.arrive.map(nameOf), afterNames: d.after.map(nameOf) }));
+        out.moves.splice(i--, 1);
+    }
+}
+
+// A waiting move in words: what it waits for ('Kito and Zuri have left',
+// 'Abeo has arrived and Kito has left').
+export function waitText(w) {
+    const list = names => names.join(' and ') + (names.length === 1 ? ' has' : ' have');
+    if (w.kind !== 'leader') return `${list(w.names)} left`;
+    const parts = [];
+    if (w.arriveNames.length) parts.push(`${list(w.arriveNames)} arrived`);
+    if (w.afterNames.length) parts.push(`${list(w.afterNames)} left`);
+    return parts.join(' and ');
+}
+
+// The run's waiting moves (waitForLeavingMales, waitForNewLeaders) on the
+// zoo as it is now: ready once every animal it waits for has left the
+// habitat (`at`, else its destination) and every newcomer it waits for
+// (arrive) is there; dropped when one of them is still there, or a newcomer
+// is elsewhere, and no longer on the move (that move did not happen), or the
+// waiting animal has gone or moved meanwhile.
 // -> { ready: [wait], still: [wait], dropped: [{ wait, why }] }
 export function waitsReady(model, waits) {
     const out = { ready: [], still: [], dropped: [] };
@@ -493,15 +566,23 @@ export function waitsReady(model, waits) {
             out.dropped.push({ wait: w, why: 'it was moved meanwhile' });
             continue;
         }
-        let stayed = null, onTheWay = false;
+        const at = w.at || w.hab;
+        let stayed = null, missing = null, onTheWay = false;
         for (const id of w.after || []) {
             const b = model.animals.get(String(id));
             // gone from the habitat: sold, carried off, or arrived elsewhere
-            if (!b || b.alive === false || b.hab !== w.hab) continue;
+            if (!b || b.alive === false || b.hab !== at) continue;
             if (b.moving) onTheWay = true;
             else stayed = b;
         }
+        for (const id of w.arrive || []) {
+            const b = model.animals.get(String(id));
+            if (!b || b.alive === false) missing = missing || { name: 'a newcomer' };
+            else if (b.moving) onTheWay = true;
+            else if (b.hab !== at) missing = missing || b;
+        }
         if (stayed) out.dropped.push({ wait: w, why: `${stayed.name} did not leave` });
+        else if (missing) out.dropped.push({ wait: w, why: `${missing.name} did not arrive` });
         else if (onTheWay) out.still.push(w);
         else out.ready.push(w);
     }
@@ -530,7 +611,7 @@ export function speciesFingerprints(model) {
         if (!a.species || a.exhibit) continue;
         if (!parts.has(a.species)) parts.set(a.species, []);
         const f = a.fert ? a.fert.state : '';
-        parts.get(a.species).push([a.guid || a.id, a.hab, a.lt, a.moving ? 1 : 0, a.juv ? 1 : 0, a.contra ? 1 : 0, a.infertile ? 1 : 0, a.preg ? 1 : 0, f, a.bond ? a.bond.mate : '', a.alive === false ? 0 : 1].join(':'));
+        parts.get(a.species).push([a.guid || a.id, a.hab, a.lt, a.moving ? 1 : 0, a.juv ? 1 : 0, a.contra ? 1 : 0, a.infertile ? 1 : 0, a.preg ? 1 : 0, f, a.bond ? a.bond.mate : '', a.alive === false ? 0 : 1, a.alpha ? 1 : 0].join(':'));
     }
     for (const [sp, list] of parts) out.set(sp, list.sort().join('|'));
     return out;
