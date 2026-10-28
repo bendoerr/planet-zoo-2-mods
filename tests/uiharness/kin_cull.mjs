@@ -109,8 +109,9 @@ async function seedLemurs(page) {
         window.__kcMoves = await import('/js/mods/pz2qol/kinmoves.js');
         const ok = { ok: true };
         const DEST = { bySpecies: { Lemur: Object.fromEntries(habs.map(([id]) => [id, ok])) }, habitats: [], tradeCentre: { id: '501', name: 'Trade Centre' } };
-        // 500 land per animal (the game's requirement covers the young too):
-        // Grove and Ridge have room for 6 adults, the rest 10 (social max 8)
+        // 500 land per animal (the game's requirement covers the young too,
+        // and they keep their places): Grove and Ridge have room for 6 adults
+        // besides their young, the rest 10 (social max 8)
         const adults = { 9030: 9, 9031: 10, 9032: 6, 9033: 8, 9034: 7 };
         const youngIn = { 9030: 3, 9031: 2, 9032: 6, 9033: 4, 9034: 5 };
         const INFO = {
@@ -118,7 +119,7 @@ async function seedLemurs(page) {
             fertilityAges: { maturity: 2, infertility: 15 },
             mating: 'polygyny',
             habitats: Object.fromEntries(habs.map(([id]) => [id, {
-                available: { land: id === '9030' || id === '9031' ? 3000 : 5000 },
+                available: { land: 500 * ((id === '9030' || id === '9031' ? 6 : 10) + youngIn[id]) },
                 required: { land: 500 * (adults[id] + youngIn[id]) },
                 adults: adults[id],
             }])),
