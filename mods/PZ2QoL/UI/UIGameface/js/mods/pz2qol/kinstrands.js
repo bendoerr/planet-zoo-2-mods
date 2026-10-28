@@ -29,6 +29,7 @@
 // 2026-10-21: the ceiling goal lowered the herd's mean by 2-8 points over 20
 // years while it was 23-35 points below).
 import { Sex, geneStrands, offspringTwelfths, ownGrades, strandGood } from './kincore.js';
+import { speciesId } from './speciesnamecore.js';
 
 // 'ceiling' waits while the herd's mean is more than this below the ceiling
 export const CEILING_WITHIN = 0.05;
@@ -253,4 +254,124 @@ export function youngUpside(m, f) {
         want -= take;
     }
     return sum / quarter / (12 * d.genes);
+}
+
+// ----------------------------------------- better strands elsewhere
+//
+// Animals outside the herd (on the market, in Animal Storage, waiting at the
+// trade centre) that carry a better Size or Longevity strand than any animal
+// in the herd's habitats: the only way to raise its ceiling (the developer,
+// 2026-10-28: no wild dog had a Longevity strand above 5/6, and the market
+// shows only the grades). strandmark.js keeps the herd's best for the hub,
+// where the park is not loaded; badges.js and kinboard.js show the marks.
+
+// The herd's best strands per species: the animals in a habitat (not
+// waiting at the trade centre, not stored) that are not past breeding,
+// juveniles included. -> Map(species id -> { S, L, n }) (0..6; species
+// without gene data left out).
+export function herdBest(model) {
+    const out = new Map();
+    if (!model || !model.animals) return out;
+    const ages = new Map();
+    for (const a of model.animals.values()) {
+        if (!a.species || a.exhibit || a.alive === false || a.stored || !a.hab || a.lt === 'trade') continue;
+        if (!ages.has(a.species)) ages.set(a.species, withAges(model, a.species, {}));
+        if (pastBreeding(a, ages.get(a.species))) continue;
+        const s = strandGood(a.genes, 'S'), l = strandGood(a.genes, 'L');
+        if (!s || !l) continue;
+        const key = speciesId(a.species);
+        const b = out.get(key) || { S: 0, L: 0, n: 0 };
+        b.S = Math.max(b.S, s[0], s[1]);
+        b.L = Math.max(b.L, l[0], l[1]);
+        b.n++;
+        out.set(key, b);
+    }
+    return out;
+}
+
+// A gene's two strands as good letters (A, B) each, from the game's
+// genetic identity: six loci, each written as strand A's letter then strand
+// B's ("[STRING_LITERAL:Value=|AC|]": GenealogyPopup.getAnimalToleranceBarData
+// writes tGenes[i] .. tGenes[i + 6]). -> [a, b] (0..6), or null when a locus
+// is missing or unknown ('?').
+export function strandsFromLoci(loci) {
+    if (!Array.isArray(loci) || loci.length !== 6) return null;
+    let a = 0, b = 0;
+    for (const raw of loci) {
+        const s = String(raw == null ? '' : raw);
+        const m = /\|([A-Za-z])([A-Za-z])\|/.exec(s) || /^\s*([A-Za-z])([A-Za-z])\s*$/.exec(s);
+        if (!m) return null;
+        if (/[AB]/.test(m[1].toUpperCase())) a++;
+        if (/[AB]/.test(m[2].toUpperCase())) b++;
+    }
+    return [a, b];
+}
+
+// An animal's best strands against the herd's (best: { S, L }), per gene:
+// { value, exact, beats, best }. From its strands ([a, b]) when known: its
+// better strand. Else from its grade alone (0..1, as the game shows it):
+// t twelfths of good letters on both strands mean the better strand has at
+// least ceil(t / 2) (not exact; it may be more). beats: better for sure.
+// own: { S, L } strands or null; grades: { S, L } or null.
+export function strandEdge(own, grades, best) {
+    const out = {};
+    for (const k of STRAND_GENES) {
+        const b = best ? best[k] : null;
+        if (typeof b !== 'number') continue;
+        const s = own && own[k];
+        if (s) {
+            const v = Math.max(s[0], s[1]);
+            out[k] = { value: v, exact: true, beats: v > b, best: b };
+            continue;
+        }
+        const g = grades ? grades[k] : null;
+        if (typeof g !== 'number' || !isFinite(g)) continue;
+        const v = Math.ceil(Math.round(Math.max(0, Math.min(1, g)) * 12) / 2);
+        out[k] = { value: v, exact: false, beats: v > b, best: b };
+    }
+    return out;
+}
+
+// "L6", "V6 L5+" (+: at least, from the grade alone); '' when it beats none.
+// labels: per gene (the market badge's "V" is its value: Vit, Long there).
+export function strandEdgeText(edge, labels = STRAND_LABEL) {
+    return STRAND_GENES.filter(k => edge && edge[k] && edge[k].beats).map(k => `${labels[k]}${edge[k].value}${edge[k].exact ? '' : '+'}`).join(' ');
+}
+
+// The same in words, for a tooltip ('' when it beats none). where: the
+// herd's zoo, or ''.
+export function strandEdgeWords(edge, where = '') {
+    const parts = STRAND_GENES.filter(k => edge && edge[k] && edge[k].beats).map(k => {
+        const e = edge[k];
+        return `a ${STRAND_NAME[k]} strand of ${e.exact ? '' : 'at least '}${e.value}/6 (your best: ${e.best}/6)`;
+    });
+    if (!parts.length) return '';
+    return `Better than any in your herd${where ? ` at ${where}` : ''}: ${parts.join(' and ')}.`;
+}
+
+// The herd's best for the hub (prefs.js, at most maxChars of it):
+// 'Dog_AfricanWild:65,Lion:54' (Size then Longevity), the species with
+// the most animals first when it has to be cut.
+export function encodeHerdBest(best, maxChars = 1500) {
+    const list = Array.from(best || [], ([sp, b]) => ({ sp: speciesId(sp), b })).filter(x => x.sp && /^[A-Za-z0-9_]+$/.test(x.sp))
+        .sort((x, y) => y.b.n - x.b.n || (x.sp < y.sp ? -1 : 1));
+    const out = [];
+    let len = 0;
+    for (const { sp, b } of list) {
+        const item = `${sp}:${b.S}${b.L}`;
+        if (len + item.length + 1 > maxChars) break;
+        out.push(item);
+        len += item.length + 1;
+    }
+    return out.sort().join(',');
+}
+
+// -> Map(species id -> { S, L })
+export function decodeHerdBest(text) {
+    const out = new Map();
+    for (const item of String(text || '').split(',')) {
+        const m = /^([A-Za-z0-9_]+):([0-6])([0-6])$/.exec(item);
+        if (m) out.set(m[1], { S: Number(m[2]), L: Number(m[3]) });
+    }
+    return out;
 }

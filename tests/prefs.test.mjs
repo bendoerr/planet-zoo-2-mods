@@ -289,3 +289,28 @@ test('two pages: a save keeps what the other page saved', async () => {
     assert.deepEqual(JSON.parse(fake.file), { kinSettings: { alertLife: true }, progOpt: { engine: 'deep' } });
     assert.deepEqual(b.getPref('kinSettings'), { alertLife: true }, 'the save from the other page is taken in');
 });
+
+// The hub page reads what the park page kept since (strandmark.js: the
+// herd's best strands); a change of its own not saved yet stays on top.
+test('read again: the other page\'s save comes in, this page\'s unsaved change stays', async () => {
+    fake.file = '{"a":1}';
+    const p = await start();
+    assert.equal(p.rereadPrefs(), false, 'not before the first read');
+    p.loadPrefs();
+    await sleep(50);
+    assert.equal(p.getPref('a'), 1);
+    let heard = 0;
+    p.onPrefs(() => heard++);
+    fake.file = '{"a":1,"herdStrands":{"z":"Cradle","sp":"Lion:43"}}';
+    p.setPref('mine', 2);
+    const loads = fake.loads;
+    assert.equal(p.rereadPrefs(), true);
+    assert.equal(p.rereadPrefs(), false, 'one read at a time');
+    await sleep(50);
+    assert.equal(fake.loads, loads + 1);
+    assert.deepEqual(p.getPref('herdStrands'), { z: 'Cradle', sp: 'Lion:43' });
+    assert.equal(p.getPref('mine'), 2, 'the unsaved change stays');
+    assert.ok(heard >= 1, 'listeners hear of it');
+    await sleep(500);
+    assert.deepEqual(JSON.parse(fake.file), { a: 1, herdStrands: { z: 'Cradle', sp: 'Lion:43' }, mine: 2 }, 'and it is saved on top');
+});

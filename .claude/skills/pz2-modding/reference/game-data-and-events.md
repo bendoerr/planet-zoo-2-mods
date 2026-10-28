@@ -175,6 +175,26 @@ the game's may print it exactly: deterministic either way, so only compare token
   Old gene-score tiers only when no listing of the species has a medal. In the harness the
   schema generator gives random medals.
 
+### Strands on market rows (2026-10-28, **offline**)
+
+- Market, Trade History, Rewards and Storage rows declare **`geneticIdentities.<size|longevity|
+  fertility|immunity>.genes.gene0..gene5`** (strings; schema `AnimalMarketAndStorageSchema.js`
+  ~950/1001/1050/1111, generator: two random letters A-D as a string literal). `MarketUtil.js`
+  passes them on as `idContext`, but no market component draws them: the market screen shows only
+  the percentages (the developer, 2026-10-28). Whether the native fills them on market rows is
+  **unknown**; PZ2QoL's debug log says once a session (`ui strands identity=present|absent`).
+- The letters' order, from the park's Genealogy popup (`editors.animal.genealogypopup.lua`
+  `getAnimalToleranceBarData`): `"[STRING_LITERAL:Value=|" .. tGenes[i] .. tGenes[i + 6] .. "|]"`,
+  so locus i of strand A, then strand B. **offline** (the same format is assumed for market rows).
+- Without the letters a grade still bounds the strands: Size and Longevity are twelfths of good
+  letters on both strands, so a grade of t twelfths holds a strand of at least ceil(t / 2): 91% or
+  more (11/12) always holds a 6/6 strand, 83% (10/12) may be 5 + 5.
+- PZ2QoL: `strandmark.js` (the park page keeps the herd's best per species in the player-wide
+  setting `herdStrands` = { z: the park, sp: 'Dog_AfricanWild:65,...' }, at most 1500 characters,
+  `kinstrands.js` `herdBest` / `encodeHerdBest`; the hub page reads it, again at most every 30 s,
+  `prefs.js` `rereadPrefs`), `badges.js` ("▲Long6", "▲Vit5+"), `kinboard.js` `strandTag` (trade
+  centre and stored cards, "▲L6").
+
 ### Colour morph on market rows (1.0.5, **offline**, 2026-10-18)
 
 - Market, Trade History, Rewards and Storage rows carry **`colormorphLabel`** (string; schema

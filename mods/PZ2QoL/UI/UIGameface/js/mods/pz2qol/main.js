@@ -10,6 +10,7 @@ import { installPriceBook } from '/js/mods/pz2qol/pricebook.js';
 import { installLister } from '/js/mods/pz2qol/lister.js';
 import { installZoo } from '/js/mods/pz2qol/zoo.js';
 import { installKin } from '/js/mods/pz2qol/kin.js';
+import { installStrandMarks } from '/js/mods/pz2qol/strandmark.js';
 import { installKinZoo } from '/js/mods/pz2qol/kinzoo.js';
 import { installKinPanels } from '/js/mods/pz2qol/kinhabitat.js';
 import { installKinMates } from '/js/mods/pz2qol/kinmates.js';
@@ -68,6 +69,8 @@ step('Market lister', installLister);
 step('Zoo animal filters', installZoo);
 // Kin: relatedness and inbreeding risk
 step('Kin data', installKin);
+// the herd's best strands, kept for the hub's market and storage marks
+step('Better strands', installStrandMarks);
 step('Kin in zoo management', installKinZoo);
 step('Kin in info panels', installKinPanels);
 step('Kin in Compare Mates and Genealogy', installKinMates);

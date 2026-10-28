@@ -14,7 +14,7 @@ What's in the toolbox:
 
 | Area | Tools |
 |---|---|
-| **Scores** | Gene, breeder and value badges on every Market and Storage row |
+| **Scores** | Gene, breeder and value badges on every Market and Storage row; a gold mark for a better Vitality or Longevity strand than your herd has |
 | **Market** | Quick filters (Top genes, Breeders, Long-lived, Ending ≤1h, Cash, CC), Dim below a gene score |
 | **Animal Storage** | Filters (Pregnant, Alpha, Adults / Fertile adults / Juveniles, Sellable, Not listed, Has pair, Surplus, Gene ≥, Kin), lister on/off, sort by score, summary line, Find a habitat, Gene names |
 | **Zoo Animals list** | Filter bar (habitat, sex, age, pregnant, alpha, contraception, unhappy, gene and fertility minimums, Kin) and sort by gene, breeder or welfare |
@@ -414,6 +414,13 @@ animals (a setting, on by default).
 - `V` (market only): **value**, gene score per 1,000 cash or per 100 CC. ★ marks the best value on
   the page.
 - Colour by gene score: green ≥ 80, blue ≥ 60, amber ≥ 40, red below.
+- **▲Long6 / ▲Vit6** (gold): the animal carries a better Longevity or Vitality strand than any
+  animal in your herd's habitats, the only way to raise the herd's ceiling. "Your herd" is the
+  last park you played (the park keeps each species' best for the hub). The market shows only the
+  percentages: the mark reads the strands where the game gives them, else it works from the
+  percentage, and **+** means "at least": Longevity 91% or more always holds a 6/6 strand (a
+  wild dog herd whose best is 5/6 needs one). On the Species board, animals waiting at the trade
+  centre and stored adults get the same tag (**▲L6**).
 
 **Market quick filters.** These use the game's own filters, so they cover every page:
 - Top genes, Breeders, Long-lived, Ending ≤1h, Cash, CC, Reset.

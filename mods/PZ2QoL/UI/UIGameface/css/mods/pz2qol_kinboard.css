@@ -888,3 +888,5 @@
 .PZ2QoL_kbGeneRow { font-size: 0.76rem; margin-top: 0.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .PZ2QoL_kbGeneBtns { flex-direction: row; justify-content: flex-end; margin-top: 0.35rem; }
 .PZ2QoL_kbGeneBtns > .PZ2QoL_kpBtn + .PZ2QoL_kpBtn { margin-left: 0.4rem; }
+/* a better Vitality or Longevity strand than any in the habitats (strandTag) */
+.PZ2QoL_kbTag.strand { background-color: var(--qol-gold); color: #FFFFFF; font-weight: bold; }

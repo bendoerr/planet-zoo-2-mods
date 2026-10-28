@@ -744,3 +744,13 @@
 .PZ2QoL_renameNote { font-size: 0.78rem; line-height: 1.05rem; color: #9A6414; margin-bottom: 0.3rem; }
 .PZ2QoL_renameBtns { flex-direction: row; justify-content: flex-end; margin-top: 0.5rem; }
 .PZ2QoL_renameBtns > .PZ2QoL_btn + .PZ2QoL_btn { margin-left: 0.4rem; }
+/* a better Vitality or Longevity strand than the herd's (strandmark.js) */
+.PZ2QoL_badge.strand { border-color: var(--qol-gold); }
+.PZ2QoL_badgeStrand {
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 0.5rem;
+  background-color: var(--qol-gold);
+  color: #FFFFFF;
+  font-weight: bold;
+}

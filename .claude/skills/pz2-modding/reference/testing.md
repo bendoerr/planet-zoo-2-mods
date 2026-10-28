@@ -230,6 +230,13 @@ Run all of these before installing a build.
   `kinauto.test.mjs` "Auto mode: packs …" (Thin out's retirement, the best pairs lead, a moved
   leader loses `alpha`) and "a pack leader leaves once its new leader has arrived"
   (`waitForNewLeaders`, `waitText`, `waitsReady` still / ready / dropped).
+- Better strands (2026-10-28): `kinstrands.test.mjs` (`herdBest`: habitats only, not the trade
+  centre, storage or past breeding; `strandsFromLoci` strand A then B; `strandEdge` exact and from
+  the grade (91% holds a 6/6, 83% may not); `encodeHerdBest` cut by the fewest animals);
+  `prefs.test.mjs` "read again" (`rereadPrefs`: the other page's save comes in, an unsaved change
+  stays). Harness `kin_strands.mjs`: HUD (a trade lion with a 6/6 Longevity strand tagged "▲L6",
+  none in habitats, `herdStrands` kept with the park's name) and Frontend (three market lions:
+  "▲Long6" from the identity, "▲Long6+" from 92%, none at 83%; no lion herd, no mark).
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is

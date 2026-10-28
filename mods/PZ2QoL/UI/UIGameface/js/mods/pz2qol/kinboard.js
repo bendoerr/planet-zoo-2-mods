@@ -16,7 +16,9 @@
 // Gameface: own DOM under <body>, explicit display:flex, no CSS grid, no
 // native scrolling (kinpanel.js), pointer drag with mouse events (no HTML5
 // drag and drop).
-import { Sex, relationWord, severityRank, fertilityTag, holdReason, ownGrades, withStored } from '/js/mods/pz2qol/kincore.js';
+import { Sex, relationWord, severityRank, fertilityTag, holdReason, ownGrades, strandGood, withStored } from '/js/mods/pz2qol/kincore.js';
+import { herdBest, strandEdge, strandEdgeText, strandEdgeWords } from '/js/mods/pz2qol/kinstrands.js';
+import { speciesId } from '/js/mods/pz2qol/speciesnamecore.js';
 import { gameGrades, planRenames } from '/js/mods/pz2qol/renamecore.js';
 import {
     STORED_SHOW, TRADE, boardColumns, canMove, moveText, planImpact, planProblems, prunePlan, setMove, simulatePlan, speciesList, suggestPlan,
@@ -1007,6 +1009,7 @@ function storedCardEl(model, x) {
                 h('span.PZ2QoL_kbTag.storage', { text: 'in storage', title: 'In your Animal Storage (hub): not in the park' }),
                 a.forSale ? h('span.PZ2QoL_kbTag.listed', { text: 'listed', title: 'On the market now' }) : null,
                 ft ? h(`span.PZ2QoL_kbTag.${ft.cls}`, { text: ft.text, title: ft.title }) : null,
+                strandTag(a, model),
                 kinLine, h('div.PZ2QoL_kpFlex'), relLabel)));
     card.__id = a.id;
     card.__rel = relLabel;
@@ -1042,9 +1045,25 @@ function tagsFor(a, x, model) {
     if (a.contra) out.push(h('span.PZ2QoL_kbTag.contra', { text: 'contra' }));
     if (a.preg) out.push(h('span.PZ2QoL_kbTag.preg', { text: 'pregnant', title: `Pregnant: Kin's plans never move her; she stays until she gives birth (she can't be sold). The game still lets you move her yourself.` }));
     if (S.pendingMove.has(a.id)) out.push(h('span.PZ2QoL_kbTag.moving', { text: 'moving…' }));
+    const st = strandTag(a, model);
+    if (st) out.push(st);
     const t = ext ? extCall('cardTag', a) : null;
     if (t) out.push(h('span.PZ2QoL_kbTag.auto', { text: t.text, title: t.title || '' }));
     return out;
+}
+
+// A better Vitality or Longevity strand than any in the species' habitats
+// (kinstrands.js herdBest, strandEdge): a tag for an animal outside them
+// (waiting at the trade centre, in Animal Storage), or null.
+let herdMemo = { model: null, best: null };
+function strandTag(a, model) {
+    if (!a || !a.genes || !model || (a.hab && a.lt !== 'trade' && !a.stored)) return null;
+    if (herdMemo.model !== model) herdMemo = { model, best: herdBest(model) };
+    const best = herdMemo.best.get(speciesId(a.species));
+    if (!best) return null;
+    const edge = strandEdge({ S: strandGood(a.genes, 'S'), L: strandGood(a.genes, 'L') }, null, best);
+    const text = strandEdgeText(edge);
+    return text ? h('span.PZ2QoL_kbTag.strand', { text: `▲${text}`, title: strandEdgeWords(edge) }) : null;
 }
 
 // The animal's worst counted severity now (before the plan).

@@ -9,6 +9,8 @@ import { breederScore, geneScore, isBestValueCandidate, relevantGenes, scoreTier
 import { GENES, geneBars, h } from '/js/mods/pz2qol/ui.js';
 import { contextKey, MARKET_LIST_KEY, readAnimal, STORAGE_LIST_KEY } from '/js/mods/pz2qol/game.js';
 import { reportError } from '/js/mods/pz2qol/errors.js';
+import { rowEdge } from '/js/mods/pz2qol/strandmark.js';
+import { strandEdgeText, strandEdgeWords } from '/js/mods/pz2qol/kinstrands.js';
 
 const ROW_SELECTOR = '.MarketAnimalListItem_root';
 let marketDimBelow = 0;
@@ -92,10 +94,21 @@ function applyToRow(rowEl, bestId) {
     const b = breederScore(a);
     const v = screen == 'market' ? valueIndex(a) : null;
     const isBest = screen == 'market' && bestId != undefined && a.id == bestId;
+    // a better Vitality or Longevity strand than the herd's (strandmark.js)
+    let strand = null;
+    try {
+        const r = rowEdge(ctx, a);
+        // (the badge's own V is the value for money)
+        const text = r ? strandEdgeText(r.edge, { S: 'Vit', L: 'Long' }) : '';
+        if (text) strand = { text, words: strandEdgeWords(r.edge, r.zoo) };
+    }
+    catch (e) {
+        // no mark; the badge as before
+    }
     // Rebuild only when something visible changed (rows re-render often).
-    const key = [screen, g, b, v, isBest, ...GENES.map(x => a.genes[x.id])].join('|');
+    const key = [screen, g, b, v, isBest, strand ? strand.text : '', ...GENES.map(x => a.genes[x.id])].join('|');
     if (!badge || badge.__key != key) {
-        const fresh = buildBadge(a, screen, g, b, v, isBest);
+        const fresh = buildBadge(a, screen, g, b, v, isBest, strand);
         fresh.__key = key;
         if (badge) host.replaceChild(fresh, badge);
         else host.appendChild(fresh);
@@ -113,15 +126,19 @@ function applyToRow(rowEl, bestId) {
     return a;
 }
 
-function buildBadge(a, screen, g, b, v, isBest) {
+// strand: { text ('Long6', 'Vit6 Long5+'), words } when it carries a better strand
+// than the herd's, else null
+function buildBadge(a, screen, g, b, v, isBest, strand = null) {
     const tips = [`Gene score ${fmt(g)} (average of ${relevantGenes(a).join(', ') || 'no genes'})`, `Breeder score ${fmt(b)} (fertility-weighted)`];
     if (v != null) tips.push(`Value ${v}: gene score per ${a.isCC ? '100 CC' : '1,000 cash'}`);
     if (isBest) tips.push('Best value on this page');
-    return h(`div.PZ2QoL_badge.${scoreTier(g) == 'none' ? 'tier_none' : 'tier_' + scoreTier(g)}.${screen}${isBest ? '.best' : ''}`, { title: tips.join(String.fromCharCode(10)) },
+    if (strand) tips.push(strand.words);
+    return h(`div.PZ2QoL_badge.${scoreTier(g) == 'none' ? 'tier_none' : 'tier_' + scoreTier(g)}.${screen}${isBest ? '.best' : ''}${strand ? '.strand' : ''}`, { title: tips.join(String.fromCharCode(10)) },
         h('div.PZ2QoL_badgeScore', { text: fmt(g) }),
         geneBars(a.genes, relevantGenes(a)),
         h('div.PZ2QoL_badgeStat', null, h('span.PZ2QoL_badgeKey', { text: 'B' }), h('span', { text: fmt(b) })),
         v != null && h('div.PZ2QoL_badgeStat.value', null, h('span.PZ2QoL_badgeKey', { text: 'V' }), h('span', { text: String(v) })),
+        strand && h('div.PZ2QoL_badgeStrand', { text: `▲${strand.text}` }),
         isBest && h('div.PZ2QoL_badgeStar', { text: '★' }));
 }
 

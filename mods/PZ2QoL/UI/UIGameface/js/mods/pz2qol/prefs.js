@@ -69,8 +69,9 @@ function finishLoad(ok, text) {
         reportError('mod', 'PZ2QoL settings could not be read; starting from this session\'s settings', e, { silent: true });
     }
     // the store is the player's truth: only this page's changes go on top
+    // (on a re-read, the ones not saved yet)
     const needSave = pending.length > 0;
-    data = replayChanges(fromFile, pending);
+    data = replayChanges(fromFile, pending.length ? pending : unsaved);
     pending = [];
     writeMirror(MIRROR_KEY, data);
     setStatus('file');
@@ -123,6 +124,15 @@ function ask() {
         setStatus('memory');
         notify();
     }
+}
+
+// Reads the store again (what the other page saved since: the hub page
+// reads the park page's herd strands, strandmark.js). Only once the store
+// was read, with no read or save under way; listeners hear of it.
+export function rereadPrefs() {
+    if (!started || status !== 'file' || loadReq !== null || syncReq !== null || typeof engine === 'undefined') return false;
+    ask();
+    return true;
 }
 
 // Reads the store, once per page (later calls do nothing). Every other

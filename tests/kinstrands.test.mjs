@@ -12,6 +12,7 @@ import { cullPlan, keepValue } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol
 import { planAutoRun, programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
     breedingValue, carrierKeepers, ceilingText, ceilingWaiting, copiesText, lastCarrier, outclasses, speciesStrands, usefulCopies, youngDistribution, youngImmunity, youngUpside,
+    decodeHerdBest, encodeHerdBest, herdBest, strandEdge, strandEdgeText, strandEdgeWords, strandsFromLoci,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinstrands.js';
 import { SEEDS } from './helpers/enginedigest.mjs';
 import { makeZoo } from './helpers/zoogen.mjs';
@@ -396,4 +397,59 @@ test("the game's most per sex: a strand's second carrier gives way, its last one
     model = buildKinModel(snap([an('m', M, '1', G(3, 3, 3, 3)), an('f', F, '1', G(3, 3, 3, 3)), an('y', F, '1', G(3, 3, 3, 3), { age: 2.6, infertile: true })]));
     plan = cullPlan(model, 'Lion', Object.assign({}, LEO, { social: { min: 1, max: 3 } }), { options: { fill: 1, ratio: '1:1' } });
     assert.ok(!plan.moves.some(m => m.id === 'y'), JSON.stringify(plan.moves));
+});
+
+// ------------------------------------------- better strands elsewhere
+// The market shows only the grades (the developer, 2026-10-28): animals
+// outside the herd with a better Vitality or Longevity strand are marked.
+
+test("the herd's best strands: animals in habitats that can still breed, not the trade centre or storage", () => {
+    const model = buildKinModel(snap([
+        an('a', M, '1', G(4, 3, 5, 2)), an('b', F, '1', G(3, 3, 4, 4)),
+        an('t', M, '', G(6, 6, 6, 6)),                                        // waiting at the trade centre
+        an('o', F, '2', G(6, 1, 6, 1), { age: 16, infertile: true, ageQ: 3 }), // past breeding
+        an('j', F, '2', G(5, 1, 1, 1), { juv: true, age: 1 }),               // young count
+    ]));
+    assert.deepEqual(herdBest(model).get('Lion'), { S: 5, L: 5, n: 3 });
+    assert.equal(herdBest(null).size, 0);
+});
+
+test("strands from the game's genetic identity: strand A then strand B per locus", () => {
+    const lit = (x, y) => `[STRING_LITERAL:Value=|${x}${y}|]`;
+    assert.deepEqual(strandsFromLoci(['A', 'B', 'A', 'B', 'A', 'B'].map((x, i) => lit(x, i < 4 ? 'C' : 'A'))), [6, 2]);
+    assert.deepEqual(strandsFromLoci(['AD', 'BD', 'CA', 'DB', 'AA', 'CC']), [3, 3]);
+    assert.equal(strandsFromLoci(['AB', 'AB', '??', 'AB', 'AB', 'AB']), null, 'unknown locus');
+    assert.equal(strandsFromLoci(['AB', 'AB']), null);
+    assert.equal(strandsFromLoci(undefined), null);
+});
+
+test('a strand edge: exact from the strands, a lower bound from the grade alone', () => {
+    const best = { S: 6, L: 5 };
+    const e = strandEdge({ S: [5, 4], L: [6, 2] }, null, best);
+    assert.deepEqual(e.L, { value: 6, exact: true, beats: true, best: 5 });
+    assert.equal(e.S.beats, false);
+    assert.equal(strandEdgeText(e), 'L6');
+    assert.match(strandEdgeWords(e, 'Cradle'), /^Better than any in your herd at Cradle: a Longevity strand of 6\/6 \(your best: 5\/6\)\.$/);
+    // grades: 11/12 (91%) must hold a 6/6 strand; 10/12 (83%) may be 5 + 5
+    const g = grade => strandEdge(null, { S: 0.5, L: grade }, best).L;
+    assert.deepEqual(g(0.92), { value: 6, exact: false, beats: true, best: 5 });
+    assert.equal(g(0.9167).beats, true);
+    assert.equal(g(0.83).beats, false);
+    assert.equal(g(1).value, 6);
+    assert.equal(strandEdgeText(strandEdge(null, { L: 0.92 }, { S: 4, L: 4 })), 'L6+');
+    assert.equal(strandEdgeText(strandEdge(null, { S: 0.83, L: 0.92 }, { S: 4, L: 4 })), 'V5+ L6+');
+    assert.equal(strandEdgeText(strandEdge(null, { S: 0.83, L: 0.92 }, { S: 4, L: 4 }), { S: 'Vit', L: 'Long' }), 'Vit5+ Long6+');
+    assert.deepEqual(strandEdge({ S: null, L: null }, null, best), {}, 'nothing known: no mark');
+    assert.equal(strandEdgeText({}), '');
+    assert.equal(strandEdgeWords({}), '');
+});
+
+test("the herd's best for the hub: compact, cut by the fewest animals, read back", () => {
+    const best = new Map([['Dog_AfricanWild', { S: 6, L: 5, n: 31 }], ['Lion', { S: 4, L: 3, n: 2 }], ['[Animal_Meerkat]', { S: 5, L: 5, n: 9 }], ['bad name!', { S: 1, L: 1, n: 50 }]]);
+    const text = encodeHerdBest(best);
+    assert.equal(text, 'Dog_AfricanWild:65,Lion:43,Meerkat:55');
+    assert.deepEqual(Array.from(decodeHerdBest(text)), [['Dog_AfricanWild', { S: 6, L: 5 }], ['Lion', { S: 4, L: 3 }], ['Meerkat', { S: 5, L: 5 }]]);
+    assert.equal(encodeHerdBest(best, 32), 'Dog_AfricanWild:65,Meerkat:55', 'cut: the species with the most animals stay');
+    assert.equal(decodeHerdBest('x:9,Lion:43,:12,Okapi:7').size, 1);
+    assert.equal(decodeHerdBest(undefined).size, 0);
 });
