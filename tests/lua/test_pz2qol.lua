@@ -1409,6 +1409,9 @@ do
 				return { { "Zebra_Plains", 3, 6, 6, 6, 1, 5, 1 }, { "Lion", 3, 9, 4, 0, 2, 7, 1 } }
 			elseif inst.sSt == "GetMatingRules" then
 				return { { "Zebra_Plains", 0, 1, 1, 0, 0 }, { "Lion", 0, 0, true, false, 0 } }
+			elseif inst.sSt == "GetAnimalSpaceRequirements" then
+				-- Greater flamingo's row (animals.fdb): land, water, deep swim, shelter, climb, flight
+				return { { "Zebra_Plains", 400, 40, 0, 0, 0, 0, 2, 0, 0, 0, 0 }, { "Flamingo_Greater", 100, 6, 80, 3, 0, 0, 2, 0, 0, 60, 2 } }
 			end
 			return {}
 		end,
@@ -1426,13 +1429,20 @@ do
 	check(t.sexMax and t.sexMax.male == 1 and t.sexMax.female == 5 and t.sexMaxFrom == "db", "db: the mixed-group limits, not the bachelor ones (" .. tostring(t.sexMax and t.sexMax.male) .. ")")
 	check(t.leaderMale == true and t.leaderFemale == nil, "db: only the leader male mates")
 	check(t.bachelorMax and t.bachelorMax.male == 6 and t.bachelorMax.female == 6, "db: the one-sex (bachelor) group limits too")
-	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules", "db: the game's own statements")
+	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules" and tStatements[3] == "Animals/GetAnimalSpaceRequirements", "db: the game's own statements")
+	check(t.space and t.space.land and t.space.land.base == 400 and t.space.land.per == 40 and t.space.water == nil, "db: the space rule, no area type without a per-animal part")
 	local nRead = #tStatements
 	t = ask("d2", "Lion")
 	check(#tStatements == nRead, "db: read once per session")
+	check(t.space == nil, "db: no space row, no rule sent")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
 	check(t.bachelorMax and t.bachelorMax.male == 4 and t.bachelorMax.female == nil, "db: no bachelor females (0) is no limit sent")
 	check(t.dbStatus == nil, "db: no status when the species was read")
+	t = ask("d2b", "Flamingo_Greater")
+	local s = t.space or {}
+	check(s.land and s.land.base == 100 and s.land.per == 6 and s.water and s.water.base == 80 and s.water.per == 3
+		and s.fly and s.fly.base == 60 and s.fly.per == 2 and s.climb == nil and s.deepSwim == nil, "db: the flamingo's space rule by area type")
+	check(t.sexMax == nil or t.sexMaxFrom ~= "db", "db: a space row alone gives no group limits")
 	-- a species the database lacks: the probe, a mixed-group limit before a plain one, never a bachelor one
 	t = ask("d3", "Okapi")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == nil and t.sexMaxFrom == nil and t.leaderMale == nil, "probe: mixed over plain, bachelor never (" .. tostring(t.sexMax and t.sexMax.male) .. ")")

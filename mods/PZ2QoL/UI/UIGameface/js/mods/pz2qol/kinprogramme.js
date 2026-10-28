@@ -575,24 +575,56 @@ function lineOf(a) {
     return a.par && a.par.length ? a.par.slice().sort().join('+') : 'f:' + a.id;
 }
 
-// capacity in adults of this species, per habitat
-export function habitatCapacity(info, habId, fallback) {
+// capacity in adults of this species, per habitat. The young living there
+// keep their places: young pile on top of a full habitat otherwise (a
+// flamingo flock past the game's water need, 2026-10-27). youngFree: their
+// places count as free (the same whether or not one was just born:
+// problemSig).
+export function habitatCapacity(info, habId, fallback, youngFree = false) {
     const h = info.habitats && info.habitats[habId];
     const social = info.social && info.social.max > 0 ? info.social.max : null;
     let space = null;
     if (h && h.available) {
-        const perAdult = info.spacePerAdult || {};
-        for (const k of Object.keys(perAdult)) {
-            const need = perAdult[k];
-            const have = h.available[k];
-            if (!(need > 0) || typeof have !== 'number') continue;
-            const n = Math.floor(have / need);
-            space = space == null ? n : Math.min(space, n);
+        const young = (info.young && info.young.get(String(habId))) || 0;
+        space = roomByRule(h, info.space, young);
+        if (space == null) {
+            // the estimate: the requirement per animal, less the young here
+            const perAdult = info.spacePerAdult || {};
+            for (const k of Object.keys(perAdult)) {
+                const need = perAdult[k];
+                const have = h.available[k];
+                if (!(need > 0) || typeof have !== 'number') continue;
+                const n = Math.floor(have / need) - young;
+                space = space == null ? n : Math.min(space, n);
+            }
         }
+        if (space != null && youngFree) space += young;
     }
     let cap = social != null && space != null ? Math.min(social, space) : (social != null ? social : space);
     if (cap == null) cap = fallback;
     return Math.max(0, cap);
+}
+
+// Adults the habitat's space holds by the game's own rule (rule: per area
+// type { base, per }, the space for the first animal and for each one more;
+// animals.fdb Requirements_HabitatSpace), or null when it can't tell. Only
+// the area types the game requires here count (no flight space for an open
+// habitat). The room left is (available - the game's requirement now) / per,
+// on top of the adults the game counts now; so the young keep their places
+// if the game counts them, and don't if it doesn't. An empty habitat: the
+// first animal needs the base.
+function roomByRule(h, rule, young) {
+    if (!rule || !h.required || typeof h.adults !== 'number') return null;
+    let room = null;
+    for (const [k, need] of Object.entries(h.required)) {
+        const r = rule[k];
+        const have = h.available[k];
+        if (!(need > 0) || !r || !(r.per > 0) || typeof have !== 'number') continue;
+        const n = h.adults > 0 || young > 0 ? h.adults + Math.floor((have - need) / r.per + 1e-9)
+            : (have + 1e-9 >= r.base ? 1 + Math.floor((have - r.base) / r.per + 1e-9) : 0);
+        room = room == null ? n : Math.min(room, n);
+    }
+    return room;
 }
 
 // Space one adult needs, per area type: the game's requirement for the
@@ -1852,7 +1884,9 @@ function prepare(model, species, info, destinations, assignments, options) {
     for (const a of breeders) if (a.hab && !allowed.has(a.hab) && !mine.length) allowed.add(a.hab);
     habitats = Array.from(allowed);
     const infoX = Object.assign({}, info);
-    if (!infoX.spacePerAdult) infoX.spacePerAdult = estimateSpacePerAdult(info, youngByHabitat(all));
+    const young = youngByHabitat(all);
+    if (!infoX.spacePerAdult) infoX.spacePerAdult = estimateSpacePerAdult(info, young);
+    if (!infoX.young) infoX.young = young;
     // 'ceiling' waits while the herd's mean is far below its ceiling (it plans
     // for the average young until then; kinstrands.js ceilingWaiting)
     if (opts.goal === 'ceiling') {
@@ -2063,13 +2097,15 @@ export function programmeProblemSig(model, species, info = {}, destinations = nu
 // The breeders (where they are, pinned, mates), the adults that only count
 // towards room, each place's room, the make-up and the facts the pair
 // values use; not the juveniles or the game's raw habitat data, so a birth
-// or a habitat that finishes measuring with the same room changes nothing.
+// or a habitat that finishes measuring with the same room changes nothing
+// (the room with the young's places free: a birth takes one).
 function problemSig(ctx) {
     const rows = ctx.B.map((a, i) => [a.id, ctx.placeKeys[ctx.home[i]], a.sex, ctx.pinned && ctx.pinned[i] ? 1 : 0,
         (a.mates || []).slice().sort().join('+'), (a.bond && a.bond.mate) || '', (a.fert && a.fert.state) || '',
         a.genes ? ['F', 'I', 'S', 'L'].map(k => a.genes[k] || '').join('/') : ''].join(','));
     rows.sort();
-    const places = ctx.placeKeys.map((k, p) => `${k}:${ctx.cap[p] == null ? '' : ctx.cap[p]}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}`).sort();
+    const room = (k, p) => (ctx.cap[p] == null ? '' : habitatCapacity(ctx.info, k, ctx.opts.defaultCapacity, true));
+    const places = ctx.placeKeys.map((k, p) => `${k}:${room(k, p)}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}`).sort();
     const r = ctx.rule;
     const facts = [ratioKey(r), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
         + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '');

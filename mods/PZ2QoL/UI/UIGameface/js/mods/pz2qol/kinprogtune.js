@@ -48,7 +48,8 @@ export const PROGRAMME_TUNING = Object.freeze([
     },
     {
         key: 'bondBreakCost', group: 'Moves', label: 'Splitting a bonded pair',
-        help: 'Cost of separating two monogamous mates (they mourn).',
+        // Thin out follows it too (tuningCull, kincull.js PAIR_STEPS)
+        help: 'Cost of separating two monogamous mates (they mourn). Thin out follows it: High sends unpaired animals first; Never sends a bonded one only with its mate.',
         choices: [
             { id: 'free', label: 'Free', value: { bondBreakCost: 0 } },
             { id: 'low', label: 'Low', value: { bondBreakCost: 0.05 } },
@@ -193,7 +194,9 @@ export function tuningGoal(tune) {
 }
 
 // What Thin out (cullPlan) takes from the tuning, so it culls for the same
-// aim as the programme: the breeding goal and who counts as related.
+// aim as the programme: the breeding goal, who counts as related and
+// splitting a bonded pair (kincull.js PAIR_STEPS: 'normal' for the default).
 export function tuningCull(tune) {
-    return { goal: tuningGoal(tune), kinRule: normalizeTuning(tune).kinRule === 'genes' ? 'genes' : 'pedigree' };
+    const t = normalizeTuning(tune);
+    return { goal: tuningGoal(tune), kinRule: t.kinRule === 'genes' ? 'genes' : 'pedigree', pairs: t.bondBreakCost || 'normal' };
 }

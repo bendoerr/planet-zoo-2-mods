@@ -129,6 +129,13 @@ test('problem sig: births, juveniles moving and habitats done measuring leave it
     info.habitats['1'].calculating = false;
     info.habitats['1'].required = { nLandArea: 333 };
     assert.equal(sigOf(z, z.snapshot, info), sig);
+    // by the game's space rule a birth raises the requirement: still the same
+    const n = z.snapshot.animals.filter(a => a.hab === '1' && !a.juv).length;
+    const ruled = need => Object.assign(JSON.parse(JSON.stringify(z.info)), { space: { nLandArea: { base: 100, per: 50 } }, social: { max: 99 } },
+        { habitats: Object.assign(JSON.parse(JSON.stringify(z.info.habitats)), { 1: { available: { nLandArea: 2000 }, required: { nLandArea: need }, adults: n } }) });
+    const before = sigOf(z, z.snapshot, ruled(100 + 50 * (n - 1)));
+    assert.equal(sigOf(z, born, ruled(100 + 50 * n)), before);
+    assert.notEqual(sigOf(z, z.snapshot, ruled(100 + 50 * (n + 4))), before, 'less space: a new problem');
 });
 
 test('problem sig: animals ageing (fertile years left) leave it', () => {

@@ -2109,8 +2109,12 @@ end
 -- (kin_sexmax_none, 2026-10-17). Read once per session; nothing found is
 -- not kept, so a later call tries again. Kin.sDbStatus says how the last
 -- read went ("ok", or what failed), for the Breeding programme's notes.
+-- The space rule comes the same way (GetAnimalSpaceRequirements,
+-- Requirements_HabitatSpace): the Lua API gives only the requirement for the
+-- animals there now.
 -- -> species -> { nMaxMixedMale, nMaxMixedFemale, nMaxBachelorMale,
---    nMaxBachelorFemale, bLeaderMale, bLeaderFemale }
+--    nMaxBachelorFemale, bLeaderMale, bLeaderFemale,
+--    tSpace = { land = { base, per }, ... } }
 Kin.tSpeciesDb = nil
 Kin.sDbStatus = nil
 Kin._SpeciesDb = function(self)
@@ -2201,6 +2205,30 @@ Kin._SpeciesDb = function(self)
 				e.bLeaderMale, e.bLeaderFemale = yes(r[4]), yes(r[5])
 			end
 		end
+		-- AnimalType, MinimumSpace, SpacePerAdditionalAnimal, MinimumAquaticSpace,
+		-- AquaticSpacePerAdditionalAnimal, MinimumDeepSwimmingSpace,
+		-- DeepSwimmingSpacePerAdditionalAnimal, MinimumShelterAreaPerAnimal,
+		-- MinimumClimbableSpace, ClimbableSpacePerAdditionalAnimal,
+		-- MinimumFlightSpace, FlightSpacePerAdditionalAnimal: the space for the
+		-- first animal and for each one more, per area type (tAreaKeys' names)
+		local tSpaceCols = { land = 2, water = 4, deepSwim = 6, climb = 9, fly = 11 }
+		for _, r in ipairs(rows("GetAnimalSpaceRequirements", 12)) do
+			local e = entry(r)
+			if e ~= nil then
+				local tSpace = {}
+				local bAny = false
+				for sKey, c in pairs(tSpaceCols) do
+					local nBase, nPer = tonumber(r[c]), tonumber(r[c + 1])
+					if nBase ~= nil and nPer ~= nil and nPer > 0 then
+						tSpace[sKey] = { base = nBase, per = nPer }
+						bAny = true
+					end
+				end
+				if bAny then
+					e.tSpace = tSpace
+				end
+			end
+		end
 	end
 	if next(t) ~= nil then
 		mark("kin_db_found")
@@ -2280,6 +2308,11 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	end
 	if tDb ~= nil and tDb.bLeaderFemale then
 		tOut.leaderFemale = true
+	end
+	-- the game's space rule: the room left in a habitat (kinprogramme.js
+	-- habitatCapacity; young pile on top of a full habitat otherwise)
+	if tDb ~= nil and tDb.tSpace ~= nil then
+		tOut.space = tDb.tSpace
 	end
 	-- the game's conception chance by fertility grades (0..6 x 0..6), at full welfare
 	local nSpeciesFert = call(animals, "GetAnimalSpeciesFertility", sSpecies)

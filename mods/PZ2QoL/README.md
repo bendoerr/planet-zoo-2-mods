@@ -661,8 +661,9 @@ which male and female in the same habitat are related and would inbreed. Collect
   arrows (kept per species for this zoo). It fills each habitat towards that make-up from the trade
   centre and from other habitats' surplus, moves extra males or females on, can start a new group
   (a male and a female together) in an empty habitat, and respects the habitats' room (the
-  species' social maximum and the space the game requires), your habitat assignments and existing
-  bonds. It never puts relatives together, and sends animals without a place in a group to the
+  species' social maximum and the space the game requires, by its own rule: the space for the
+  first animal and for each one more; the young living there keep their places), your habitat
+  assignments and existing bonds. It never puts relatives together, and sends animals without a place in a group to the
   trade centre. The optimiser pairs animals exactly within each habitat, checks every layout for
   small species, and runs a guided search (with a progress bar, in the background) for big ones;
   the same zoo always gives the same plan. The preview shows breeding pairs, related pairs,
@@ -703,7 +704,15 @@ which male and female in the same habitat are related and would inbreed. Collect
   group make-up (a harem keeps one; 1:3 keeps one per three females), those in their last fertile
   years, those living with relatives, then the weakest genes.
   The best fertile male and females of every habitat, pregnant females and the species' best genes
-  stay.
+  stay. The room counts adults: the young living there keep their places, so a habitat full of
+  young gives up adults (young are never sent away). A big flamingo flock no longer grows past
+  the game's water need.
+  **Bonded pairs** (monogamous species) follow the fine tuning's **Splitting a bonded pair**:
+  Free to Normal only weigh the bond; **High** sends unpaired animals first; **Never** sends a
+  bonded animal only with its mate, both together, and a pair only when the habitat is 2 over its
+  target or over its room. On Never the gene rules and the game's most per sex take the mate along
+  too; a mate that can't go (hands off, pregnant, the breeding core) keeps both. Your own sends
+  still split a pair.
   **One male per group:** where the game itself allows only one adult male in a breeding group
   (Plains zebra and other harem species), a second adult male goes even when the habitat has room;
   an all-male (bachelor) group is left alone unless the game limits it too.

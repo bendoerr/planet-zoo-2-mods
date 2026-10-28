@@ -21,10 +21,17 @@
 //                years 0.3, young or fertile 1
 //   relatives    each related animal in the same habitat lowers it (its
 //                young there would be inbred)
-//   role         alpha and bonded animals a little higher; a fertile male
+//   role         alpha animals and ones with a mate here a little higher (a
+//                monogamous mate: as the pair setting says); a fertile male
 //                beyond what the group make-up allows for the habitat's
 //                females (the breeding programme's rule: a harem keeps one,
 //                1:3 keeps one per three females) lower
+// The pair setting (fine tuning "Splitting a bonded pair", PAIR_STEPS)
+// covers monogamous mates living together: Free to Normal only weigh the
+// bond; High sends unpaired animals first; Never sends a bonded animal only
+// with its mate (both go, or both stay), and a pair only to get a habitat 2
+// over its target or over its room (2026-10-28: Never still split 12 flamingo
+// pairs in 20 years). The player's own sends still split a pair.
 // Where the game allows one adult male per mixed group (rule.oneMale), a
 // second adult male goes even from a habitat with room; so does any adult
 // over the game's most of its sex in a mixed group or in a one-sex group
@@ -88,6 +95,19 @@ export const CULL_DEFAULTS = Object.freeze({
     ceilingWithin: 0.05,    // 'ceiling' waits while the herd is more than this below its ceiling
     kinRule: 'pedigree',    // who counts as related (kinprogramme.js relatedBy): 'pedigree' | 'genes'
     kinFloor: 0.5,
+    pairs: 'normal',        // splitting a bonded pair (PAIR_STEPS id; kinprogtune.js tuningCull)
+});
+
+// Splitting a bonded pair (the fine tuning's choices, kinprogtune.js): what
+// a monogamous mate living here adds to the keep value (the programme's
+// costs, Never's capped), and whether bonded animals go after the unpaired
+// ones (last) or only together (together).
+export const PAIR_STEPS = Object.freeze({
+    free: { bonus: 0 },
+    low: { bonus: 0.05 },
+    normal: { bonus: 0.15 },
+    high: { bonus: 0.4, last: true },
+    never: { bonus: 0.4, last: true, together: true },
 });
 
 // The game's most adults of a sex in this group (null: no limit known): the
@@ -181,20 +201,36 @@ function related(model, a, b, kin = null) {
     return relatedBy(model, a, b, kin ? kin.kinRule : 'pedigree', kin && kin.kinFloor != null ? kin.kinFloor : 0.5);
 }
 
-// { value, gene, fert, relatives, parts }. males: breeding males the
+// The monogamous mate living in the same group (as the breeding programme
+// sees a bond: a listed mate, and the species is monogamous or the game's
+// bond names it), or null. Grown animals only.
+export function bondedMate(a, group, monogamous = false) {
+    if (!a || a.juv) return null;
+    for (const id of a.mates || []) {
+        const b = group.find(x => x.id === id);
+        if (!b || b === a || b.juv) continue;
+        if (monogamous || (a.bond && a.bond.mate === b.id) || (b.bond && b.bond.mate === a.id)) return b;
+    }
+    return null;
+}
+
+// { value, gene, fert, relatives, pair (the mate's part) }. males: breeding males the
 // habitat keeps (maleRoom); without it a polygynous species keeps one.
 // score: the genes part (geneScore; breedingValue for the 'ceiling' goal);
-// kin: who counts as related ({ kinRule, kinFloor }, null: the family tree).
-export function keepValue(model, a, group, { system = 'mixed', maleRank = 0, males, score = geneScore, kin = null } = {}) {
+// kin: who counts as related ({ kinRule, kinFloor }, null: the family tree);
+// mate: its monogamous mate here (bondedMate), worth pairBonus (PAIR_STEPS).
+export function keepValue(model, a, group, { system = 'mixed', maleRank = 0, males, score = geneScore, kin = null, mate = null, pairBonus = PAIR_STEPS.normal.bonus } = {}) {
     if (males == null) males = system === 'polygyny' ? 1 : Infinity;
     const gene = score(a);
     const fert = fertilityValue(a);
     const relatives = group.filter(b => b !== a && related(model, a, b, kin)).length;
     let value = 0.55 * (gene == null ? 0.5 : gene) + 0.35 * fert - 0.06 * relatives;
     if (a.alpha) value += 0.08;
-    if ((a.mates || []).some(id => group.some(b => b.id === id))) value += 0.05;
+    const pair = mate ? pairBonus : 0;
+    value += pair;
+    if (!mate && (a.mates || []).some(id => group.some(b => b.id === id))) value += 0.05;
     if (a.sex === Sex.Male && breedsNow(a) && maleRank >= males) value -= 0.2;
-    return { value, gene, fert, relatives };
+    return { value, gene, fert, relatives, pair };
 }
 
 function extraMaleWhy(rule, males) {
@@ -242,10 +278,15 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
     const cullIds = opts.cullIds instanceof Set ? opts.cullIds : new Set(opts.cullIds || []);
     const rule = groupRule(info, opts.ratio);
     const system = rule.system;
+    const pairStep = PAIR_STEPS[opts.pairs] || PAIR_STEPS.normal;
+    const monogamous = info.mating === 'monogamy';
     const all = Array.from(model.animals.values()).filter(a => a.species === species && !a.exhibit && a.alive !== false);
-    // juveniles share the game's space requirement and don't take adults' room
+    // juveniles share the game's space requirement and keep their places
+    // (habitatCapacity): the room counts adults
     const infoX = Object.assign({}, info);
-    if (!infoX.spacePerAdult) infoX.spacePerAdult = estimateSpacePerAdult(info, youngByHabitat(all));
+    const young = youngByHabitat(all);
+    if (!infoX.spacePerAdult) infoX.spacePerAdult = estimateSpacePerAdult(info, young);
+    if (!infoX.young) infoX.young = young;
     const inHabitats = all.filter(a => a.hab);
     const atTrade = all.filter(a => !a.hab && a.lt === 'trade').length;
     const poorWhy = geneRules(inHabitats.filter(a => !a.juv), opts, score);
@@ -311,10 +352,17 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         const fertileMales = group.filter(a => a.sex === Sex.Male && breedsNow(a)).sort((x, y) => (score(y) ?? 0) - (score(x) ?? 0));
         const maleRankOf = a => fertileMales.indexOf(a);
         const males = maleRoom(rule, group.filter(a => a.sex === Sex.Female && breedsNow(a)).length);
-        const scored = group.map(a => ({ a, k: keepValue(model, a, group, { system, maleRank: Math.max(0, maleRankOf(a)), males, score, kin: opts }) }));
+        // monogamous mates living here: the pair setting says how they go
+        const mateOf = new Map();
+        for (const a of group) {
+            const m = bondedMate(a, group, monogamous);
+            if (m) mateOf.set(a.id, m);
+        }
+        const scored = group.map(a => ({ a, k: keepValue(model, a, group, { system, maleRank: Math.max(0, maleRankOf(a)), males, score, kin: opts, mate: mateOf.get(a.id) || null, pairBonus: pairStep.bonus }) }));
         // the breeding core: the best fertile male(s), then the best fertile
-        // females not related to them (keep value, so relatives rank lower)
-        const valueOf = new Map(scored.map(x => [x.a.id, x.k.value]));
+        // females not related to them (keep value, so relatives rank lower;
+        // a bond is no reason to breed: without the mate's part)
+        const valueOf = new Map(scored.map(x => [x.a.id, x.k.value - x.k.pair]));
         const byValue = list => list.slice().sort((x, y) => valueOf.get(y.id) - valueOf.get(x.id));
         const core = new Set();
         const coreMales = fertileMales.filter(a => !poor.has(a.id)).slice(0, coreM);
@@ -339,11 +387,29 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         for (const { a } of scored) if (cullIds.has(a.id) && !a.moving && !a.preg && !a.away) why.set(a.id, 'your choice');
         // the player's sends come on top: they do not make room for another to stay
         let over = adults.length - target;
+        // Never: a bonded animal goes only with its mate (the mate's own gene
+        // rule, or the pair, says why); one whose mate can't go stays (pairHeld)
+        const together = !!pairStep.together;
+        const pairHeld = new Map();
+        const mateHere = a => {
+            const m = mateOf.get(a.id);
+            return m && !why.has(m.id) ? m : null;
+        };
+        const withMate = (a, m) => poor.get(m.id) || `goes with its mate ${a.name} (bonded pairs stay together)`;
         // poor genes go from every habitat, full or not; they make room
         for (const { a } of scored) {
             if (fixed(a) || why.has(a.id) || !poor.has(a.id)) continue;
+            const m = together ? mateHere(a) : null;
+            if (m && fixed(m)) {
+                pairHeld.set(a.id, m);
+                continue;
+            }
             why.set(a.id, poor.get(a.id));
             if (!a.juv) over--;
+            if (m) {
+                why.set(m.id, withMate(a, m));
+                over--;
+            }
         }
         // the game's own most adults per sex (rule.oneMale: Plains zebra,
         // 2026-10-22; sexLimit: two male or two female leopards, 2026-10-26):
@@ -372,28 +438,59 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
                 if (fixedForLimit(x.a)) givesWay.add(x.a.id);
                 sentForLimit.add(x.a.id);
                 over--;
+                // Never: its mate goes with it, as the game's limit does
+                // (only what can't go at all stays: then the pair splits)
+                const m = together ? mateHere(x.a) : null;
+                if (m && !heldForLimit(m)) {
+                    why.set(m.id, withMate(x.a, m));
+                    overLimitCull.add(m.id);
+                    if (fixedForLimit(m)) givesWay.add(m.id);
+                    sentForLimit.add(m.id);
+                    over--;
+                }
             }
             if (stuck.length) overLimit.push({ hab, sex, limit, ids: stuck });
         }
         const rank = new Map(ceiling ? scored.map(x => [x.a.id, strandRank(x.a)]) : []);
         const candidates = scored.filter(x => !fixed(x.a) && !why.has(x.a.id))
             .sort(ceiling ? (x, y) => rank.get(x.a.id).tier - rank.get(y.a.id).tier || x.k.value - y.k.value : (x, y) => x.k.value - y.k.value);
+        // High and Never: the unpaired go first (the order holds within each)
+        if (pairStep.last) {
+            const bonded = new Set(candidates.filter(x => mateHere(x.a)).map(x => x.a.id));
+            candidates.sort((x, y) => bonded.has(x.a.id) - bonded.has(y.a.id));
+        }
         for (const x of candidates) {
+            // (gone with its mate)
+            if (why.has(x.a.id)) continue;
             const oldOne = fertilityValue(x.a) === 0 && !x.a.juv;
             // juveniles only by hand: the target counts adults, and the room
             // left by the fill level is for the young
             if (x.a.juv) continue;
-            if (over > 0 || (opts.oldAlways && oldOne)) {
-                why.set(x.a.id, cullReason(x.a, x.k, group, rule, Math.max(0, maleRankOf(x.a)), males, ceiling ? rank.get(x.a.id).why : '', score));
-                if (!x.a.juv) over--;
+            if (!(over > 0 || (opts.oldAlways && oldOne))) continue;
+            const reason = () => cullReason(x.a, x.k, group, rule, Math.max(0, maleRankOf(x.a)), males, ceiling ? rank.get(x.a.id).why : '', score);
+            const m = together ? mateHere(x.a) : null;
+            if (m) {
+                // Never: the two go together, and only to get the habitat 2
+                // over its target or over its room
+                if (fixed(m) || !(over >= 2 || (room != null && over > capacity - target))) {
+                    pairHeld.set(x.a.id, m);
+                    continue;
+                }
+                why.set(x.a.id, reason());
+                why.set(m.id, withMate(x.a, m));
+                over -= 2;
+                continue;
             }
+            why.set(x.a.id, reason());
+            over--;
         }
         const cull = scored.filter(x => why.has(x.a.id)).map(x => ({ id: x.a.id, reason: why.get(x.a.id), value: x.k.value, gene: x.k.gene }));
         const keep = scored.filter(x => !why.has(x.a.id)).map(x => ({
             id: x.a.id, value: x.k.value, gene: x.k.gene,
             why: keepIds.has(x.a.id) ? 'your choice' : x.a.preg ? 'pregnant' : x.a.away ? 'away for now' : x.a.moving ? 'on the move' : core.has(x.a.id) ? 'breeding core'
                 : lastOfSex.has(x.a.id) ? 'last breeder of its sex' : carriers.has(x.a.id) ? carriers.get(x.a.id)
-                    : protectedBest.has(x.a.id) ? 'best genes of the species' : '',
+                    : protectedBest.has(x.a.id) ? 'best genes of the species'
+                        : pairHeld.has(x.a.id) && !why.has(pairHeld.get(x.a.id).id) ? `bonded to ${pairHeld.get(x.a.id).name} (bonded pairs stay together)` : '',
             poor: poor.get(x.a.id) || '',
         }));
         habitats.push({ hab, adults: adults.length, juveniles: group.length - adults.length, capacity, room: room != null, target, keep, cull,

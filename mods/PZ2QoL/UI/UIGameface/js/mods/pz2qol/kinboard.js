@@ -2721,19 +2721,19 @@ function cullFill(c) {
 }
 
 // cullPlan for the current choices (cached until a choice or the model changes)
-// (+ the Breeding goal and kin rule of the fine tuning, kinprogtune.js tuningCull)
+// (+ the Breeding goal, kin rule and pair setting of the fine tuning, kinprogtune.js tuningCull)
 function cullResult() {
     const c = S.cull;
     const model = getKinModel();
     if (!c || !model || c.state !== 'ready') return null;
     const ratio = ratioChoice(c.species);
     const tc = tuningCull(getPref(TUNE_PREF));
-    const key = [c.fill, c.oldAlways, c.genes, c.zeroFertility, c.young, ratio, Array.from(c.keepIds).sort().join(','), Array.from(c.cullIds).sort().join(','), tc.goal, tc.kinRule].join('|');
+    const key = [c.fill, c.oldAlways, c.genes, c.zeroFertility, c.young, ratio, Array.from(c.keepIds).sort().join(','), Array.from(c.cullIds).sort().join(','), tc.goal, tc.kinRule, tc.pairs].join('|');
     if (c.modelRef === model && c.key === key) return c.result;
     let r = null;
     try {
         r = cullPlan(model, c.species, c.info || {}, {
-            options: { fill: cullFill(c), oldAlways: c.oldAlways, genes: c.genes, zeroFertility: c.zeroFertility, young: c.young, keepIds: c.keepIds, cullIds: c.cullIds, ratio, goal: tc.goal, kinRule: tc.kinRule },
+            options: { fill: cullFill(c), oldAlways: c.oldAlways, genes: c.genes, zeroFertility: c.zeroFertility, young: c.young, keepIds: c.keepIds, cullIds: c.cullIds, ratio, goal: tc.goal, kinRule: tc.kinRule, pairs: tc.pairs },
         });
         c.error = null;
         if (r) {

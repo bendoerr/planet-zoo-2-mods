@@ -59,9 +59,11 @@ test('Who counts as related: the family tree by default; Thin out gets the goal 
     assert.equal(tuningChoice({}, 'kinRule').label, 'Family tree');
     assert.equal(applyTuning({}, { kinRule: 'genes' }).kinRule, 'genes');
     assert.equal(PROGRAMME_DEFAULTS.kinRule, 'pedigree');
-    assert.deepEqual(tuningCull(null), { goal: 'average', kinRule: 'pedigree' });
-    assert.deepEqual(tuningCull({ kinRule: 'genes', goal: 'ceiling' }), { goal: 'ceiling', kinRule: 'genes' });
-    assert.deepEqual(tuningCull({ kinRule: 'nope' }), { goal: 'average', kinRule: 'pedigree' });
+    assert.deepEqual(tuningCull(null), { goal: 'average', kinRule: 'pedigree', pairs: 'normal' });
+    assert.deepEqual(tuningCull({ kinRule: 'genes', goal: 'ceiling' }), { goal: 'ceiling', kinRule: 'genes', pairs: 'normal' });
+    assert.deepEqual(tuningCull({ kinRule: 'nope', bondBreakCost: 'nope' }), { goal: 'average', kinRule: 'pedigree', pairs: 'normal' });
+    // splitting a bonded pair: Thin out's PAIR_STEPS ids
+    for (const id of ['free', 'low', 'high', 'never']) assert.equal(tuningCull({ bondBreakCost: id }).pairs, id);
 });
 
 test('Auto mode applies the tuning on top of its own search budget', () => {

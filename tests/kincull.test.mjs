@@ -323,3 +323,102 @@ test('one breeding female (*:1): males beyond one for her are extra when a habit
     assert.deepEqual(plan.moves.map(x => x.id).sort(), ['a4', 'a5']);
     assert.match(plan.moves[0].reason, /extra male \(one breeding female here: room for 1 breeding male\)/);
 });
+
+// The room by the game's own space rule (info.space: base + per extra
+// animal): the young keep their places, so a habitat full of young sends
+// adults away (a flamingo flock past the game's water need, 2026-10-27).
+test("the room counts the young by the game's space rule", () => {
+    // water: 80 for the first animal, 10 for each more; 200 holds 13 animals
+    const info = n => ({ social: { max: 50 }, mating: 'monogamy', space: { water: { base: 80, per: 10 } },
+        habitats: { 1: { available: { water: 200 }, required: { water: 80 + 10 * (n - 1) }, adults: 8 } } });
+    const herd = young => {
+        n = 0;
+        const list = [an(M, '1', 6), an(F, '1', 6), an(F, '1', 5), an(M, '1', 4), an(F, '1', 4), an(M, '1', 3), an(F, '1', 3), an(M, '1', 2)];
+        for (let i = 0; i < young; i++) list.push(an(i % 2 ? M : F, '1', 3, { juv: true, age: 1, ageQ: 1 }));
+        return model(list);
+    };
+    const four = cullPlan(herd(4), 'Lemur', info(12), { options: { fill: 1 } });
+    assert.equal(four.habitats[0].capacity, 9, '8 adults + 1 more place');
+    assert.equal(four.moves.length, 0);
+    const six = cullPlan(herd(6), 'Lemur', info(14), { options: { fill: 1 } });
+    assert.equal(six.habitats[0].capacity, 7, 'the 6 young take their places');
+    assert.deepEqual(six.moves.map(x => x.id), ['a8'], 'one adult goes, never a young one');
+    // without the rule: the estimate, less the young (14 animals need 210: 15 each)
+    const est = cullPlan(herd(6), 'Lemur', Object.assign(info(14), { space: null }), { options: { fill: 1 } });
+    assert.equal(est.habitats[0].capacity, Math.floor(200 / 15) - 6);
+});
+
+// The pair setting (fine tuning "Splitting a bonded pair"): a4 and a5 are a
+// monogamous pair; the 2026-10-28 flamingo runs split 12 pairs on Never.
+const MONO = max => ({ social: { max }, mating: 'monogamy' });
+const pair = (q = 2) => [an(M, '1', q, { mates: ['a5'] }), an(F, '1', q, { mates: ['a4'] })];
+const core = () => [an(M, '1', 6), an(F, '1', 6), an(F, '1', 5)];
+
+test('the pair setting: Free to Normal weigh the bond, High sends the unpaired first', () => {
+    n = 0;
+    // over by 1; the unpaired a6 and a7 have better genes than the pair
+    const m = model(core().concat(pair(), [an(M, '1', 4), an(F, '1', 4)]));
+    const out = pairs => cullPlan(m, 'Lemur', MONO(6), { options: { fill: 1, pairs } }).moves.map(x => x.id);
+    for (const p of ['free', 'low', 'normal']) {
+        const ids = out(p);
+        assert.equal(ids.length, 1, p);
+        assert.ok(['a4', 'a5'].includes(ids[0]), `${p}: the bond is not worth more than better genes (${ids})`);
+    }
+    for (const p of ['high', 'never']) {
+        const ids = out(p);
+        assert.equal(ids.length, 1, p);
+        assert.ok(['a6', 'a7'].includes(ids[0]), `${p}: an unpaired one goes first (${ids})`);
+    }
+    // Normal: the bond outweighs a little better genes (a6, a7 one grade up)
+    n = 0;
+    const close = model(core().concat(pair(), [an(M, '1', 3), an(F, '1', 3)]));
+    assert.ok(['a6', 'a7'].includes(cullPlan(close, 'Lemur', MONO(6), { options: { fill: 1 } }).moves[0].id));
+    assert.ok(['a4', 'a5'].includes(cullPlan(close, 'Lemur', MONO(6), { options: { fill: 1, pairs: 'free' } }).moves[0].id));
+    // a polygynous species' mates are no bond (only the game's bond makes one)
+    n = 0;
+    const poly = model(core().concat(pair(), [an(M, '1', 4), an(F, '1', 4)]));
+    assert.ok(['a4', 'a5'].includes(cullPlan(poly, 'Lemur', { social: { max: 6 }, mating: 'polygyny', ratio: '1:1' }, { options: { fill: 1, pairs: 'never', ratio: '1:1' } }).moves[0].id));
+});
+
+test('the pair setting Never: a bonded animal goes only with its mate', () => {
+    n = 0;
+    const m = model(core().concat(pair()));
+    // 1 over its target, within its room (5 x 0.85 = 4): Normal splits the pair, Never keeps it
+    const normal = cullPlan(m, 'Lemur', MONO(5), { options: { fill: 0.85 } });
+    assert.equal(normal.moves.length, 1);
+    assert.ok(['a4', 'a5'].includes(normal.moves[0].id));
+    const never = cullPlan(m, 'Lemur', MONO(5), { options: { fill: 0.85, pairs: 'never' } });
+    assert.deepEqual(never.moves, []);
+    const kept = new Map(never.habitats[0].keep.map(x => [x.id, x.why]));
+    assert.equal(kept.get('a4'), 'bonded to L5 (bonded pairs stay together)');
+    // over its room: the two go together
+    const room = cullPlan(m, 'Lemur', MONO(4), { options: { fill: 1, pairs: 'never' } });
+    assert.deepEqual(room.moves.map(x => x.id).sort(), ['a4', 'a5']);
+    assert.ok(room.moves.some(x => /^goes with its mate L[45] \(bonded pairs stay together\)$/.test(x.reason)));
+    // 2 over its target: the same
+    assert.deepEqual(cullPlan(m, 'Lemur', MONO(4), { options: { fill: 0.75, pairs: 'never' } }).moves.map(x => x.id).sort(), ['a4', 'a5']);
+    // a mate that can't go holds the pair: the player's keep
+    assert.deepEqual(cullPlan(m, 'Lemur', MONO(4), { options: { fill: 1, pairs: 'never', keepIds: new Set(['a5']) } }).moves, []);
+    // the player's own send still splits (a habitat with room)
+    assert.deepEqual(cullPlan(m, 'Lemur', MONO(5), { options: { fill: 1, pairs: 'never', cullIds: new Set(['a4']) } }).moves.map(x => x.id), ['a4']);
+});
+
+test('the pair setting Never: the gene rules and the game\'s most per sex take the mate too', () => {
+    n = 0;
+    // a 0% fertility gene: the mate goes with it (room for all)
+    const zf = model(core().concat([an(M, '1', 2, { mates: ['a5'], genes: ZF(2) }), an(F, '1', 4, { mates: ['a4'] })]));
+    const gene = cullPlan(zf, 'Lemur', MONO(9), { options: { fill: 1, pairs: 'never' } });
+    assert.deepEqual(gene.moves.map(x => [x.id, x.reason]), [['a4', '0% fertility genes'], ['a5', 'goes with its mate L4 (bonded pairs stay together)']]);
+    assert.deepEqual(cullPlan(zf, 'Lemur', MONO(9), { options: { fill: 1 } }).moves.map(x => x.id), ['a4'], 'Normal: it goes alone');
+    // ... unless the mate can't go: then both stay
+    const held = cullPlan(zf, 'Lemur', MONO(9), { options: { fill: 1, pairs: 'never', keepIds: new Set(['a5']) } });
+    assert.deepEqual(held.moves, []);
+    assert.equal(held.poorKept, 1);
+    // the game allows one adult male: the extra one's mate goes with him
+    n = 0;
+    const lim = model(core().concat(pair()));
+    const one = { social: { max: 9 }, mating: 'monogamy', sexMax: { male: 1, female: 8 } };
+    const never = cullPlan(lim, 'Lemur', one, { options: { fill: 1, pairs: 'never' } });
+    assert.deepEqual(never.moves.map(x => [x.id, !!x.limit]), [['a4', true], ['a5', true]]);
+    assert.deepEqual(cullPlan(lim, 'Lemur', one, { options: { fill: 1 } }).moves.map(x => x.id), ['a4'], 'Normal: he goes alone');
+});

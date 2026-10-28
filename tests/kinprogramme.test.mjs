@@ -236,6 +236,28 @@ test('space: capacity from the game requirement per adult', () => {
     assert.equal(habitatCapacity({}, '9', 8), 8);
 });
 
+// The game's own rule (animals.fdb Requirements_HabitatSpace, info.space):
+// Greater flamingo, land 100 + 6 and water 80 + 3 per animal more, flight
+// 60 + 2 (an open habitat requires none).
+test("space: capacity by the game's rule, the young keeping their places", () => {
+    const space = { land: { base: 100, per: 6 }, water: { base: 80, per: 3 }, fly: { base: 60, per: 2 } };
+    const info = {
+        social: { max: 500 }, space,
+        habitats: {
+            // 50 adults + 25 young: water 80 + 3 x 74 = 302 of 300
+            '1': { available: { land: 1500, water: 300, fly: 0 }, required: { land: 544, water: 302 }, adults: 50 },
+            '2': { available: { land: 1500, water: 300 }, required: { land: 100, water: 80 }, adults: 0 },
+            '3': { available: { land: 1500, water: 300 } },
+        },
+        spacePerAdult: { water: 3 },
+    };
+    assert.equal(habitatCapacity(info, '1', 8), 49, 'water: one adult over; flight not required');
+    assert.equal(habitatCapacity(info, '2', 8), 74, 'empty: the first needs the base');
+    assert.equal(habitatCapacity(info, '3', 8), 100, 'no requirement from the game: the estimate');
+    assert.equal(habitatCapacity(Object.assign({}, info, { young: new Map([['3', 10]]) }), '3', 8), 90, 'the estimate, less the young');
+    assert.equal(habitatCapacity(Object.assign({}, info, { space: null, young: new Map([['1', 25]]) }), '1', 8), 75, 'no rule: the estimate (300 / 3 - 25)');
+});
+
 test('a big species plans in reasonable time', () => {
     const animals = [];
     for (let i = 0; i < 80; i++) {
@@ -825,7 +847,7 @@ test('young waiting at the trade centre go back: mother, father, else the roomie
     assert.ok(!off.moves.some(m => m.young));
 });
 
-test('juveniles never go to the trade centre and do not take adults\' room', () => {
+test('juveniles never go to the trade centre and keep their places', () => {
     // the game's requirement covers 2 adults + 2 young: 400 land; 900 available
     const info = { social: { min: 1, max: 20 }, habitats: { 1: { available: { land: 900 }, required: { land: 400 }, adults: 2 } } };
     const animals = [an('m', M, '1'), an('f', F, '1', [], { genes: G('E', 'F') }), an('y1', F, '1', ['m', 'f'], { juv: true }), an('y2', M, '1', ['m', 'f'], { juv: true })];
@@ -834,7 +856,7 @@ test('juveniles never go to the trade centre and do not take adults\' room', () 
     assert.deepEqual(estimateSpacePerAdult(info, young), { land: 100 });
     assert.deepEqual(estimateSpacePerAdult(info), { land: 200 }, 'without the young: as before');
     const plan = planProgramme(model, 'Lion', info, DEST(['1']));
-    assert.equal(plan.capacity['1'], 9, '900 / 100 per animal');
+    assert.equal(plan.capacity['1'], 7, '900 / 100 per animal, less the 2 young');
     assert.ok(!plan.moves.some(m => m.id === 'y1' || m.id === 'y2'));
 });
 

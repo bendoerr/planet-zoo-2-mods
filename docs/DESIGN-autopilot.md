@@ -422,6 +422,9 @@ keeps running). The veto window can be set to 0 (silent) by the player.
 ### 8.2 Bonds (monogamous species)
 - Never split a ring bond for a P2 gain below a high bar (`bondBreakCost` 0.5). Never cull one
   partner of a bonded pair without the other, unless the other is dead or leaving too.
+  As built (2026-10-28): the fine tuning's "Splitting a bonded pair" sets both. The programme
+  weighs it (`bondBreakCost`); Thin out takes it as `pairs` (`kincull.js PAIR_STEPS`): High
+  sends unpaired animals first, Never sends a bonded one only with its mate.
 - A bond that ends (mate dead, `mourn` > 0) changes `held` pairs to `risk`: P0, as `newRisks`
   already detects with `bondEnded`. While an animal is mourning, it is not moved into a new group
   (the bond may still lock it; whether `IconLock` holds during mourning is open, section 13).

@@ -160,12 +160,13 @@ test('an animal Auto mode sent to the trade centre is not brought back', () => {
 });
 
 test('Thin out comes first: the old leave a full habitat, so the programme keeps its breeders', () => {
-    // room for 4 adults (space 4000 / 1000 each): a breeding pair, a second
-    // pair, and two old ones past breeding
+    // room for 5 animals (space 5000 / 1000 each), the young one's place
+    // taken: 4 adults. A breeding pair, a second pair, and two old ones past
+    // breeding
     const old = { age: 17, infertile: true, genes: G('A', 'B') };
     const animals = [an('a', M, '1'), an('b', F, '1', [], { genes: G('E', 'F') }), an('c', M, '1', [], { genes: G('G', 'H') }), an('d', F, '1', [], { genes: G('I', 'J') }),
         an('o1', M, '1', [], old), an('o2', F, '1', [], old), an('y', F, '1', ['a', 'b'], { juv: true, age: 1 })];
-    const info = { social: { min: 2, max: 8 }, mating: 'mixed', fertilityAges: { maturity: 3, infertility: 15 }, habitats: { 1: { available: { land: 4000 }, required: { land: 6000 }, adults: 6 } } };
+    const info = { social: { min: 2, max: 8 }, mating: 'mixed', fertilityAges: { maturity: 3, infertility: 15 }, habitats: { 1: { available: { land: 5000 }, required: { land: 7000 }, adults: 6 } } };
     const model = buildKinModel(snap(animals, ['1']));
     const r = run(model, { info, destinations: DEST(['1']), settings: { thin: true, fill: 'full' } });
     const thin = r.moves.filter(m => m.stage === 'thin');
@@ -565,4 +566,22 @@ test('ledger: memories run out, gone animals are forgotten, the saved size stays
     const e = emptyLedger();
     e.log.push({ r: '♂♀→' });
     assert.equal(savedSize(e), JSON.stringify(e).length + 15);
+});
+
+// The fine tuning's "Splitting a bonded pair" reaches Thin out in Auto mode
+// too (2026-10-28: on Never, Thin out still split flamingo pairs).
+test('Auto mode: Thin out follows the pair setting', () => {
+    // room for 4: the breeding core a, b and c, and the pair p and q (weaker genes)
+    const WEAK = Object.assign(G('E', 'F'), { F: 'EEEEEEEEEFFF', I: 'EEEEEEEEEFFF' });
+    const MONO = Object.assign(INFO(HABS, 4), { mating: 'monogamy' });
+    const model = buildKinModel(snap([an('a', M, '1', [], { genes: G('A', 'B') }), an('b', F, '1', [], { genes: G('A', 'B') }), an('c', F, '1', [], { genes: G('A', 'C') }),
+        an('p', M, '1', [], { mates: ['q'], genes: WEAK }), an('q', F, '1', [], { mates: ['p'], genes: WEAK })]));
+    const go = tune => planAutoRun({ model, species: 'Lion', info: MONO, destinations: DEST(HABS), assignments: null, settings: { thin: true, fill: 'full' }, view: {}, tradeFree: null, tune });
+    const to = (r, id) => (r.moves.find(m => m.id === id) || {}).to;
+    const free = go({ bondBreakCost: 'free' });
+    assert.equal(free.thin.moves.length, 1);
+    assert.ok(['p', 'q'].includes(free.thin.moves[0].id), JSON.stringify(free.thin.moves));
+    const never = go({ bondBreakCost: 'never' });
+    assert.deepEqual(never.thin.moves.map(m => m.id).sort(), ['p', 'q'], JSON.stringify(never.thin.moves));
+    assert.equal(to(never, 'p'), to(never, 'q'), JSON.stringify(never.moves));
 });

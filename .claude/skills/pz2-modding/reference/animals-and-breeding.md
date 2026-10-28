@@ -601,7 +601,10 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
 - **Space:** `Requirements_HabitatSpace` gives min + per-additional for land, aquatic, climb, deep
   swim, flight, plus shelter per animal (Hawksbill turtle deep swim 100 + 25, zebra land 460 + 140).
   Need = `Min + Per × (n − 1)` is a **guess**. Whether species' needs add up in a shared habitat is
-  open. Shoals: `shoalfish.Requirements_Space(MinDeepWater, AdditionalDeepWater)`, `Requirements_ShoalSize`.
+  open. The game's prepared statement `Animals/GetAnimalSpaceRequirements` (ps_c0
+  animals.pscollection) selects the whole table; PZ2QoL reads it with the group limits
+  (`Kin._SpeciesDb` `tSpace`, sent as `info.space` = `{ land|water|deepSwim|climb|fly: { base, per } }`,
+  only types with a per-animal part). Shoals: `shoalfish.Requirements_Space(MinDeepWater, AdditionalDeepWater)`, `Requirements_ShoalSize`.
 - **Hard filters:** `Requirements_ValidEnclosureTypes(Habitat, ClimbProof, Roofed, Aquarium)`
   (16 aquarium-only species, none allows both); `Requirements_Salinity` (check it separately: the
   overrides pair saltwater species with freshwater fish), game check `animals:IsSalinitySuitable(sp,
@@ -1012,10 +1015,19 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   up beside its parents (`kinauto_soak.test.mjs` now allows 6 %). Young waiting at the trade centre
   go back to a habitat (option `youngBack`, `youngBackMoves`): the mother's habitat after the plan,
   else the father's, else its own assigned one, else the allowed habitat with the most room.
-- **Juveniles don't take adults' room** (developer, 2026-10-19). `GetSpaceRequirementsInHabitatForSpecies`
-  covers the whole population (**guess**: juveniles included), so `estimateSpacePerAdult(info,
-  youngByHabitat(all))` divides it by adults + young living there; Thin out uses the same.
-  The adults' room then rises (fixtures: 10 -> 12, 7 -> 8); `engines_golden.json` re-recorded.
+- **Juveniles don't take adults' room** (developer, 2026-10-19; **superseded 2026-10-28**).
+  `GetSpaceRequirementsInHabitatForSpecies` covers the whole population (**guess**: juveniles
+  included), so `estimateSpacePerAdult(info, youngByHabitat(all))` divides it by adults + young
+  living there; Thin out uses the same. The adults' room then rises (fixtures: 10 -> 12, 7 -> 8);
+  `engines_golden.json` re-recorded.
+- **The young keep their places** (developer, 2026-10-28). Thin out's target came from a room
+  that left the young out, and juveniles are never sent: a flamingo flock (young about half of it)
+  went past the game's water need (simulation: 84 birds where 74 fit). `habitatCapacity` now
+  gives adults: with the game's rule (`info.space`) `adults + floor((available − required) / per)`
+  per area type the game requires here (the game's own adult count and requirement, so the young
+  count exactly as the game counts them; an empty habitat: `1 + floor((available − base) / per)`);
+  without it the estimate less the young there (`info.young`). The programme and Thin out both pass
+  `info.young`.
 - **Pitfall (2026-10-19, seen on Y:):** young that Bring all brought into the trade centre stayed
   there although the Breeding window ran its programme. Its Deep plan is reused while
   `programmeProblemSig` is unchanged, and that leaves juveniles out (births must not restart a
