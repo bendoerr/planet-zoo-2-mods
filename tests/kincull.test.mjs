@@ -2,7 +2,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
-import { cullPlan, geneScore } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
+import { breedsNow, cullPlan, geneScore } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
+import { packLeaderOf } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
+import { makeZoo, SPECIES } from './helpers/zoogen.mjs';
 
 const M = Sex.Male, F = Sex.Female;
 // gene strings: fertility/immunity count differing loci (hetero), size/longevity good alleles
@@ -461,4 +463,151 @@ test('packs: one that does not lead goes before it is too old to breed; the lead
     assert.deepEqual(cullPlan(model(animals), 'Lemur', PACK(9), { options: { fill: 1, keepIds: new Set(['a3']) } }).moves, [], "the player's keep stays");
     // not a pack: nobody
     assert.deepEqual(cullPlan(model(animals), 'Lemur', { social: { max: 9 }, mating: 'monogamy' }, { options: { fill: 1 } }).moves, []);
+});
+
+// Herd (opts.herd, Auto mode's AUTO_CULL): the species' adults are held to
+// their habitats' targets together, and who goes is chosen across the herd
+// by own grades (simulator 2026-10-28: habitat by habitat, a third of the
+// wild dogs sent away were above the herd's average).
+const ROOMY = { social: { max: 10 }, mating: 'polygyny' };
+
+test('herd: the herd\'s weakest go, from any habitat; a better habitat keeps more than its target', () => {
+    n = 0;
+    // room 10, fill 0.5: target 5 each. Habitat 1 (good) 7 adults, habitat 2 (weak) 5: the herd is 2 over
+    const animals = [an(M, '1', 6), an(F, '1', 6), an(F, '1', 6), an(F, '1', 5), an(F, '1', 5), an(F, '1', 5), an(F, '1', 4),
+        an(M, '2', 3), an(F, '2', 3), an(F, '2', 3), an(F, '2', 2), an(F, '2', 1)];
+    const opts = { fill: 0.5, keepBest: 0 };
+    const today = cullPlan(model(animals), 'Lemur', ROOMY, { options: opts });
+    assert.ok(today.moves.length === 2 && today.moves.every(m => ['a4', 'a5', 'a6', 'a7'].includes(m.id)), 'habitat by habitat: the good habitat gives up its weakest');
+    assert.equal(today.herd, undefined);
+    const herd = cullPlan(model(animals), 'Lemur', ROOMY, { options: Object.assign({ herd: true }, opts) });
+    assert.deepEqual(herd.moves.map(m => m.id), ['a12', 'a11'], 'the herd\'s weakest go, the weakest first');
+    assert.match(herd.moves[0].reason, /^weaker genes than the rest of the herd \(17; herd average \d+\)$/);
+    assert.deepEqual(herd.herd, { target: 10, kept: 10 });
+    const h1 = herd.habitats.find(h => h.hab === '1');
+    assert.equal(h1.keptAdults, 7, 'up to its room');
+    assert.ok(herd.after.gene > today.after.gene, 'the herd keeps better genes');
+    // never below a habitat's floor (the breeding core): a third over, the good habitat gives one
+    const more = animals.concat([an(F, '1', 4)]);
+    const p = cullPlan(model(more), 'Lemur', ROOMY, { options: Object.assign({ herd: true }, opts) });
+    assert.deepEqual(p.moves.map(m => m.id), ['a12', 'a11', 'a7']);
+    assert.equal(p.habitats.find(h => h.hab === '2').keptAdults, 3);
+});
+
+test('herd: a habitat over its room gives up its own', () => {
+    n = 0;
+    // fill 1: target = room 6. Habitat 1 holds 8 (2 over its room), habitat 2 has room to spare
+    const animals = [an(M, '1', 6), an(F, '1', 6), an(F, '1', 6), an(F, '1', 6), an(F, '1', 5), an(F, '1', 5), an(F, '1', 5), an(F, '1', 4),
+        an(M, '2', 2), an(F, '2', 2), an(F, '2', 2), an(F, '2', 1)];
+    const p = cullPlan(model(animals), 'Lemur', { social: { max: 6 }, mating: 'polygyny' }, { options: { fill: 1, herd: true, keepBest: 0 } });
+    assert.deepEqual(p.moves.map(m => m.id).sort(), ['a5', 'a8'], JSON.stringify(p.moves));
+    assert.match(p.moves.find(m => m.id === 'a8').reason, /^weaker genes \(\d+; best here \d+\)$/, 'its own reason: the habitat is full');
+});
+
+test('herd: the old and infertile go first, then males beyond the make-up, then by own grades', () => {
+    n = 0;
+    // the herd is 2 over: the old female and the extra male go, not the weak females
+    const animals = [an(M, '1', 6), an(M, '1', 5), an(F, '1', 6), an(F, '1', 6), an(F, '1', 2), an(F, '1', 3), an(F, '1', 6, { age: 17, ageQ: 3, infertile: true }),
+        an(M, '2', 4), an(F, '2', 4), an(F, '2', 4), an(F, '2', 1), an(F, '2', 2)];
+    const p = cullPlan(model(animals), 'Lemur', ROOMY, { options: { fill: 0.5, herd: true, keepBest: 0 } });
+    assert.deepEqual(p.moves.map(m => m.id), ['a7', 'a2'], JSON.stringify(p.moves));
+    assert.match(p.moves[0].reason, /too old/);
+    assert.match(p.moves[1].reason, /extra male/);
+});
+
+test('herd: packs keep their leaders and the young; a best strand\'s last carrier stays; pregnant and kept ones too', () => {
+    n = 0;
+    // the only carrier of the best Longevity strand (6 good letters), weak otherwise
+    const carrier = Object.assign(G(1), { L: 'AAAAAA' + 'ZZZZZZ' });
+    const animals = [an(M, '1', 5, { alpha: true, age: 6 }), an(F, '1', 5, { alpha: true, age: 6 }), an(M, '1', 5, { age: 3 }), an(F, '1', 5, { age: 3 }),
+        an(F, '1', 4, { age: 3 }), an(M, '1', 4, { age: 3 }), an(F, '1', 4, { age: 3 }),
+        an(M, '2', 1, { alpha: true, age: 6 }), an(F, '2', 1, { alpha: true, age: 6 }), an(F, '2', 1, { age: 3, genes: carrier }), an(M, '2', 2, { age: 3 }), an(F, '2', 2, { age: 3 }),
+        an(F, '2', 1, { juv: true, age: 0.5 })];
+    const opts = { fill: 0.5, herd: true, keepBest: 0 };
+    const p = cullPlan(model(animals), 'Lemur', PACK(10), { options: opts });
+    assert.deepEqual(p.moves.map(m => m.id).sort(), ['a11', 'a12'], JSON.stringify(p.moves));
+    const h2 = p.habitats.find(h => h.hab === '2');
+    assert.equal(h2.keep.find(k => k.id === 'a10').why, 'the last carrier of the best Longevity strand (6/6)');
+    assert.equal(h2.keep.find(k => k.id === 'a8').why, 'leads its pack (only the leaders breed)');
+    assert.ok(h2.keep.some(k => k.id === 'a13'), 'the young stay');
+    // pregnant, the player's keep: the next weakest go instead (habitat 2 is at its floor: from habitat 1)
+    const held = cullPlan(model(animals.map(a => (a.id === 'a12' ? Object.assign({}, a, { preg: true }) : a))), 'Lemur', PACK(10), { options: Object.assign({ keepIds: new Set(['a11']) }, opts) });
+    assert.deepEqual(held.moves.map(m => m.id).sort(), ['a5', 'a6'], JSON.stringify(held.moves));
+});
+
+test('herd: Never sends a bonded pair only together, and only with the herd 2 over; the unpaired go first', () => {
+    const MONO = { social: { max: 10 }, mating: 'monogamy' };
+    const opts = { fill: 0.3, herd: true, keepBest: 0, pairs: 'never' };
+    // target 3 each: habitat 2 holds its core and a weak pair
+    const zoo = good => {
+        n = 0;
+        const a = good.map(q => an(q === 6 && n === 0 ? M : F, '1', q));
+        return a.concat([an(M, '2', 3), an(F, '2', 3), an(F, '2', 3), an(M, '2', 1, { mates: ['p2'] }), an(F, '2', 1, { mates: ['p1'] })].map((x, i) => (i >= 3 ? Object.assign(x, { id: 'p' + (i - 2) }) : x)));
+    };
+    // the herd is 1 over (habitat 1 one under): the pair stays
+    const one = cullPlan(model(zoo([6, 6])), 'Lemur', MONO, { options: opts });
+    assert.deepEqual(one.moves, []);
+    assert.match(one.habitats.find(h => h.hab === '2').keep.find(k => k.id === 'p1').why, /^bonded to /);
+    // 2 over: the pair goes together
+    const two = cullPlan(model(zoo([6, 6, 6])), 'Lemur', MONO, { options: opts });
+    assert.deepEqual(two.moves.map(m => m.id).sort(), ['p1', 'p2'], JSON.stringify(two.moves));
+    assert.ok(two.moves.some(m => /goes with its mate/.test(m.reason)));
+    // 3 over: the unpaired one first, though better
+    const three = cullPlan(model(zoo([6, 6, 6, 5])), 'Lemur', MONO, { options: opts });
+    assert.deepEqual(three.moves.map(m => m.id), ['a4', 'p1', 'p2'], JSON.stringify(three.moves));
+});
+
+test('herd: every mating system keeps its guards, and no herd send is better than a same-sex adult left free to go', () => {
+    const systems = {
+        harem: sp => ({ mating: 'polygyny' }),
+        pairs: sp => ({ mating: 'monogamy' }),
+        mixed: sp => ({ mating: 'mixed' }),
+        pack: sp => ({ mating: 'monogamy', leaderMale: true, leaderFemale: true }),
+        leaderFemale: sp => ({ mating: 'polygyny', leaderFemale: true }),
+    };
+    let herdSends = 0;
+    // a 0% fertility gene goes from the breeding core too
+    const poorGenes = a => a.genes.F.slice(0, 6) === a.genes.F.slice(6);
+    for (let seed = 1; seed <= 30; seed++) {
+        const z = makeZoo(seed, { species: ['Lion', 'Wolf', 'Zebra', 'Lemur'], habitats: 5 });
+        const m = buildKinModel(z.snap);
+        for (const sp of Object.keys(SPECIES)) {
+            for (const [name, sys] of Object.entries(systems)) {
+                const social = { min: SPECIES[sp].social.min, max: 4 + (seed % 4) };
+                const info = Object.assign({ social }, sys(sp));
+                const all = Array.from(m.animals.values()).filter(a => a.species === sp && a.hab);
+                const keepIds = new Set(all.filter((a, i) => i % 7 === 3).map(a => a.id));
+                const p = cullPlan(m, sp, info, { options: { fill: 0.55, herd: true, keepIds, pairs: 'free' } });
+                if (!p) continue;
+                const sent = new Set(p.moves.map(x => x.id));
+                const at = `${sp} ${name} seed ${seed}`;
+                for (const a of all.filter(x => sent.has(x.id))) {
+                    assert.ok(!a.juv && !a.preg && !a.moving && !keepIds.has(a.id), `${at}: ${a.id} may not go`);
+                }
+                if (info.leaderMale) {
+                    for (const h of new Set(all.map(a => a.hab))) {
+                        for (const s of [Sex.Male, Sex.Female]) {
+                            // (one too old to breed goes, as habitat by habitat)
+                            const l = packLeaderOf(all.filter(a => a.hab === h), s);
+                            assert.ok(!l || !breedsNow(l) || poorGenes(l) || !sent.has(l.id), `${at}: the leader ${l && l.id} stays`);
+                        }
+                    }
+                }
+                // the habitats' floor: the breeding core (3) or the game's smallest group, at most the target
+                const floorOf = h => Math.min(h.target, Math.max(3, social.min));
+                const free = p.habitats.flatMap(h => h.keep.filter(k => !k.why && !m.animals.get(k.id).juv && h.keptAdults > floorOf(h)));
+                for (const x of p.moves.filter(x => /than the rest of the herd/.test(x.reason))) {
+                    herdSends++;
+                    const a = m.animals.get(x.id);
+                    const gene = geneScore(a);
+                    for (const k of free) {
+                        const b = m.animals.get(k.id);
+                        if (b.sex === a.sex) assert.ok(k.gene >= gene - 1e-9, `${at}: ${a.id} (${gene}) went, ${b.id} (${k.gene}) could have gone instead`);
+                    }
+                }
+                if (p.herd.kept > p.herd.target) assert.deepEqual(free, [], `${at}: the herd is over its target with adults free to go`);
+            }
+        }
+    }
+    assert.ok(herdSends > 50, `only ${herdSends} herd sends checked`);
 });

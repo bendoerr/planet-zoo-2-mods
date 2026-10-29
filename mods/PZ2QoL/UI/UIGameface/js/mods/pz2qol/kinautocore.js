@@ -18,7 +18,7 @@
 // something changes in the zoo (a birth, a death, the player).
 import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProgramme } from './kinprogramme.js';
-import { FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
+import { AUTO_CULL, FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
 import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
 import { carrierKeepers, lastCarrier, speciesStrands } from './kinstrands.js';
@@ -158,7 +158,7 @@ export function prepareAutoRun(input) {
         // the game's own most per sex outranks Auto mode's own cooldown (it
         // put the second male there), never the player's hands off
         const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id)));
-        const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, tuningCull(input.tune)) });
+        const c = cullPlan(model, species, info || {}, { options: Object.assign({ fill: fillOf(settings), ratio: input.ratio || 'auto', keepIds, limitKeepIds }, AUTO_CULL, tuningCull(input.tune)) });
         out.thin = c;
         if (c) for (const m of c.moves) addMove(prep, model.animals.get(String(m.id)), TRADE, `Thin out: ${m.reason}`, 'thin', { overCooldown: !!m.limit, limit: !!m.limit, yields: !!m.yields });
     }

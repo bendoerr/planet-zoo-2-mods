@@ -15,6 +15,7 @@ import {
     noteModMove, noteReversal, noteUndone, pruneLedger, refusedMoves, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
     speciesSettings, togglePinAnimal, undoOf,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
+import { AUTO_CULL, cullPlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincull.js';
 import { makeZoo, rng } from './helpers/zoogen.mjs';
 
 const M = Sex.Male, F = Sex.Female;
@@ -698,4 +699,23 @@ test('Auto mode: Thin out follows the pair setting', () => {
     const never = go({ bondBreakCost: 'never' });
     assert.deepEqual(never.thin.moves.map(m => m.id).sort(), ['p', 'q'], JSON.stringify(never.thin.moves));
     assert.equal(to(never, 'p'), to(never, 'q'), JSON.stringify(never.moves));
+});
+
+test("Auto mode: Thin out holds the herd to its habitats' targets together, the weakest first", () => {
+    // room 8 per habitat (4000 m2, 500 per adult), Lean: target 5 each. Habitat 1 (good genes) 7 adults,
+    // habitat 2 (weak) 5: the board's Thin out takes two from habitat 1, Auto mode the herd's two weakest
+    const Q = q => ({ F: 'CCCCCC' + 'D'.repeat(q) + 'C'.repeat(6 - q), I: 'CCCCCC' + 'D'.repeat(q) + 'C'.repeat(6 - q), S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' });
+    const animals = [an('m1', M, '1', [], { genes: Q(6) }), an('f1', F, '1', [], { genes: Q(6) }), an('f2', F, '1', [], { genes: Q(6) }), an('f3', F, '1', [], { genes: Q(5) }),
+        an('f4', F, '1', [], { genes: Q(5) }), an('f5', F, '1', [], { genes: Q(4) }), an('f6', F, '1', [], { genes: Q(4) }),
+        an('m2', M, '2', [], { genes: Q(3) }), an('g1', F, '2', [], { genes: Q(3) }), an('g2', F, '2', [], { genes: Q(3) }), an('g3', F, '2', [], { genes: Q(2) }), an('g4', F, '2', [], { genes: Q(1) })];
+    const info = INFO(['1', '2'], 10);
+    const model = buildKinModel(snap(animals, ['1', '2']));
+    const r = run(model, { info, destinations: DEST(['1', '2']), settings: { thin: true, fill: 'lean', trade: false } });
+    assert.deepEqual(r.moves.filter(m => m.stage === 'thin').map(m => m.id), ['g4', 'g3'], JSON.stringify(r.moves));
+    assert.deepEqual(r.thin.herd, { target: 10, kept: 10 });
+    // the board's own Thin out is unchanged: habitat by habitat
+    const board = cullPlan(model, 'Lion', info, { options: { fill: 0.7 } });
+    assert.equal(board.herd, undefined);
+    assert.deepEqual(board.moves.map(m => m.id).sort(), ['f5', 'f6']);
+    assert.equal(AUTO_CULL.herd, true);
 });
