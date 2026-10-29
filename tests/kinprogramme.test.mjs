@@ -878,6 +878,22 @@ test('a kept plan is redone (and gains the young moves) when young arrive at the
     assert.equal(withFreshYoung(fresh, fresh), fresh);
 });
 
+// The strand bonus (Auto mode) reads the young's strands too: a birth that
+// makes a best strand common changes the problem, other births don't.
+test('strand bonus: a kept plan is redone when a birth gates a strand off, not for every birth', () => {
+    const base = [an('m', M, '1', [], { genes: G('E', 'F') }), an('f', F, '1', [], { genes: G('G', 'H') })];
+    const sig = (list, options = {}) => programmeProblemSig(buildKinModel(snap(list)), 'Lion', { social: { min: 2, max: 6 } }, DEST(['1', '2']), { options });
+    const sb = { strandBonus: 0.4 };
+    assert.equal(sig(base, { strandBonus: 0 }), sig(base), 'off: the same problem');
+    const before = sig(base, sb);
+    assert.notEqual(before, sig(base));
+    // Size and Longevity strands 6/6 and 0/6: the best is half the strands (still rare)
+    assert.equal(sig(base.concat([an('c', F, '1', ['m', 'f'], { juv: true })]), sb), before);
+    // a cub with two copies of the best Size strand: 4 of 6, common
+    const two = Object.assign(G('E', 'G'), { S: 'AAAAAAAAAAAA' });
+    assert.notEqual(sig(base.concat([an('c', F, '1', ['m', 'f'], { juv: true, genes: two })]), sb), before);
+});
+
 // Only the leader male mates (the game's mating rules, info.leaderMale):
 // a harem whatever the per-sex limits, which still cap the males.
 test('make-up: only the leader male mates -> one breeding male per habitat', () => {

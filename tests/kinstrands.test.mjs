@@ -2,7 +2,8 @@
 // Best strands and the Breeding goal "Push the ceiling" (kinstrands.js):
 // the young's outcome distribution, copies, carriers and the ceiling; the
 // default goal plans and culls exactly as before; the ceiling goal pairs
-// carriers and Thin out (by hand and in Auto mode) keeps them.
+// carriers and Thin out (by hand and in Auto mode) keeps them; the strand
+// bonus adds the young's copies of a best strand only while it is rare.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildKinModel, predictOffspring, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
@@ -12,7 +13,7 @@ import { cullPlan, keepValue } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol
 import { planAutoRun, programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
     breedingValue, carrierKeepers, ceilingText, ceilingWaiting, copiesText, lastCarrier, outclasses, speciesStrands, usefulCopies, youngDistribution, youngImmunity, youngUpside,
-    decodeHerdBest, encodeHerdBest, herdBest, strandEdge, strandEdgeText, strandEdgeWords, strandsFromLoci,
+    decodeHerdBest, encodeHerdBest, herdBest, strandEdge, strandEdgeText, strandEdgeWords, strandsFromLoci, strandTargets, youngCopies,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinstrands.js';
 import { SEEDS } from './helpers/enginedigest.mjs';
 import { makeZoo } from './helpers/zoogen.mjs';
@@ -397,6 +398,90 @@ test("the game's most per sex: a strand's second carrier gives way, its last one
     model = buildKinModel(snap([an('m', M, '1', G(3, 3, 3, 3)), an('f', F, '1', G(3, 3, 3, 3)), an('y', F, '1', G(3, 3, 3, 3), { age: 2.6, infertile: true })]));
     plan = cullPlan(model, 'Lion', Object.assign({}, LEO, { social: { min: 1, max: 3 } }), { options: { fill: 1, ratio: '1:1' } });
     assert.ok(!plan.moves.some(m => m.id === 'y'), JSON.stringify(plan.moves));
+});
+
+// ------------------------------------------------- the strand bonus
+// Auto mode's pair value + lambda x the young's expected copies of the
+// herd's best Size and Longevity strands, per gene while that strand is rare.
+
+test('strandTargets: the best strands of the animals in habitats that can still breed, while rare', () => {
+    const model = buildKinModel(snap([
+        an('m1', M, '1', G(5, 1, 4, 4)), an('f1', F, '1', G(5, 5, 2, 1)),
+        an('j1', M, '1', G(2, 2, 6, 1), { juv: true, age: 1 }),              // young count
+        an('t', M, '', G(6, 6, 6, 6)),                                        // waiting at the trade centre
+        an('o', F, '2', G(6, 6, 6, 6), { age: 16, infertile: true, ageQ: 3 }), // past breeding
+    ]));
+    const t = strandTargets(model, 'Lion');
+    // Size 5/6: 3 of the 6 strands (half: still rare); Longevity 6/6: 1 of 6
+    assert.deepEqual(t.best, { S: 5, L: 6 });
+    assert.ok(near(t.share.S, 0.5) && near(t.share.L, 1 / 6), JSON.stringify(t.share));
+    assert.equal(t.n, 3);
+    // common: more than the gate of the herd's strands
+    assert.deepEqual(strandTargets(model, 'Lion', {}, 0.4).best, { S: null, L: 6 });
+    assert.deepEqual(strandTargets(model, 'Lion', {}, 0.1).best, { S: null, L: null });
+    assert.deepEqual(strandTargets(model, 'Zebra').best, { S: null, L: null }, 'no animals: nothing');
+    assert.deepEqual(strandTargets(null, 'Lion').share, { S: null, L: null });
+});
+
+test('youngCopies: each parent passes a copy with chance copies / 2', () => {
+    const m = { genes: G(5, 1, 6, 6) }, f = { genes: G(5, 5, 4, 1) };
+    assert.ok(near(youngCopies(m, f, { S: 5, L: 6 }), 0.5 + 1 + 1 + 0));
+    assert.ok(near(youngCopies(m, f, { S: null, L: 6 }), 1), 'a gene left out counts nothing');
+    assert.equal(youngCopies(m, f, null), 0);
+    assert.equal(youngCopies({ genes: null }, f, { S: 5, L: 6 }), 1, 'no gene data: that parent passes none');
+});
+
+test('strand bonus: off by default; with every best strand common the plans are the same as off', () => {
+    let differs = 0, on = 0;
+    for (const seed of ZOO_SEEDS.slice(0, 4)) {
+        const z = makeZoo(seed);
+        const model = buildKinModel(z.snap);
+        for (const sp of z.species) {
+            const info = () => JSON.parse(JSON.stringify(z.info[sp]));
+            const plan = extra => planProgramme(model, sp, info(), z.dest, { assignments: z.assignments, options: Object.assign({ moveCost: 0.04 }, extra) });
+            const plain = plan({});
+            if (!plain) continue;
+            assert.equal('strandBonus' in plain, false, `seed ${seed} ${sp}: no bonus in the result`);
+            assert.deepEqual(progDigest(plan({ strandBonus: 0 })), progDigest(plain), `seed ${seed} ${sp}: 0 is off`);
+            assert.deepEqual(progDigest(plan({ strandBonus: 0.4, strandGate: 0 })), progDigest(plain), `seed ${seed} ${sp}: all common`);
+            const sb = plan({ strandBonus: 0.4 });
+            if (sb.strandBonus) on++;
+            if (!near(sb.score, plain.score)) differs++;
+        }
+    }
+    assert.ok(on > 0 && differs > 0, `the bonus scores plans differently (${on} on, ${differs} differ)`);
+});
+
+// m carries the herd's best Size strand (5,1), fc too; fn (3,4) has the
+// better expected young (by 1/96), but only fc can pass the best strand on.
+// Fertility and immunity: every young gets 100% (no spread to mask Size).
+const bonusZoo = order => {
+    const sexed = (sex, s1, s2) => Object.assign(G(s1, s2, 3, 3), sex === M ? { F: 'AAAAAABBBBBB', I: 'AAAAAABBBBBB' } : { F: 'CCCCCCDDDDDD', I: 'CCCCCCDDDDDD' });
+    const genes = { fc: sexed(F, 5, 1), fn: sexed(F, 3, 4) };
+    return buildKinModel(snap([an('m', M, '1', sexed(M, 5, 1))].concat(order.map(id => an(id, F, '1', genes[id]))), ['1']));
+};
+const BONUS_INFO = { mating: 'monogamy', social: { max: 2 } };
+
+test('strand bonus: a pair that passes on the rare best strand beats one with slightly better young', () => {
+    for (const order of [['fc', 'fn'], ['fn', 'fc']]) {
+        const model = bonusZoo(order);
+        const [m, fc, fn] = ['m', 'fc', 'fn'].map(id => model.animals.get(id));
+        assert.ok(near(youngQuality(m, fn) - youngQuality(m, fc), 1 / 96));
+        const plan = extra => planProgramme(model, 'Lion', BONUS_INFO, DEST(['1']), { options: Object.assign({ moveCost: 0, outsiderCost: 0 }, extra) });
+        const out = p => new Set(p.moves.filter(x => x.to === TRADE).map(x => x.id));
+        assert.deepEqual(Array.from(out(plan({}))), ['fc'], `order ${order}: without the bonus the better young stay`);
+        const sb = plan({ strandBonus: 0.4 });
+        assert.deepEqual(Array.from(out(sb)), ['fn'], `order ${order}: with it the carrier`);
+        // Size 5/6 is 2 of the 6 strands; every Longevity strand is 3/6 (common)
+        assert.deepEqual(sb.strandBonus.best, { S: 5, L: null });
+        assert.ok(near(sb.strandBonus.share.S, 1 / 3) && near(sb.strandBonus.share.L, 1) && sb.strandBonus.lambda === 0.4);
+        // a gate under a third: Size is common too, the bonus is off
+        const gated = plan({ strandBonus: 0.4, strandGate: 0.3 });
+        assert.equal(gated.strandBonus, undefined);
+        assert.deepEqual(Array.from(out(gated)), ['fc']);
+        // the ceiling goal while it waits: on top of the expected young
+        assert.deepEqual(Array.from(out(plan({ strandBonus: 0.4, goal: 'ceiling' }))), ['fn']);
+    }
 });
 
 // ------------------------------------------- better strands elsewhere

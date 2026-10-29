@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PROGRAMME_TUNING, applyTuning, normalizeTuning, tuningChoice, tuningCount, tuningCull, tuningGoal, tuningKey } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogtune.js';
 import { PROGRAMME_DEFAULTS } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
-import { programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
+import { AUTO_STRAND_BONUS, programmeOptionsFor } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 
 test('every tuning has one default choice and options the engine knows', () => {
     for (const t of PROGRAMME_TUNING) {
@@ -64,6 +64,22 @@ test('Who counts as related: the family tree by default; Thin out gets the goal 
     assert.deepEqual(tuningCull({ kinRule: 'nope', bondBreakCost: 'nope' }), { goal: 'average', kinRule: 'pedigree', pairs: 'normal' });
     // splitting a bonded pair: Thin out's PAIR_STEPS ids
     for (const id of ['free', 'low', 'high', 'never']) assert.equal(tuningCull({ bondBreakCost: id }).pairs, id);
+});
+
+test('Strand bonus: off on the board unless chosen; Auto mode plans with its own unless chosen', () => {
+    assert.equal(PROGRAMME_DEFAULTS.strandBonus, 0);
+    assert.equal(PROGRAMME_DEFAULTS.strandGate, 0.5);
+    assert.equal(tuningChoice({}, 'strandBonus').id, 'default');
+    assert.equal('strandBonus' in applyTuning({ moveCost: 0 }, {}), false, 'the board: nothing added');
+    assert.deepEqual(['low', 'mid', 'high'].map(id => applyTuning({}, { strandBonus: id }).strandBonus), [0.1, 0.25, 0.4]);
+    assert.equal(tuningKey({ strandBonus: 'mid' }), 'strandBonus=mid', 'part of the plans\' cache key');
+    const settings = { step: 3, trade: true };
+    const auto = programmeOptionsFor(settings, 'auto', null);
+    assert.equal(auto.strandBonus || 0, AUTO_STRAND_BONUS);
+    if (!AUTO_STRAND_BONUS) assert.equal('strandBonus' in auto, false, 'off: Auto mode\'s options as before');
+    assert.equal(programmeOptionsFor(settings, 'auto', null, { strandBonus: 'high' }).strandBonus, 0.4);
+    // never Thin out's (a keep value with it lowered Immunity, 2026-10-28)
+    assert.deepEqual(tuningCull({ strandBonus: 'high' }), tuningCull({}));
 });
 
 test('Auto mode applies the tuning on top of its own search budget', () => {

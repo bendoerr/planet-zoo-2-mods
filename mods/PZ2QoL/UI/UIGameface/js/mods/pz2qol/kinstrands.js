@@ -256,6 +256,55 @@ export function youngUpside(m, f) {
     return sum / quarter / (12 * d.genes);
 }
 
+// ------------------------------------------------- the strand bonus
+//
+// Auto mode's pair value adds the young's expected copies of the herd's best
+// Size and Longevity strands (kinprogramme.js strandBonus: "optimal haploid
+// value" for strands that don't recombine), per gene only while that strand
+// is rare: the bonus costs Fertility and Immunity, so once the strand is
+// common the expected young decide again.
+
+// The bonus's strands, per gene: the herd's best strand while its copies
+// are at most `gate` of the herd's strands, else null. The herd as in
+// herdBest: the animals in a habitat (not waiting at the trade centre, not
+// stored) that are not past breeding, juveniles included. -> { best: { S,
+// L } (0..6 or null), share: { S, L } (0..1 or null), n }
+export function strandTargets(model, species, info = {}, gate = 0.5) {
+    const out = { best: { S: null, L: null }, share: { S: null, L: null }, n: 0 };
+    if (!model || !model.animals || !species) return out;
+    const ix = withAges(model, species, info);
+    const vals = [];
+    for (const a of model.animals.values()) {
+        if (a.species !== species || a.exhibit || a.alive === false || a.stored || !a.hab || a.lt === 'trade' || pastBreeding(a, ix)) continue;
+        vals.push({ S: strandGood(a.genes, 'S'), L: strandGood(a.genes, 'L') });
+    }
+    out.n = vals.length;
+    for (const k of STRAND_GENES) {
+        const has = vals.filter(v => v[k]);
+        if (!has.length) continue;
+        const best = Math.max(...has.map(v => Math.max(v[k][0], v[k][1])));
+        const copies = has.reduce((s, v) => s + (v[k][0] >= best ? 1 : 0) + (v[k][1] >= best ? 1 : 0), 0);
+        out.share[k] = copies / (2 * has.length);
+        if (out.share[k] <= gate + 1e-9) out.best[k] = best;
+    }
+    return out;
+}
+
+// The young's expected copies of the strands in `best` ({ S, L }, null:
+// left out): each parent passes one of its two strands, so a parent with c
+// copies gives one with chance c / 2. Summed over the genes (0..4).
+export function youngCopies(m, f, best) {
+    let sum = 0;
+    for (const k of STRAND_GENES) {
+        if (!best || best[k] == null) continue;
+        for (const p of [m, f]) {
+            const v = p && strandGood(p.genes, k);
+            if (v) sum += ((v[0] >= best[k] ? 1 : 0) + (v[1] >= best[k] ? 1 : 0)) / 2;
+        }
+    }
+    return sum;
+}
+
 // ----------------------------------------- better strands elsewhere
 //
 // Animals outside the herd (on the market, in Animal Storage, waiting at the
