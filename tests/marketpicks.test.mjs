@@ -79,11 +79,13 @@ test('herd facts: habitats only, not past breeding, best strands and their copie
     assert.equal(f.inf, 15);
     assert.deepEqual(f.best, { S: 6, L: 6 });
     assert.deepEqual(f.copies, { S: 1, L: 2 });
-    assert.equal(f.mates.length, 2 * PICK_MATES - 1, 'three males, the two females');
-    assert.deepEqual(f.mates.filter(m => m.sex === M).map(m => m.S), [9, 8, 6], 'the best breeders first; m4 left out');
+    assert.equal(PICK_MATES, 2);
+    assert.equal(f.mates.length, 2 * PICK_MATES, 'two males, two females');
+    assert.deepEqual(f.mates.filter(m => m.sex === M).map(m => m.S), [9, 8], 'the best breeders first; m3, m4 left out');
     assert.deepEqual(f.mates[0], { sex: M, S: 9, L: 10, F: 'ABCDABBADCBA', I: 'ABCDABDCBADC' });
     assert.ok(f.bench && f.bench.pairs === 2);
     assert.equal(herdMarketFacts(buildKinModel(snap(animals)), { mates: 1 }).get('Lion').mates.length, 2);
+    assert.equal(herdMarketFacts(buildKinModel(snap(animals)), { mates: 3 }).get('Lion').mates.length, 5, 'three males, the two females');
     assert.equal(herdMarketFacts(null).size, 0);
 });
 
@@ -129,12 +131,13 @@ test("the facts' text: round trip, the cap drops the smallest herds, broken item
 });
 
 test('the herd facts of a zoo fit the setting', () => {
-    // 12 species of 30 animals (the owner's Cradle #2 holds 12): 3 mates each fits in 1000
+    // 12 species of 30 animals (the owner's Cradle #2 holds 12) fit in 1000
     const animals = [];
     for (let s = 0; s < 12; s++) for (let i = 0; i < 30; i++) animals.push(an(`a${s}_${i}`, i % 2 ? F : M, String(1 + (i % 3)), G(i % 7, 3, 4, i % 6), { species: `Species_${s}` }));
     const text = encodeMarketFacts(herdMarketFacts(buildKinModel(snap(animals, ['1', '2', '3']))));
     assert.ok(text.length <= 1000, `${text.length} characters`);
-    assert.equal(decodeMarketFacts(text).size, 11, 'cut to the cap: 11 of 12 species at 3 mates a sex');
+    assert.equal(decodeMarketFacts(text).size, 12);
+    assert.equal(decodeMarketFacts(encodeMarketFacts(herdMarketFacts(buildKinModel(snap(animals, ['1', '2', '3'])), { mates: 3 }))).size, 11, 'with 3 mates a sex: cut to 11');
 });
 
 // --------------------------------------------------------------- the score

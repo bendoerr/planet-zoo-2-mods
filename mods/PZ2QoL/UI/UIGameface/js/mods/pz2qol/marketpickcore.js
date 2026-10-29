@@ -27,8 +27,9 @@ import { Sex, geneStrands, predictOffspring, strandGood } from './kincore.js';
 import { breedingValue, pastBreeding, speciesStrands, STRAND_GENES, STRAND_NAME } from './kinstrands.js';
 import { speciesId } from './speciesnamecore.js';
 
-// best mates kept per sex and species
-export const PICK_MATES = 3;
+// best mates kept per sex and species (the simulation found 2 as good as 3
+// or every breeder; 2 keep a zoo of 12 species in about 800 characters)
+export const PICK_MATES = 2;
 // a pick adds at least this to the young (0..1: 2 points; 1 point bought
 // half as many again for the same gain in the simulation)
 export const PICK_MIN = 0.02;
