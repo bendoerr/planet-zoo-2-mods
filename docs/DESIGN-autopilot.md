@@ -936,7 +936,7 @@ animal back where it came from, two such runs stop Auto mode for the species wit
 | File | Role |
 |---|---|
 | `kinautocore.js` | Pure: settings (`SPECIES_DEFAULTS`, `EVERY_CHOICES`), `prepareAutoRun` / `finishAutoRun` / `planAutoRun`, `projectGrownUp`, the locks, fingerprints, park clock |
-| `kinautoledger.js` | Pure: the per-zoo memory `kinAuto` v2 (per-species settings and countdown, pins, the player's moves, history and cooldown, refusals, the log, Undo), budget 12 KB |
+| `kinautoledger.js` | Pure: the per-zoo memory `kinAuto` v2 (per-species settings and countdown, pins, the player's moves, history and cooldown, refusals, the log, Undo), budget 12 KB: `fitBudget` trims the saved copy (`kinauto.js` `saveLedger`), the log's older entries above its newest `LOG_FLOOR` (12; each species' last run last), then the last runs' notes, then the oldest history, refusals and trade centre memory, then the log; park times kept to 0.001 year |
 | `kinauto.js` | Runtime: store binding, schedule, gate, Franchise click, runs through `runPlan`, Undo, pins |
 | `kinautoui.js` | The board extension (button, panel, tags, menu item) and the notices |
 | `kinboard.js` | Hooks: the Auto button, the panel slot (`S.auto`), `isBoardBusy(species)`, `openAutoPanel`, `refreshAutoPanel`; `PROG_STEPS` now from `kinprogramme.js` `PROGRAMME_STEPS` |

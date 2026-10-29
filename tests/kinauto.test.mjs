@@ -11,7 +11,7 @@ import {
     planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitText, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
-    LEDGER_VERSION, emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger,
+    LEDGER_VERSION, LOG_FLOOR, emptyLedger, fitBudget, isPinnedAnimal, ledgerView, logAction, normalizeLedger,
     noteModMove, noteReversal, noteUndone, pruneLedger, refusedMoves, resumeSpecies, savedSize, setSpeciesSettings, settleAction, speciesOn,
     speciesSettings, togglePinAnimal, undoOf,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautoledger.js';
@@ -615,6 +615,71 @@ test('ledger: memories run out, gone animals are forgotten, the saved size stays
     const e = emptyLedger();
     e.log.push({ r: '♂♀→' });
     assert.equal(savedSize(e), JSON.stringify(e).length + 15);
+});
+
+// 2026-10-28, the developer: after a reload the wild dog run's moves were
+// gone from the log and Asha's fresh cooldown with them: the history had
+// filled the budget, the whole log went first, and the history went in the
+// order the animals first moved.
+test('ledger: the saved log keeps its newest entries and each species\' last run; notes, then the oldest history give way', () => {
+    const NOTE = 'The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).';
+    const make = () => {
+        const l = emptyLedger();
+        for (const sp of ['Dog', 'Gazelle', 'Giraffe']) {
+            setSpeciesSettings(l, sp, { on: true });
+            l.sp[sp].last = { real: sp === 'Dog' ? 1 : 2, run: 1, moves: 0, skipped: 0, note: '', notes: [NOTE, NOTE] };
+        }
+        // Asha first moved long ago (her key comes first) and again just now
+        l.hist.asha = [['Wild Dog 04', '34', 48.569]];
+        for (let i = 0; i < 60; i++) l.hist['g' + String(i).padStart(3, '0')] = [['Habitat ' + i, 'h' + i, 47.5 + i / 100]];
+        // the dogs' run 7, then the gazelles' runs 8 to 20
+        let n = 0;
+        const entry = (sp, c) => ({ i: ++n, t: 48, real: 1793232547726, c, sp, g: '01a18027-423b-7a4b-a1e5-55ef649fa988', n: 'An animal ' + n, sex: 1, a: 'move', f: 'Wild Dog 03', fh: '27', to: 'Wild Dog 04', toh: '34', r: 'to lead a pack (only the leaders breed)', st: 'programme', o: 'ok' });
+        for (let k = 0; k < 7; k++) l.log.push(entry('Dog', 7));
+        for (let c = 8; c <= 20; c++) for (let k = 0; k < 3; k++) l.log.push(entry('Gazelle', c));
+        return l;
+    };
+    const full = savedSize(make());
+    // the log at its floor: the dogs' run and the newest gazelle entries
+    const floor = make();
+    floor.log = floor.log.filter(e => e.sp === 'Dog').concat(floor.log.slice(-(LOG_FLOOR - 7)));
+    const atFloor = savedSize(floor);
+    // a little less: the older log and the oldest run's notes go
+    const a = fitBudget(make(), atFloor - 100);
+    assert.ok(savedSize(a) <= atFloor - 100);
+    assert.deepEqual(a.log.map(e => e.i), floor.log.map(e => e.i), "the dogs' last run and the newest entries stay");
+    assert.ok(!a.sp.Dog.last.notes, "the oldest run's notes go first");
+    assert.equal(a.sp.Gazelle.last.notes.length, 2);
+    assert.equal(Object.keys(a.hist).length, 61, 'the history is not touched while the log and notes can give way');
+    assert.equal(a.sp.Dog.on, true, 'settings are never trimmed');
+    // much less: all notes, then the history, the oldest moves first (not the first key)
+    const b = fitBudget(make(), atFloor - 2000);
+    assert.ok(savedSize(b) <= atFloor - 2000);
+    assert.equal(b.log.length, LOG_FLOOR);
+    assert.ok(Object.values(b.sp).every(s => !s.last.notes));
+    assert.ok(Object.keys(b.hist).length < 61);
+    assert.deepEqual(b.hist.asha, [['Wild Dog 04', '34', 48.569]], "Asha's fresh cooldown stays");
+    assert.ok(!b.hist.g000, 'the oldest move goes first');
+    assert.ok(full > atFloor);
+    // nothing to trim: nothing changes
+    assert.deepEqual(fitBudget(make(), full), make());
+});
+
+test('ledger: park times are kept to 0.001 year, older saves too', () => {
+    const model = buildKinModel(snap(RISKY()));
+    const l = emptyLedger();
+    const x = { id: 'd', to: '3', reason: 'breeding programme', stage: 'programme' };
+    settleAction(l, logAction(l, model, x, { run: 1, clock: 48.534139083333336, realNow: 1000, species: 'Lion' }), x, true, { clock: 48.534139083333336, realNow: 1000 });
+    assert.deepEqual(l.hist.gd, [['H1', 'h1', 48.534]]);
+    const y = { id: 'b', to: '3' };
+    settleAction(l, logAction(l, model, y, { run: 1, clock: 48.20323916666666, realNow: 1000, species: 'Lion' }), y, false, { clock: 48.20323916666666, realNow: 1000, why: 'refused' });
+    assert.equal(l.fails['gb>H3'][2], 48.203);
+    noteReversal(l, 'Lion', 47.9457895);
+    assert.deepEqual(l.rev.Lion, [47.946]);
+    const old = normalizeLedger({ v: LEDGER_VERSION, hist: { gd: [['H1', 'h1', 47.9457895]] }, fails: { 'gb>H3': [1, 5, 48.20323916666666] }, rev: { Lion: [47.9457895] } });
+    assert.deepEqual(old.hist.gd, [['H1', 'h1', 47.946]]);
+    assert.deepEqual(old.fails['gb>H3'], [1, 5, 48.203]);
+    assert.deepEqual(old.rev.Lion, [47.946]);
 });
 
 // The fine tuning's "Splitting a bonded pair" reaches Thin out in Auto mode

@@ -20,6 +20,7 @@
 //     log: [entry], run, clock, seq }
 // entry: { i, t, real, c (run), sp, g, n, sex, a ('move'|'trade'), f, fh,
 //          to, toh, r, st, o ('ok'|'skip'|'wait'), why, u (undone) }
+// Times (t) are the park clock in years, kept to 0.001 (about 9 hours).
 import { TRADE } from './kinboardcore.js';
 import { AUTO_LIMITS, normalizeSpecies } from './kinautocore.js';
 
@@ -29,6 +30,14 @@ export const LOG_MAX = 120;
 // every zoo together (habitat assignments included)
 export const SAVE_BUDGET = 12000;
 export const MAP_MAX = 150;         // animals kept per memory (history, refusals...)
+// the saved log keeps at least this many of its newest entries (each
+// species' last run first) before the notes and the history give way
+// (2026-10-28, the developer: a wild dog run's moves were gone after a
+// reload, the history had filled the budget)
+export const LOG_FLOOR = 12;
+
+// a park clock time as it is kept
+const keepT = t => Math.round(Number(t) * 1000) / 1000;
 
 export function emptyLedger() {
     return { v: LEDGER_VERSION, sp: {}, pins: {}, leave: {}, hist: {}, fails: {}, rev: {}, stopped: {}, log: [], run: 0, clock: 0, seq: 0 };
@@ -50,7 +59,11 @@ export function normalizeLedger(raw) {
     }
     // (the old "moved by you" holds, raw.manual, are dropped)
     for (const k of ['pins', 'leave', 'hist', 'fails', 'rev', 'stopped']) e[k] = Object.assign({}, obj(raw[k]));
-    e.log = Array.isArray(raw.log) ? raw.log.filter(x => x && typeof x === 'object').slice(-LOG_MAX) : [];
+    // times saved in full before 2026-10-28
+    for (const [g, list] of Object.entries(e.hist)) if (Array.isArray(list)) e.hist[g] = list.map(h => (Array.isArray(h) ? [h[0], h[1], keepT(h[2])] : h));
+    for (const [k, v] of Object.entries(e.fails)) if (Array.isArray(v)) e.fails[k] = [v[0], v[1], keepT(v[2] || 0)];
+    for (const [sp, list] of Object.entries(e.rev)) if (Array.isArray(list)) e.rev[sp] = list.map(keepT);
+    e.log =Array.isArray(raw.log) ? raw.log.filter(x => x && typeof x === 'object').slice(-LOG_MAX) : [];
     e.run = Number(raw.run) || 0;
     e.clock = Number(raw.clock) || 0;
     e.seq = Number(raw.seq) || 0;
@@ -230,14 +243,14 @@ export function settleAction(l, e, x, ok, { clock, realNow, why = '', noFail = f
         if (e.g && !noFail) {
             const key = `${e.g}>${x.to === TRADE ? TRADE : e.to}`;
             const prev = l.fails[key];
-            l.fails[key] = [(Array.isArray(prev) ? prev[0] : 0) + 1, realNow, clock];
+            l.fails[key] = [(Array.isArray(prev) ? prev[0] : 0) + 1, realNow, keepT(clock)];
         }
         return;
     }
     if (!e.g) return;
     delete l.fails[`${e.g}>${x.to === TRADE ? TRADE : e.to}`];
     const h = Array.isArray(l.hist[e.g]) ? l.hist[e.g] : [];
-    if (e.f) h.push([e.f, e.fh, clock]);
+    if (e.f) h.push([e.f, e.fh, keepT(clock)]);
     l.hist[e.g] = h.slice(-4);
     if (x.to === TRADE) l.leave[e.g] = 1;
     else delete l.leave[e.g];
@@ -252,7 +265,7 @@ export function noteModMove(l, model, id, from, to, clock) {
     if (!g) return;
     const f = habRef(model, from);
     const h = Array.isArray(l.hist[g]) ? l.hist[g] : [];
-    if (f.n || f.h) h.push([f.n, f.h, clock]);
+    if (f.n || f.h) h.push([f.n, f.h, keepT(clock)]);
     l.hist[g] = h.slice(-4);
     if (String(to) === TRADE) l.leave[g] = 1;
     else delete l.leave[g];
@@ -262,7 +275,7 @@ export function noteModMove(l, model, id, from, to, clock) {
 // species and Auto mode stops for it (the player looks).
 export function noteReversal(l, species, clock) {
     const list = (Array.isArray(l.rev[species]) ? l.rev[species] : []).filter(t => clock - t <= AUTO_LIMITS.reversalYears);
-    list.push(clock);
+    list.push(keepT(clock));
     l.rev[species] = list;
     if (list.length >= AUTO_LIMITS.reversalsToStop) {
         l.stopped[species] = 'it moved some of them back and forth';
@@ -311,7 +324,7 @@ export function noteUndone(l, model, e, clock) {
     e.u = 1;
     if (!e.g) return;
     const h = Array.isArray(l.hist[e.g]) ? l.hist[e.g] : [];
-    if (e.to || e.toh) h.push([e.to, e.toh, clock]);
+    if (e.to || e.toh) h.push([e.to, e.toh, keepT(clock)]);
     l.hist[e.g] = h.slice(-4);
     delete l.leave[e.g];
 }
@@ -352,28 +365,59 @@ export function savedSize(l) {
     return text.length + extra;
 }
 
-// Keeps the saved size in budget: old log entries first, then the oldest
-// histories and refusals (they only stop repeats), never pins or settings.
+// Keeps the saved size in budget, the least useful first: the log's older
+// entries while more than LOG_FLOOR remain (each species' last run last),
+// the last runs' notes (the next run writes them again), the oldest history,
+// refusals and trade centre memory (they only stop repeats), then the log's
+// newest entries; never pins or settings. kinauto.js saves a trimmed copy,
+// so the session keeps everything. Before 2026-10-28 the whole log went
+// first and the history in the order the animals first moved, so a run's
+// moves and a fresh cooldown could both be gone after a reload. -> l
 export function fitBudget(l, budget = SAVE_BUDGET) {
+    const histAge = v => (Array.isArray(v) && v.length ? Number(v[v.length - 1][2]) : 0);
+    const failAge = v => (Array.isArray(v) ? Number(v[1]) : 0);
     const trimMap = (key, age) => {
         const keys = Object.keys(l[key]);
         if (keys.length <= MAP_MAX) return;
         keys.sort((a, b) => age(l[key][a]) - age(l[key][b]));
         for (const k of keys.slice(0, keys.length - MAP_MAX)) delete l[key][k];
     };
-    trimMap('hist', v => (Array.isArray(v) && v.length ? Number(v[v.length - 1][2]) : 0));
-    trimMap('fails', v => (Array.isArray(v) ? Number(v[1]) : 0));
+    trimMap('hist', histAge);
+    trimMap('fails', failAge);
     let size = savedSize(l);
-    while (size > budget && l.log.length) {
-        l.log = l.log.slice(Math.max(1, Math.ceil(l.log.length / 8)));
+    // the log above its floor: the oldest entry outside its species' last run
+    const lastRun = new Map();
+    for (const e of l.log) if (!lastRun.has(e.sp) || Number(e.c) > lastRun.get(e.sp)) lastRun.set(e.sp, Number(e.c));
+    while (size > budget && l.log.length > LOG_FLOOR) {
+        while (size > budget && l.log.length > LOG_FLOOR) {
+            const i = Math.max(0, l.log.findIndex(e => lastRun.get(e.sp) !== Number(e.c)));
+            size -= savedSize(l.log[i]) + 1;
+            l.log.splice(i, 1);
+        }
         size = savedSize(l);
     }
-    for (const key of ['hist', 'fails', 'leave']) {
+    // the last runs' notes, the oldest run first
+    const noted = Object.values(l.sp).filter(s => s && s.last && s.last.notes).sort((a, b) => (Number(a.last.real) || 0) - (Number(b.last.real) || 0));
+    for (const s of noted) {
+        if (size <= budget) break;
+        delete s.last.notes;
+        size = savedSize(l);
+    }
+    // the history, refusals and trade centre memory, the oldest first
+    for (const [key, age] of [['hist', histAge], ['fails', failAge], ['leave', () => 0]]) {
         while (size > budget && Object.keys(l[key]).length) {
-            const keys = Object.keys(l[key]);
-            for (const k of keys.slice(0, Math.max(1, Math.ceil(keys.length / 4)))) delete l[key][k];
+            const keys = Object.keys(l[key]).sort((a, b) => age(l[key][a]) - age(l[key][b]));
+            for (const k of keys) {
+                if (size <= budget) break;
+                size -= savedSize(k) + 2 + savedSize(l[key][k]);
+                delete l[key][k];
+            }
             size = savedSize(l);
         }
+    }
+    while (size > budget && l.log.length) {
+        l.log.shift();
+        size = savedSize(l);
     }
     return l;
 }

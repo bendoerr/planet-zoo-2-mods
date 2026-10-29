@@ -888,6 +888,8 @@ you turn it on for that species, in that zoo. Off, the board works exactly as be
   and **Undo** (one move or the whole run).
 - **Kept** with your habitat assignments in your player profile on this PC (settings, pins and the
   last log entries, about 12 KB per zoo at most), written only once you turn it on for a species.
+  The panel keeps every run of this session; after a reload it shows the newest moves (at least
+  the last 12, more when there is room), and the last runs' notes come back with the next run.
   It needs that profile: until the zoo's data has been read, Auto mode can't be turned on and
   doesn't run.
 

@@ -169,10 +169,8 @@ function saveLedger(force) {
     }
     A.lastSave = Date.now();
     A.saveDirty = false;
-    safe(() => {
-        fitBudget(A.ledger);
-        setUserData(DATA_KEY, JSON.parse(JSON.stringify(A.ledger)));
-    }, 'save');
+    // a trimmed copy goes to the store: the session keeps its whole log
+    safe(() => setUserData(DATA_KEY, fitBudget(JSON.parse(JSON.stringify(A.ledger)))), 'save');
 }
 
 export function getAutopilotLedger() {
