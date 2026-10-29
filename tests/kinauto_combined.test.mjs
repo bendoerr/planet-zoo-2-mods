@@ -64,7 +64,7 @@ test('staging: a pack pair split by the run waits whole (no mate goes alone); a 
     // pack 5 (her wait: it does not breed now) gives its male to lead pack 1,
     // whose change waits: he goes anyway and joins pack 1 under its leader, to
     // be promoted when it leaves; pack 5's mourning costs no litter now, later
-    // it would (the simulator, 2026-10-29: holding such changes whole, -0.5 at year 15)
+    // it would (the simulator, 2026-10-29: holding such changes whole, -0.9 at year 15)
     const back = runWith(ZOO(), SWAPS.concat([{ id: 'm5', to: '1', reason: 'to lead a pack' }, { id: 'm1', to: TRADE, reason: 'a better pair leads now' },
         { id: 'n5', to: '5', reason: 'to lead a pack' }]), { info: PACK(null) });
     assert.deepEqual(heldIds(back), ['m1'], JSON.stringify(back.held));

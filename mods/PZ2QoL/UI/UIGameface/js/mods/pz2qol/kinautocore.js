@@ -656,7 +656,7 @@ function placesText(model, habs) {
 // the season for a change that waits. A group that does not breed in the
 // season changes now, its part of a held change too (a leader joining a
 // held pack waits there to be promoted): its mourning costs no litter, and
-// later it would (the simulator, 2026-10-29: holding those too, -0.5 ± 0.8
+// later it would (the simulator, 2026-10-29: holding those too, -0.9 ± 0.7
 // at year 15). The rest of the run (Thin out, the young, the others) goes
 // as planned.
 function seasonHold(input, out) {
