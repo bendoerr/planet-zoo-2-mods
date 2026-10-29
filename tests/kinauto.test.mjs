@@ -7,7 +7,7 @@ import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/
 import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
 import { PROGRAMME_STEPS, planProgramme } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
 import {
-    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, leaderBlockers, locksOf, normalizeSpecies,
+    AUTO_LIMITS, AUTO_SEARCH, EVERY_CHOICES, SPECIES_DEFAULTS, calendarMonths, dueText, everyText, everyWords, finishAutoRun, handStockedPlaces, leaderBlockers, locksOf, normalizeSpecies,
     planAutoRun, prepareAutoRun, programmeOptionsFor, projectGrownUp, realTimeText, speciesFingerprints, waitText, waitsReady,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinautocore.js';
 import {
@@ -786,4 +786,81 @@ test('Auto mode: an animal moved once in its cooldown may move again for a large
     mv(3.5, '2');
     assert.ok(ledgerView(l, model, 3.6, 0).cooled.has('Matla'));
     assert.ok(!ledgerView(l, model, 3.6, 0).once.has('Matla'), 'twice in a year: no more');
+});
+
+// ------------------------------------------------ the player's own pens
+
+// A pen the player stocked by hand counts as one of the species' places in
+// Auto mode's run (2026-10-28: Matla, alone in the owner's new pen, which
+// was not assigned to wild dogs, was moved into Wild Dog 02 before his mate
+// came). Habitats 1 and 2 are assigned; k lives alone in pen 3; pack 2 is
+// led by a female sharing his strands, and s, in pack 1, suits him.
+const PEN_HABS = ['1', '2', '3', '4'];
+const PEN_INFO = () => Object.assign(INFO(PEN_HABS), { mating: 'monogamy', leaderMale: true, leaderFemale: true });
+const PEN_ASSIGN = () => ({ 1: ['Lion'], 2: ['Lion'] });
+const PEN = () => [an('mA', M, '1', [], { age: 9, alpha: true, genes: G('A', 'B') }), an('fA', F, '1', [], { age: 7, alpha: true, genes: G('C', 'D') }),
+    an('s', F, '1', [], { age: 4, genes: G('E', 'F') }), an('fB', F, '2', [], { age: 6, alpha: true, genes: G('G', 'A') }),
+    an('k', M, '3', [], { age: 4, alpha: true, genes: G('G', 'H') })];
+const penRun = (animals, over = {}) => planAutoRun(Object.assign({
+    model: buildKinModel(snap(animals, PEN_HABS)), species: 'Lion', info: PEN_INFO(), destinations: DEST(PEN_HABS), assignments: PEN_ASSIGN(),
+    settings: { thin: false }, view: {}, tradeFree: null,
+}, over));
+const moved = r => r.moves.map(m => `${m.id}>${m.to}`);
+const PEN_NOTE = "H3 counts as one of this species' habitats: no other species lives there.";
+
+test('Auto mode: a pen stocked with the species alone counts as one of its places; its animals stay', () => {
+    const model = buildKinModel(snap(PEN(), PEN_HABS));
+    const assign = PEN_ASSIGN();
+    const p = handStockedPlaces(model, 'Lion', assign, DEST(PEN_HABS));
+    assert.deepEqual(p.habs, ['3']);
+    assert.deepEqual(Array.from(p.assignments.keys()).sort(), ['1', '2', '3']);
+    assert.deepEqual(Array.from(p.assignments.get('3')), ['Lion']);
+    assert.deepEqual(assign, PEN_ASSIGN(), "the player's assignments are left as they are (never saved)");
+    // with the player's assignments alone the programme takes k out of his pen
+    const prep = prepareAutoRun({ model, species: 'Lion', info: PEN_INFO(), destinations: DEST(PEN_HABS), assignments: assign, settings: { thin: false }, view: {} });
+    const plain = planProgramme(prep.model, 'Lion', PEN_INFO(), DEST(PEN_HABS), { assignments: assign, options: programmeOptionsFor(prep.settings, 'auto', prep.pins) });
+    assert.ok(plain.moves.some(m => m.id === 'k'), JSON.stringify(plain.moves));
+    // Auto mode: s joins him there, and nobody leaves the pen
+    const r = penRun(PEN());
+    assert.deepEqual(moved(r), ['s>3']);
+    assert.deepEqual(r.waits, []);
+    assert.equal(r.notes.filter(t => t === PEN_NOTE).length, 1, JSON.stringify(r.notes));
+    // a pair there stays
+    const pair = PEN().map(a => (a.id === 's' ? Object.assign({}, a, { hab: '3', loc: 'H3' }) : a));
+    assert.deepEqual(moved(penRun(pair)), []);
+    // Thin out holds it to its room like the others
+    const t = penRun(PEN(), { settings: { thin: true } });
+    assert.ok(t.thin.habitats.some(h => h.hab === '3' && h.target > 0), JSON.stringify(t.thin.habitats));
+    // no assignment for the species: every habitat is one of its places already
+    assert.deepEqual(handStockedPlaces(model, 'Lion', null, DEST(PEN_HABS)), { assignments: null, habs: [] });
+    assert.deepEqual(handStockedPlaces(model, 'Lion', { 4: ['Zebra'] }, DEST(PEN_HABS)).habs, []);
+});
+
+test('Auto mode: a pen with another species, assigned to another species, or empty is not one of its places', () => {
+    const zebra = Object.assign(an('z', F, '3'), { species: 'Zebra', name: 'Zed' });
+    const mixed = penRun(PEN().concat([zebra]));
+    assert.ok(!mixed.moves.some(m => m.to === '3'), JSON.stringify(mixed.moves));
+    assert.ok(mixed.moves.some(m => m.id === 'k'), 'k leaves as before');
+    assert.ok(!mixed.notes.includes(PEN_NOTE));
+    // the player's assignment to another species wins
+    const other = penRun(PEN(), { assignments: Object.assign(PEN_ASSIGN(), { 3: ['Zebra'] }) });
+    assert.ok(!other.moves.some(m => m.to === '3'), JSON.stringify(other.moves));
+    assert.ok(!other.notes.includes(PEN_NOTE));
+    // an empty habitat is still not used (with no assignment the programme would)
+    const one = [an('mA', M, '1', [], { age: 9, alpha: true, genes: G('A', 'B') }), an('fA', F, '1', [], { age: 7, alpha: true, genes: G('C', 'D') }),
+        an('s', F, '1', [], { age: 4, genes: G('E', 'F') }), an('k', M, '1', [], { age: 4, genes: G('G', 'H') })];
+    const free = penRun(one, { assignments: null });
+    assert.ok(free.moves.some(m => m.to !== '1' && m.to !== TRADE), JSON.stringify(free.moves));
+    const assigned = penRun(one, { assignments: { 1: ['Lion'] } });
+    assert.ok(!assigned.moves.some(m => m.to !== TRADE), JSON.stringify(assigned.moves));
+    assert.deepEqual(handStockedPlaces(buildKinModel(snap(one, PEN_HABS)), 'Lion', { 1: ['Lion'] }, DEST(PEN_HABS)).habs, []);
+    // one that only waits there (on its way, or in transit) does not stock it
+    const coming = PEN().map(a => (a.id === 'k' ? Object.assign({}, a, { moving: true }) : a));
+    assert.deepEqual(handStockedPlaces(buildKinModel(snap(coming, PEN_HABS)), 'Lion', PEN_ASSIGN(), DEST(PEN_HABS)).habs, []);
+    const away = PEN().map(a => (a.id === 'k' ? Object.assign({}, a, { lt: 'quarantine', away: 'quarantine' }) : a));
+    assert.deepEqual(handStockedPlaces(buildKinModel(snap(away, PEN_HABS)), 'Lion', PEN_ASSIGN(), DEST(PEN_HABS)).habs, []);
+    // not suitable for the species (the game's destinations): not a place
+    const dest = DEST(PEN_HABS);
+    dest.bySpecies.Lion['3'] = { ok: false, reason: 'Not a suitable habitat for this species.' };
+    assert.deepEqual(handStockedPlaces(buildKinModel(snap(PEN(), PEN_HABS)), 'Lion', PEN_ASSIGN(), dest).habs, []);
 });

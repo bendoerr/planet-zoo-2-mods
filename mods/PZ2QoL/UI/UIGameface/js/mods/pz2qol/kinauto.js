@@ -571,7 +571,8 @@ async function makePlan(species) {
     const cpu = safe(() => cpuOf(), 'cpu') || { sliceMs: 16, restMs: 16 };
     const fp = A.prints.get(species);
     const r = await planProgrammeAsync(prep.model, species, info || {}, dest, {
-        assignments,
+        // the player's, and the pens stocked with this species alone
+        assignments: prep.assignments,
         options: programmeOptionsFor(prep.settings, ratio, prep.pins, tune, prep.waive, prep.waiveGain),
         sliceMs: cpu.sliceMs,
         restMs: cpu.restMs,
