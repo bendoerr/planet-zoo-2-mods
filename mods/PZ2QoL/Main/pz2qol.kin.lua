@@ -2261,6 +2261,25 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	if type(nMat) == "number" then
 		tOut.fertilityAges = { maturity = nMat, infertility = nInfert }
 	end
+	-- the breeding seasons: one flag per season of the calendar year, in the
+	-- order of TimeOfMonth:Season() (the info panel reads
+	-- tMatingSeasons[Season() + 1], AnimalInfoPopUp, offline 1.0.5). Auto mode
+	-- keeps a seasonal breeder's pairs together before and through it.
+	-- Anything but four flags sends nothing
+	pcall(function()
+		local tSeasons = call(animals, "GetSpeciesBreedingSeasons", sSpecies)
+		if type(tSeasons) ~= "table" or tSeasons[5] ~= nil then
+			return
+		end
+		local tFlags = array()
+		for i = 1, 4 do
+			if type(tSeasons[i]) ~= "boolean" then
+				return
+			end
+			tFlags[i] = tSeasons[i]
+		end
+		tOut.breedingSeasons = tFlags
+	end)
 	tOut.mating, tOut.matingRaw = self:_MatingSystem(animals, sSpecies)
 	-- group make-up (males per female): the game's own social groups
 	local bGroups, tGroups = pcall(socialGroups, tAPIs, sSpecies)
@@ -2359,12 +2378,19 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 			for _ in pairs(tOut.habitats) do
 				nHabs = nHabs + 1
 			end
+			local sSeasons = nil
+			if tOut.breedingSeasons ~= nil then
+				sSeasons = ""
+				for i = 1, 4 do
+					sSeasons = sSeasons .. (tOut.breedingSeasons[i] and "1" or "0")
+				end
+			end
 			Core:Log("kin", "species_info", {
 				species = sSpecies, mating = tOut.mating, matingRaw = tOut.matingRaw,
 				socialMin = tOut.social and tOut.social.min, socialMax = tOut.social and tOut.social.max,
 				sexMaxMale = tOut.sexMax and tOut.sexMax.male, sexMaxFemale = tOut.sexMax and tOut.sexMax.female, sexMaxFrom = tOut.sexMaxFrom,
 				leaderMale = tOut.leaderMale, leaderFemale = tOut.leaderFemale,
-				groups = table.concat(tG, ","), habitats = nHabs,
+				groups = table.concat(tG, ","), habitats = nHabs, seasons = sSeasons,
 			})
 		end
 	end)

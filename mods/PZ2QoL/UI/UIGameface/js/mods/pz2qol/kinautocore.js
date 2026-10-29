@@ -17,7 +17,7 @@
 // Thin out only takes animals away. So runs stop finding work until
 // something changes in the zoo (a birth, a death, the player).
 import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
-import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProgramme } from './kinprogramme.js';
+import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, conceptionChance, groupRule, isBreeder, packLeaderOf, planProgramme, youngQuality } from './kinprogramme.js';
 import { FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
 import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
@@ -54,6 +54,13 @@ export const AUTO_LIMITS = Object.freeze({
     settleScans: 3,
     pauseAfterSkipsMs: 10 * 60 * 1000, // a run with this many refusals pauses the species
     skipsToPause: 3,
+    seasonLeadMonths: 1,        // a seasonal breeder's breeding pairs stay together this long
+                                // before its breeding season, and through it: keepers carry
+                                // moves in their own time and a new leader takes days, so a
+                                // pair formed late misses the season (seasonHold)
+    packsPerRun: 2,             // at most this many packs (or harems) lose a leader that breeds
+                                // in one run; the others wait for the next run, the best gains
+                                // first (stageRestructures)
 });
 
 // A kept settings object, checked (unknown values fall back to the defaults).
@@ -134,13 +141,16 @@ export function locksOf(model, species, view) {
 //          (normalizeSpecies), ratio (the board's make-up choice), view
 //          (kinautoledger ledgerView), tradeFree (places left at the trade
 //          centre, null: unknown), tune (the fine tuning, kinprogtune.js:
-//          its Breeding goal and kin rule also decide how Thin out culls) }
+//          its Breeding goal and kin rule also decide how Thin out culls),
+//          months (the park's calendar, calendarMonths; null: unknown) }
 // prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
 //   programme, thin, notes: [text], held: [{ id, why }],
 //   waits: [move + { from, hab, after: [id], names: [name] }] (moves that
-//   wait until a male has left, waitForLeavingMales) }
+//   wait until a male has left, waitForLeavingMales),
+//   seasonUntil (calendar months: the end of the breeding season some
+//   breeding pairs wait for, seasonHold; only then) }
 // planAutoRun(input) does all three at once (tests).
 export function prepareAutoRun(input) {
     const { model, species, info = null, destinations = null } = input;
@@ -278,6 +288,8 @@ export function finishAutoRun(input, prep, programme) {
     }
     keepLastBreeders(input, out);
     if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
+    seasonHold(input, out);
+    stageRestructures(input, out);
     keepGameLimits(input, out);
     waitForLeavingMales(input, out);
     waitForNewLeaders(input, out);
@@ -342,6 +354,293 @@ function keepCarriers(input, out) {
         out.held.push({ id: m.id, why });
         if (a) staying.push(a);
     }
+}
+
+// ------------------------------------- the breeding season, and staging
+//
+// Where only the leaders breed (the game's mating rules, info.leaderMale /
+// leaderFemale: a pack's leader pair, a harem's leader male), a group whose
+// leader leaves breeds again only once the new leader is there, of age and
+// paired. A species that breeds in one season of the year
+// (info.breedingSeasons; African wild dogs: summer) has one chance a year:
+// broken up just before the season or in it, the group loses that year's
+// young. The 15-year simulation of 2026-10-28 lost every first-summer litter
+// (Auto mode's first run made young of 1.1 the new leaders, under age until
+// the autumn), worth 1.2 points at year 15.
+
+// The species' breeding season on the park's calendar: info.breedingSeasons
+// (one flag per season of the calendar year, as TimeOfMonth:Season(): 0 is
+// months 1-3) and months (calendarMonths). null when either is unknown or
+// the species breeds all year. -> { inSeason, startsIn, endsIn (months from
+// now to the season's start, 0 in it, and to its end), until (its end, in
+// calendar months) }
+export function breedingWindow(info, months) {
+    const s = info && info.breedingSeasons;
+    if (!Array.isArray(s) || s.length !== 4 || !s.every(v => typeof v === 'boolean')) return null;
+    if (typeof months !== 'number' || !isFinite(months) || s.every(Boolean) || !s.some(Boolean)) return null;
+    const inYear = ((months % 12) + 12) % 12;
+    const now = Math.min(3, Math.floor(inYear / 3));
+    const left = 3 * (now + 1) - inYear;          // months left of this season
+    let k = 0;                                    // seasons until the next breeding one
+    while (!s[(now + k) % 4]) k++;
+    let n = 1;                                    // breeding seasons in a row from there
+    while (n < 4 && s[(now + k + n) % 4]) n++;
+    const startsIn = k === 0 ? 0 : left + 3 * (k - 1);
+    const endsIn = (k === 0 ? left : startsIn + 3) + 3 * (n - 1);
+    return { inSeason: k === 0, startsIn, endsIn, until: months + endsIn };
+}
+
+function leaderSexes(info) {
+    const out = [];
+    if (info && info.leaderMale === true) out.push(Sex.Male);
+    if (info && info.leaderFemale === true) out.push(Sex.Female);
+    return out;
+}
+
+// The game's wait between a mother's litters (InterBirthYears, animals.fdb
+// Lifecycle_FertilityData: African wild dog 1.0, spotted hyena 0.95; no Lua
+// call known), counted from the birth: no dog mother in the saves of
+// 2026-10-28 littered two summers running (16 of 16 gaps 1.85 years or
+// more), and no pack whose leader female had young the summer before bred.
+const INTERBIRTH_YEARS = 1;
+
+// The species' fertility ages, and each mother's youngest young (its age)
+// for the wait between litters.
+function fertilityAgesOf(input) {
+    const { model, species } = input;
+    const facts = (model && model.speciesFacts && model.speciesFacts[species]) || {};
+    const ages = Object.assign({}, (input.info && input.info.fertilityAges) || { maturity: facts.maturity, infertility: facts.infertility }, { young: new Map() });
+    for (const a of model ? model.animals.values() : []) {
+        if (a.species !== species || a.alive === false || typeof a.age !== 'number' || a.age >= INTERBIRTH_YEARS) continue;
+        for (const p of a.par || []) ages.young.set(String(p), Math.min(ages.young.has(String(p)) ? ages.young.get(String(p)) : Infinity, a.age));
+    }
+    return ages;
+}
+
+// Can it breed in the window `when` ({ from, to }: months from now to its
+// start and end): grown, of age when it starts and not yet too old, not on
+// contraception or sterile (ages counted in park time), and a mother's wait
+// since her last young over before it ends?
+function breedsBy(a, ages, when) {
+    if (!a || a.juv || a.exhibit || a.alive === false || a.contra) return false;
+    const st = a.fert && a.fert.state;
+    if (st === 'old' || st === 'sterile') return false;
+    const y = a.sex === Sex.Female && ages.young ? ages.young.get(String(a.guid || a.id)) : null;
+    if (y != null && y + when.to / 12 < INTERBIRTH_YEARS) return false;
+    if (typeof a.age !== 'number') return !a.infertile && st !== 'young';
+    const young = ages.maturity != null && a.age < ages.maturity;
+    // infertile for another reason than its youth
+    if ((a.infertile || st === 'young') && !young) return false;
+    const age = a.age + when.from / 12;
+    if (ages.maturity != null && age < ages.maturity) return false;
+    return !(ages.infertility != null && ages.infertility < 900 && age >= ages.infertility);
+}
+
+const NOW = Object.freeze({ from: 0, to: 0 });
+
+// The species' grown animals per habitat after `moves` (none: as they are
+// now). One that comes in does not lead there (a staying leader keeps its
+// role). -> Map(hab -> [animal])
+function groupsAfter(model, species, moves) {
+    const to = new Map(moves.map(m => [String(m.id), m.to === TRADE ? '' : String(m.to)]));
+    const out = new Map();
+    for (const a of model.animals.values()) {
+        if (a.species !== species || a.exhibit || a.alive === false || a.juv) continue;
+        const moved = to.has(String(a.id)) && to.get(String(a.id)) !== a.hab;
+        const h = moved ? to.get(String(a.id)) : a.hab;
+        if (!h) continue;
+        if (!out.has(h)) out.set(h, []);
+        out.get(h).push(moved ? Object.assign({}, a, { alpha: false }) : a);
+    }
+    return out;
+}
+
+// A group's breeding leaders in the window `when`: per leading sex its leader
+// (packLeaderOf: the leader there now, else the eldest), each able to breed
+// then, with a partner of the other sex that can where one sex leads.
+// bonds: a pack's two leaders must not be bonded elsewhere or mourning (the
+// game's bond data, known for the zoo as it is). -> [animal] or null
+function breedingLeaders(group, sexes, ages, when, bonds) {
+    const leaders = [];
+    for (const sex of sexes) {
+        const a = packLeaderOf(group, sex);
+        if (!breedsBy(a, ages, when)) return null;
+        leaders.push(a);
+    }
+    if (sexes.length === 1 && !group.some(b => b.sex !== sexes[0] && breedsBy(b, ages, when))) return null;
+    if (sexes.length === 2 && bonds) {
+        const free = (a, b) => !a.bond || (!(a.bond.mourn > 0) && (!a.bond.mate || String(a.bond.mate) === String(b.id)));
+        if (!free(leaders[0], leaders[1]) || !free(leaders[1], leaders[0])) return null;
+    }
+    return leaders;
+}
+
+// The groups that breed (in the window `when`) and the run's moves taking
+// one of their leaders out (the game's most per sex, move.limit, always
+// goes). -> [{ hab, group, leaders, leaving: [move] }]
+function brokenGroups(input, out, when, ages) {
+    const { model, species } = input;
+    const sexes = leaderSexes(input.info);
+    const res = [];
+    for (const [hab, group] of groupsAfter(model, species, [])) {
+        const leaders = breedingLeaders(group, sexes, ages, when, true);
+        if (!leaders) continue;
+        const ids = new Set(leaders.map(a => String(a.id)));
+        const leaving = out.moves.filter(m => ids.has(String(m.id)) && String(m.to) !== hab && !m.limit);
+        if (leaving.length) res.push({ hab, group, leaders, leaving });
+    }
+    return res;
+}
+
+// Moves held back (a mother's young following her stay with her).
+function holdMoves(model, out, moves, why) {
+    for (const m of moves) {
+        const i = out.moves.indexOf(m);
+        if (i < 0) continue;
+        out.moves.splice(i, 1);
+        out.held.push({ id: m.id, why });
+        const a = model.animals.get(String(m.id));
+        if (!a || a.sex !== Sex.Female) continue;
+        for (let k = out.moves.length - 1; k >= 0; k--) {
+            const x = out.moves[k];
+            const y = model.animals.get(String(x.id));
+            if (String(x.to) !== String(m.to) || !y || !y.juv || !(y.par || []).includes(a.guid || a.id)) continue;
+            out.moves.splice(k, 1);
+            out.held.push({ id: y.id, why: 'stays with its mother' });
+        }
+    }
+}
+
+// "Wild Dog 01", "Wild Dog 01 and Wild Dog 03", "Wild Dog 01, Wild Dog 03 and 2 more"
+function placesText(model, habs) {
+    const names = habs.map(h => (model.habitats.get(h) || {}).name || 'a habitat');
+    if (names.length <= 2) return names.join(' and ');
+    if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+    return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+}
+
+// A seasonal breeder's breeding groups keep their leaders through the
+// breeding season and the seasonLeadMonths before it (keepers carry moves in
+// their own time, a new leader takes days): no move takes such a leader out,
+// unless the group's young of the season are on the way (its breeding
+// females pregnant). Earlier in the year only where the group would then
+// have no breeding pair by the season (a new leader not of age by then, or
+// none left), even if the one leaving would lead another: whether a moved
+// leader's old bond lets it breed there is not known, and moving a pair
+// together cost it the season in the simulation (2026-10-28: 2.8 first-summer
+// litters kept against 1.7 with that exception). Those moves wait until the
+// season has passed (the next run plans again); the rest of the run (Thin
+// out, the young, the others) goes as planned.
+function seasonHold(input, out) {
+    const { model, species } = input;
+    const win = breedingWindow(input.info, input.months);
+    const sexes = leaderSexes(input.info);
+    if (!model || !win || !sexes.length || !out.moves.length) return;
+    const ages = fertilityAgesOf(input);
+    const when = { from: win.startsIn, to: win.endsIn };
+    const near = win.inSeason || win.startsIn <= AUTO_LIMITS.seasonLeadMonths;
+    const breeds = group => !!group && !!breedingLeaders(group, sexes, ages, when, false);
+    const held = { season: [], young: [] };
+    const late = [];
+    for (let round = 0; round < 50; round++) {
+        const after = groupsAfter(model, species, out.moves);
+        const g = brokenGroups(input, out, when, ages).find(b => {
+            if (near) {
+                // the season's young are on the way
+                const mothers = sexes.includes(Sex.Female) ? b.leaders.filter(a => a.sex === Sex.Female) : b.group.filter(a => a.sex === Sex.Female && breedsBy(a, ages, when));
+                return !(mothers.length && mothers.every(a => a.preg));
+            }
+            return !breeds(after.get(b.hab));
+        });
+        if (!g) break;
+        if (near) {
+            held.season.push(g.hab);
+            holdMoves(model, out, g.leaving, win.inSeason ? 'its group breeds: the breeding season is on' : 'its group breeds: the breeding season starts within a month');
+            continue;
+        }
+        // who would lead instead, too young for the season
+        for (const sex of sexes) {
+            const a = packLeaderOf(after.get(g.hab) || [], sex);
+            const under = a && typeof a.age === 'number' && ages.maturity != null && a.age + win.startsIn / 12 < ages.maturity;
+            if (under && !late.includes(a.name)) late.push(a.name);
+        }
+        held.young.push(g.hab);
+        holdMoves(model, out, g.leaving, 'its group breeds this season: its new leaders could not breed in it');
+    }
+    if (!held.season.length && !held.young.length) return;
+    out.seasonUntil = win.until;
+    const keep = habs => `${placesText(model, habs)} keep${habs.length === 1 ? 's its breeding pair' : ' their breeding pairs'}`;
+    if (held.season.length) out.notes.push(`${win.inSeason ? 'The breeding season is on' : 'The breeding season starts within a month'}: ${keep(held.season)} until it is over.`);
+    if (held.young.length) out.notes.push(`${keep(held.young)} until the breeding season is over: ${late.length ? `${late.slice(0, 2).join(' and ')} would not be of age for it` : 'its new leaders could not breed in it'}.`);
+}
+
+// At most AUTO_LIMITS.packsPerRun groups lose a breeding leader in one run
+// (any species where only the leaders breed): a big reshuffle goes over
+// several runs, so a slow move or a late new leader costs a litter or two,
+// not every group's at once. The groups whose new pairs gain the most go
+// first; a change spanning groups (a leader leaving one to lead another)
+// goes whole, and the first always goes. The others' leaders stay this run
+// (their moves out are held back); the next run plans again.
+function stageRestructures(input, out) {
+    const { model, species } = input;
+    const limit = AUTO_LIMITS.packsPerRun;
+    if (!model || !leaderSexes(input.info).length || !(limit > 0) || !out.moves.length) return;
+    const ages = fertilityAgesOf(input);
+    const broken = brokenGroups(input, out, NOW, ages);
+    if (broken.length <= limit) return;
+    const sexes = leaderSexes(input.info);
+    const info = input.info || {};
+    // a group's breeding value: its leaders' expected young times the
+    // conception chance, with every partner where one sex leads
+    const value = (group, bonds) => {
+        const leaders = group && breedingLeaders(group, sexes, ages, NOW, bonds);
+        if (!leaders) return 0;
+        const pair = (m, f) => youngQuality(m, f) * conceptionChance(m, f, info);
+        if (sexes.length === 2) return pair(leaders[0], leaders[1]);
+        const lead = leaders[0];
+        const mates = group.filter(b => b.sex !== lead.sex && breedsBy(b, ages, NOW));
+        const vals = mates.map(b => (lead.sex === Sex.Male ? pair(lead, b) : pair(b, lead)));
+        return lead.sex === Sex.Male ? vals.reduce((s, v) => s + v, 0) : Math.max(0, ...vals);
+    };
+    // the groups a change spans: each breaking leader's habitat and where it goes
+    const parent = new Map();
+    const find = h => {
+        while (parent.get(h) !== h) h = parent.get(h);
+        return h;
+    };
+    const join = (a, b) => {
+        for (const h of [a, b]) if (!parent.has(h)) parent.set(h, h);
+        parent.set(find(a), find(b));
+    };
+    for (const b of broken) {
+        join(b.hab, b.hab);
+        for (const m of b.leaving) if (m.to !== TRADE) join(b.hab, String(m.to));
+    }
+    const now = groupsAfter(model, species, []);
+    const after = groupsAfter(model, species, out.moves);
+    const changes = new Map();
+    for (const h of parent.keys()) {
+        const k = find(h);
+        if (!changes.has(k)) changes.set(k, { habs: [], broken: [], gain: 0 });
+        const c = changes.get(k);
+        c.habs.push(h);
+        c.gain += value(after.get(h), false) - value(now.get(h), true);
+    }
+    for (const b of broken) changes.get(find(b.hab)).broken.push(b);
+    const order = Array.from(changes.values()).sort((x, y) => y.gain - x.gain || x.broken.length - y.broken.length);
+    let used = 0;
+    const waiting = [];
+    for (const c of order) {
+        if (!used || used + c.broken.length <= limit) {
+            used += c.broken.length;
+            continue;
+        }
+        for (const b of c.broken) {
+            waiting.push(b.hab);
+            holdMoves(model, out, b.leaving, `at most ${limit} groups change their breeding leaders in one run: the next run plans this again`);
+        }
+    }
+    if (waiting.length) out.notes.push(`At most ${limit} breeding groups change leaders in one run: ${placesText(model, waiting)} keep${waiting.length === 1 ? 's its' : ' their'} leaders until the next run.`);
 }
 
 // The game's own most adults per sex in a habitat (kincull.js sexLimit:

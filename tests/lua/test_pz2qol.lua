@@ -1510,6 +1510,35 @@ do
 	s, r = sys(1, { Monogamy = false, Polygyny = false, Polyandre = false, Polygyandry = false })
 	check(s == nil and r == "1", "enum fields missing: unread, sent raw")
 end
+-- the breeding seasons (Auto mode keeps a seasonal breeder's pairs together):
+-- four flags sent as they are; no call, an error or anything but four flags
+-- sends nothing, and the rest is answered as before
+do
+	local fnOld = animalsAPI.GetSpeciesBreedingSeasons
+	local function ask(fn)
+		animalsAPI.GetSpeciesBreedingSeasons = fn
+		tCalls = {}
+		fireUI(oHUD, "PZ2QoL_KinSpecies", "bs", "Lion", "101")
+		local c = calls("Trigger")[1]
+		return c and jsonDecode(c.tArgs[3]) or {}
+	end
+	local sAsked = nil
+	local t = ask(function(self, sp) sAsked = sp; return { false, true, false, false } end)
+	local b = t.breedingSeasons
+	check(sAsked == "Lion" and type(b) == "table" and #b == 4 and b[1] == false and b[2] == true and b[3] == false and b[4] == false, "breeding seasons: four flags, in calendar order")
+	check(t.social and t.social.max == 9 and t.fertilityAges and t.fertilityAges.maturity == 3, "breeding seasons: the rest answered as before")
+	t = ask(function(self, sp) return { true, true, true, true } end)
+	check(t.breedingSeasons and #t.breedingSeasons == 4 and t.breedingSeasons[3] == true, "breeding seasons: all year sent as it is")
+	t = ask(nil)
+	check(t.breedingSeasons == nil and t.species == "Lion" and t.social ~= nil, "breeding seasons: no call, nothing sent")
+	t = ask(function(self, sp) error("bad species") end)
+	check(t.breedingSeasons == nil and t.species == "Lion" and t.social ~= nil, "breeding seasons: an error sends nothing")
+	for _, v in ipairs({ { true, false, false }, { 0, 1, 0, 0 }, { true, false, false, false, true }, "summer" }) do
+		t = ask(function(self, sp) return v end)
+		check(t.breedingSeasons == nil and t.species == "Lion", "breeding seasons: an odd answer sends nothing (" .. (type(v) == "table" and #v .. " entries" or tostring(v)) .. ")")
+	end
+	animalsAPI.GetSpeciesBreedingSeasons = fnOld
+end
 
 -- Find a mate: the player's stored adults of a species (Franchise only, as
 -- the game's own Compare Mates lists them next to the park's adults)

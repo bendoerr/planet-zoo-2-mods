@@ -563,7 +563,9 @@ async function makePlan(species) {
     const view = ledgerView(l, cur, parkYears(), Date.now());
     // the fine tuning: the programme's options and the Breeding goal Thin out culls for
     const tune = getPref(TUNE_PREF);
-    const input = { model: cur, species, info, destinations: dest, assignments, settings, ratio, view, tradeFree: tradeFree(cur), tune };
+    // (the park's calendar: a seasonal breeder's pairs stay together before
+    // and through its breeding season)
+    const input = { model: cur, species, info, destinations: dest, assignments, settings, ratio, view, tradeFree: tradeFree(cur), tune, months: A.cal ? A.cal.months : null };
     // Thin out first, then the programme on the zoo as it leaves it
     const prep = prepareAutoRun(input);
     const cpu = safe(() => cpuOf(), 'cpu') || { sliceMs: 16, restMs: 16 };
