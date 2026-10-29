@@ -712,20 +712,20 @@ const MOURN_ZOO = () => [
     an('Thembile', F, '2', [], { age: 3.6, alpha: true, genes: { F: 'BBBABAAAABBB', I: 'EEEEEECCCCCC', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
     an('Matla', M, '', [], { age: 2.6, genes: { F: 'ABAAAABABABB', I: 'EEEEEECCCCCC', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
 ];
-const mournRun = (view = {}) => {
-    const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
-    return { model, r: planAutoRun({ model, species: 'Lion', info: MOURN_PACK(['1', '2']), destinations: DEST(['1', '2']), assignments: null, settings: { thin: false }, view, tradeFree: null }) };
+const mournInput = (over = {}) => Object.assign({ model: buildKinModel(snap(MOURN_ZOO(), ['1', '2'])), species: 'Lion', info: MOURN_PACK(['1', '2']), destinations: DEST(['1', '2']), assignments: null, settings: { thin: false }, view: {}, tradeFree: null }, over);
+const mournRun = (view = {}, over = {}) => {
+    const input = mournInput(Object.assign({ view }, over));
+    return { model: input.model, r: planAutoRun(input) };
 };
 
 test('Auto mode: a pack leader pair split by the run: the one that leads goes first, its mate waits for it', () => {
     assert.equal(programmeOptionsFor(normalizeSpecies({})).packMourn, true, 'Auto mode counts the mourning');
     assert.ok(!('packMourn' in programmeOptionsFor(normalizeSpecies({}), 'auto', null, { bondBreakCost: 'high' })), "the player's own pair setting keeps the flat cost");
-    const { r } = mournRun();
-    const to = id => (r.moves.concat(r.waits).find(m => m.id === id) || {}).to;
-    const leads = new Set(r.programme.groups.flatMap(g => g.leaders || []));
-    assert.ok(leads.has('Chibeka') && leads.has('Matla') && !leads.has('Mosi'), JSON.stringify(r.programme.groups));
-    assert.equal(to('Chibeka'), to('Matla'), 'she goes to lead with Matla');
-    assert.ok(to('Mosi') && to('Mosi') !== to('Chibeka'), JSON.stringify(r.moves.concat(r.waits)));
+    // the plan of the 'stayer' rule: Chibeka to lead with Matla, Mosi to the trade centre
+    const input = mournInput();
+    const prep = prepareAutoRun(input);
+    const moves = [['Chibeka', '2'], ['Matla', '2'], ['Mosi', TRADE], ['Amare', '1'], ['Thembile', '1']].map(([id, to]) => ({ id, to, reason: 'breeding programme' }));
+    const r = finishAutoRun(input, prep, { moves, groups: [{ hab: '2', leaders: ['Matla', 'Chibeka'] }, { hab: '1', leaders: ['Amare', 'Thembile'] }] });
     const w = r.waits.find(x => x.id === 'Mosi');
     assert.ok(w && w.kind === 'leader' && w.at === '1' && w.after.includes('Chibeka'), JSON.stringify(r.waits));
     assert.match(waitText(w), /NChibeka has left/);
@@ -734,20 +734,25 @@ test('Auto mode: a pack leader pair split by the run: the one that leads goes fi
 });
 
 test('Auto mode: an animal moved once in its cooldown may move again for a large gain, never back where it came from', () => {
-    // Matla came from habitat 1 to the trade centre lately (moved once)
-    const view = { cooled: new Set(['Matla']), once: new Set(['Matla']), recentFrom: new Map([['Matla', new Set(['1'])]]) };
+    // Matla came from habitat 2 to the trade centre lately (moved once)
+    const view = { cooled: new Set(['Matla']), once: new Set(['Matla']), recentFrom: new Map([['Matla', new Set(['2'])]]) };
     const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
-    assert.deepEqual(Array.from(locksOf(model, 'Lion', view).waive), [['Matla', ['1']]]);
-    assert.ok(!locksOf(model, 'Lion', view).pins.has('Matla'));
-    const { r } = mournRun(view);
+    assert.deepEqual(Array.from(locksOf(model, 'Lion', view, 0.1).waive), [['Matla', ['2']]]);
+    assert.ok(!locksOf(model, 'Lion', view, 0.1).pins.has('Matla'));
+    assert.ok(locksOf(model, 'Lion', view).pins.has('Matla'), 'off: locked');
+    // (off unless asked: AUTO_LIMITS.waiveGain; no bonds here, so no mourning)
+    assert.equal(AUTO_LIMITS.waiveGain, null);
+    const on = { waiveGain: 0.1, model: buildKinModel(snap(MOURN_ZOO().map(a => Object.assign({}, a, { mates: [] })), ['1', '2'])) };
+    assert.ok(!mournRun(view, { model: on.model }).r.moves.concat(mournRun(view, { model: on.model }).r.waits).some(x => x.id === 'Matla'), 'off: he stays');
+    const { r } = mournRun(view, on);
     const m = r.moves.concat(r.waits).find(x => x.id === 'Matla');
-    assert.ok(m && m.to === '2' && !m.reversal, `he goes to lead with Chibeka in habitat 2: ${JSON.stringify(r.moves.concat(r.waits))}`);
-    // from habitat 2 lately: never back there
-    const back = mournRun(Object.assign({}, view, { recentFrom: new Map([['Matla', new Set(['2'])]]) })).r;
-    assert.ok(!back.moves.concat(back.waits).some(y => y.id === 'Matla' && y.to === '2'), JSON.stringify(back.moves));
+    assert.ok(m && m.to === '1' && !m.reversal, `he goes to lead with Chibeka: ${JSON.stringify(r.moves.concat(r.waits))}`);
+    // from habitat 1 lately: never back there
+    const back = mournRun(Object.assign({}, view, { recentFrom: new Map([['Matla', new Set(['1'])]]) }), on).r;
+    assert.ok(!back.moves.concat(back.waits).some(y => y.id === 'Matla' && y.to === '1'), JSON.stringify(back.moves));
     // moved twice in it, or hands off: he stays
     for (const v of [{ cooled: view.cooled, recentFrom: view.recentFrom }, Object.assign({ pinned: new Set(['Matla']) }, view)]) {
-        const x = mournRun(v).r;
+        const x = mournRun(v, on).r;
         assert.ok(!x.moves.concat(x.waits).some(y => y.id === 'Matla'), JSON.stringify(v));
     }
     // the ledger: one move in the cooldown, then two

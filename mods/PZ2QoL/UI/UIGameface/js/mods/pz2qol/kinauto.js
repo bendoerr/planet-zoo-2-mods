@@ -570,7 +570,7 @@ async function makePlan(species) {
     const fp = A.prints.get(species);
     const r = await planProgrammeAsync(prep.model, species, info || {}, dest, {
         assignments,
-        options: programmeOptionsFor(prep.settings, ratio, prep.pins, tune, prep.waive),
+        options: programmeOptionsFor(prep.settings, ratio, prep.pins, tune, prep.waive, prep.waiveGain),
         sliceMs: cpu.sliceMs,
         restMs: cpu.restMs,
         isCancelled: () => !fresh() || !A.ledger.sp[species] || !A.ledger.sp[species].on,

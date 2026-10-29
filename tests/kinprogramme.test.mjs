@@ -1028,11 +1028,11 @@ test('packs: a broken bond costs the litters of the mate left behind while it le
     // ... and Mosi to the trade centre after her: he leads nothing, nobody's litter is lost
     const retires = goes.concat([{ id: 'Mosi', to: TRADE }]);
     const flat = m => score({}, m) - score({ bondBreakCost: 0 }, m);
-    const mourn = m => score({ packMourn: true }, m) - score({ packMourn: true, mournWeight: 0 }, m);
+    const mourn = m => score({ packMourn: true, mourner: 'stayer' }, m) - score({ packMourn: true, mourner: 'stayer', mournWeight: 0 }, m);
     // the board's flat cost, whoever moves
     for (const m of [stays, goes, retires]) assert.ok(Math.abs(flat(m) + 0.15) < 1e-9, JSON.stringify(m));
     assert.ok(Math.abs(score({}, []) - none) < 1e-9, 'nothing moved: nothing to mourn');
-    // packMourn: half a year of the mourner's pack (mournWeight 0.5, 4 seasons)
+    // packMourn ('stayer'): half a year of the mourner's pack (mournWeight 0.5, 4 seasons)
     const pv = (m, f) => {
         const [a, b] = [model.animals.get(m), model.animals.get(f)];
         return youngQuality(a, b) * conceptionChance(a, b, PACK_AGES) * longevityWeight(a, b, PACK_AGES);
@@ -1041,34 +1041,39 @@ test('packs: a broken bond costs the litters of the mate left behind while it le
     assert.ok(Math.abs(mourn(goes) + 0.5 * pv('Mosi', 'Thembile')) < 1e-9, `${mourn(goes)}`);
     assert.ok(Math.abs(mourn(retires)) < 1e-9, 'the one that leads moves first, the other mourns but leads nothing');
     // 'both' (the one that moves mourns too): Chibeka's litter is lost either way
-    assert.ok(score({ packMourn: true, mourner: 'both' }, retires) < score({ packMourn: true }, retires) - 0.1);
+    assert.ok(score({ packMourn: true }, retires) < score({ packMourn: true, mourner: 'stayer' }, retires) - 0.1, 'the default');
     // interbirth 1: Chibeka littered last summer (a pup of 0.5), so she
     // skips the next one anyway (a wild dog mother never litters two
     // summers running) and her mourning costs nothing; off (the default) it does
     const pup = an('pup', M, '1', ['Mosi', 'Chibeka'], { age: 0.5, juv: true });
     const ib = buildKinModel(snap(MOURN_ZOO().concat([pup]), ['1', '2']));
-    const ibMourn = (o, m) => scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true }, FREE, o) }, m)
-        - scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true, mournWeight: 0 }, FREE, o) }, m);
+    const ibMourn = (o, m) => scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true, mourner: 'stayer' }, FREE, o) }, m)
+        - scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true, mourner: 'stayer', mournWeight: 0 }, FREE, o) }, m);
     assert.ok(Math.abs(ibMourn({ interbirth: 1 }, stays)) < 1e-9, `${ibMourn({ interbirth: 1 }, stays)}`);
     assert.ok(Math.abs(ibMourn({}, stays) - mourn(stays)) < 1e-9);
     // 8 seasons (Asian small-clawed otter): a year of the two is still lost
     const otter = Object.assign({ mourningSeasons: 8 }, PACK_AGES);
-    const o8 = scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, interbirth: 1 }, FREE) }, stays) - scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, interbirth: 1, mournWeight: 0 }, FREE) }, stays);
+    const o8 = scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, mourner: 'stayer', interbirth: 1 }, FREE) }, stays) - scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, mourner: 'stayer', interbirth: 1, mournWeight: 0 }, FREE) }, stays);
     assert.ok(Math.abs(o8 - mourn(stays)) < 1e-9, `${o8}`);
 });
 
-test('packs: with packMourn the mate that keeps breeding moves; the board plans as before', () => {
+test("packs: with packMourn ('stayer') the mate that keeps breeding moves; 'both' counts her litter either way; the board plans as before", () => {
     const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
     const leadsWith = (plan, id) => (plan.groups.find(g => (g.leaders || []).includes(id)) || {}).leaders || [];
     for (const exactLimit of [0, 20000]) {
         const board = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit }, FREE) });
         assert.deepEqual(leadsWith(board, 'Chibeka').sort(), ['Chibeka', 'Matla'], JSON.stringify(board.moves));
         assert.equal(where(model, board, 'Chibeka'), '1', 'the board: Matla joins her, she stays and mourns');
-        const auto = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit, packMourn: true }, FREE) });
+        const auto = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit, packMourn: true, mourner: 'stayer' }, FREE) });
         assert.deepEqual(leadsWith(auto, 'Chibeka').sort(), ['Chibeka', 'Matla'], JSON.stringify(auto.moves));
         assert.notEqual(where(model, auto, 'Chibeka'), '1', `she moves to lead with him: ${JSON.stringify(auto.moves)}`);
         assert.equal(leadsWith(auto, 'Mosi').length, 0, 'the mate left behind leads nothing');
         assert.ok(auto.score > board.score - 0.5, 'about as good a layout');
+        // 'both' (the default: the one that moves mourns too): her litter is
+        // lost whoever moves, so the fewest moves, the board's
+        const both = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit, packMourn: true }, FREE) });
+        assert.deepEqual(both.moves.map(m => [m.id, m.to]), board.moves.map(m => [m.id, m.to]));
+        assert.ok(both.score < board.score - 0.1, 'her lost litter counted');
     }
 });
 

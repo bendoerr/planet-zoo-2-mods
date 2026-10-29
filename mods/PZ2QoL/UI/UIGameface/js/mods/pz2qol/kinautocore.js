@@ -45,10 +45,11 @@ export const AUTO_LIMITS = Object.freeze({
     cooldownYears: 1,           // an animal Auto mode moved stays put this long: as births and
                                 // ageing change the zoo, the programme's best layout shifts, and
                                 // without this it would move some animals back and forth
-    waiveGain: 0.1,             // ... unless it moved only once in that time and moving it again
-                                // gains this much (pair-value units: a young better pair taking
-                                // over a pack from an older one), never back where it came from.
-                                // null: off
+    waiveGain: null,            // ... unless it moved only once in that time and moving it again
+                                // gains this much (pair-value units, e.g. 0.1: a young better
+                                // pair taking over a pack from an older one), never back where it
+                                // came from. null: off (the simulator, 2026-10-28: no gain in
+                                // the herd; input.waiveGain turns it on for a run)
     growUpYears: 0.5,           // young this close to growing up count as breeders. 0: off;
                                 // youth is left alone until it is grown (the developer,
                                 // 2026-10-19: young were sent to the trade centre)
@@ -78,13 +79,13 @@ export function normalizeSpecies(raw) {
 // fine tuning, kinprogtune.js). Auto mode's own: in a pack a broken bond
 // costs the litters its mourning loses (packMourn; the player's "Splitting
 // a bonded pair" keeps the flat cost), and the animals in their cooldown
-// that may move once more (cooled: locksOf's waive, AUTO_LIMITS.waiveGain).
-export function programmeOptionsFor(settings, ratio = 'auto', pinIds = null, tune = null, cooled = null) {
+// that may move once more for cooledCost each (cooled: locksOf's waive).
+export function programmeOptionsFor(settings, ratio = 'auto', pinIds = null, tune = null, cooled = null, cooledCost = AUTO_LIMITS.waiveGain) {
     const st = PROGRAMME_STEPS[settings.step] || PROGRAMME_STEPS[PROGRAMME_DEFAULT_STEP];
     const o = { moveCost: st.cost, useTradeCentre: settings.trade !== false, ratio: ratio || 'auto' };
     if (st.outsider != null) o.outsiderCost = st.outsider;
     if (pinIds && pinIds.size) o.pinIds = pinIds;
-    if (cooled && cooled.size) Object.assign(o, { cooled, cooledCost: AUTO_LIMITS.waiveGain });
+    if (cooled && cooled.size && cooledCost != null) Object.assign(o, { cooled, cooledCost });
     if (!normalizeTuning(tune).bondBreakCost) o.packMourn = true;
     return applyTuning(Object.assign(o, AUTO_SEARCH), tune);
 }
@@ -115,15 +116,15 @@ function viewOf(v) {
 // mode itself lately), and those the programme treats as fixed (also the
 // ones it sent away, which stay away). waive: the ones in their cooldown
 // that moved once in it, not hands off: the programme may move them once
-// more for a large gain (AUTO_LIMITS.waiveGain), never back to a habitat
+// more for a large gain (waiveGain, null: none), never back to a habitat
 // they left (Map(id -> [habitat])). So none moves more than twice a year.
-export function locksOf(model, species, view) {
+export function locksOf(model, species, view, waiveGain = AUTO_LIMITS.waiveGain) {
     const v = viewOf(view);
     const locked = new Set();
     const waive = new Map();
     for (const a of model.animals.values()) {
         if (a.species !== species) continue;
-        if (AUTO_LIMITS.waiveGain != null && v.cooled.has(a.id) && v.once.has(a.id) && !v.pinned.has(a.id) && !v.leaving.has(a.id)) waive.set(a.id, Array.from(v.recentFrom.get(a.id) || []));
+        if (waiveGain != null && v.cooled.has(a.id) && v.once.has(a.id) && !v.pinned.has(a.id) && !v.leaving.has(a.id)) waive.set(a.id, Array.from(v.recentFrom.get(a.id) || []));
         else if (v.pinned.has(a.id) || v.cooled.has(a.id)) locked.add(a.id);
     }
     const pins = new Set(locked);
@@ -149,7 +150,8 @@ export function locksOf(model, species, view) {
 //          (normalizeSpecies), ratio (the board's make-up choice), view
 //          (kinautoledger ledgerView), tradeFree (places left at the trade
 //          centre, null: unknown), tune (the fine tuning, kinprogtune.js:
-//          its Breeding goal and kin rule also decide how Thin out culls) }
+//          its Breeding goal and kin rule also decide how Thin out culls),
+//          waiveGain (AUTO_LIMITS.waiveGain unless given: tests, simulator) }
 // prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
@@ -161,9 +163,10 @@ export function prepareAutoRun(input) {
     const { model, species, info = null, destinations = null } = input;
     const settings = normalizeSpecies(Object.assign({}, input.settings, { on: true }));
     const out = { species, moves: [], programme: null, thin: null, notes: [], held: [] };
-    const prep = { out, settings, model, pins: new Set(), locked: new Set(), waive: new Map(), view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity };
+    const waiveGain = input.waiveGain !== undefined ? input.waiveGain : AUTO_LIMITS.waiveGain;
+    const prep = { out, settings, model, pins: new Set(), locked: new Set(), waive: new Map(), waiveGain, view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity };
     if (!model || !species) return prep;
-    const { locked, pins, view, waive } = locksOf(model, species, input.view);
+    const { locked, pins, view, waive } = locksOf(model, species, input.view, waiveGain);
     Object.assign(prep, { locked, pins, view, waive, tradeLeft: input.tradeFree == null ? Infinity : Math.max(0, input.tradeFree) });
     if (settings.thin) {
         // animals Auto mode placed lately stay (Thin out does not undo the
@@ -660,7 +663,7 @@ export function planAutoRun(input) {
     if (!input.model || !input.species) return prep.out;
     const r = planProgramme(prep.model, input.species, input.info || {}, input.destinations || null, {
         assignments: input.assignments || null,
-        options: programmeOptionsFor(prep.settings, input.ratio || 'auto', prep.pins, input.tune || null, prep.waive),
+        options: programmeOptionsFor(prep.settings, input.ratio || 'auto', prep.pins, input.tune || null, prep.waive, prep.waiveGain),
     });
     return finishAutoRun(input, prep, r);
 }

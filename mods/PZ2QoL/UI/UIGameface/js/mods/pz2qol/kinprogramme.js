@@ -153,16 +153,18 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // packs (Auto mode; off: bondBreakCost, flat): a broken bond costs the
     // litters the mourning mate loses, mournWeight x the pair value of the
     // pack it leads in the plan per year of mourning (info.mourningSeasons,
-    // else 4 seasons); nothing when it won't lead. Who mourns ('stayer'): the
-    // mate left behind, or when both leave, the one moved second (Auto mode
-    // moves the one that leads first); 'both': the one that moves too (the
-    // game's rule is not known). interbirth: a pack whose leader female has
+    // else 4 seasons); nothing when it won't lead. Who mourns: 'both' (the
+    // one that moves too; the game's rule is not known, and the simulator
+    // kept its litters either way), or 'stayer' (the mate left behind, or
+    // when both leave, the one moved second: Auto mode moves the one that
+    // leads first; lost as many litters as before if movers mourn too).
+    // interbirth: a pack whose leader female has
     // young under this many years old skips a year of that anyway (an
     // African wild dog mother never litters two summers running, the saves
     // 16 of 16), so one year less is lost. 0: off (the simulator lost more
     // litters with it: 3.3 against 1.1 in 15 years, 2026-10-28)
     packMourn: false,
-    mourner: 'stayer',
+    mourner: 'both',
     mournWeight: 0.5,
     interbirth: 0,
     maxEvaluations: 600000,  // search budget: layout changes scored (about 0.4 s for 100 breeders)
