@@ -1,6 +1,6 @@
 # Plan: the best auto breeder (2026-10-28)
 
-Status: **built and measured 2026-10-29** (branch `feat/best-breeder`, head `bb7087e`; not pushed,
+Status: **built and measured 2026-10-29** (branch `feat/best-breeder`, head `9a534ff`; not pushed,
 not installed). Build 1 (frictions) is on in Auto mode; Build 2 (strand bonus) is built and off; Build
 3 is an opt-in experiment, "Market picks", off. Owner's goal: "the best freaking auto breeder on the
 market": Auto mode should set herds up better than the player, without hands-off marks. Results:
@@ -386,9 +386,9 @@ session scratchpad (`.../scratchpad/pz2`). Commits of 2026-10-28, **not pushed**
 runs, `033b229` line endings. Installed: `c7733f8` (backups in
 `C:\Users\Rowl\Projects\Helix\cache\removed-mods`); `033b229` built and verified
 (`cache\pz2qol-build-033b229`), install not yet approved. Upstream PR on hold.
-The build of 2026-10-29: branch `feat/best-breeder` (from `7dc2522`, code head `bb7087e`), in the
-scratchpad's `wt-int`; **not pushed, not installed**. `bb7087e` built and verified
-(`cache\pz2qol-build-bb7087e`, no debug trace; report `best-breeder/reports/build.md`); install not
+The build of 2026-10-29: branch `feat/best-breeder` (from `7dc2522`, code head `9a534ff`), in the
+scratchpad's `wt-int`; **not pushed, not installed**. `9a534ff` built and verified
+(`cache\pz2qol-build-9a534ff`, no debug trace; report `best-breeder/reports/build.md`); install not
 yet approved (the installed build is still `c7733f8`).
 
 13.2. Scratchpad (session-specific; copy what must survive):
@@ -628,8 +628,8 @@ litters and 4.6 sends a year either way.
   also whether a pair moved together keeps its bond. Decides 14.9 b and the `mourner` rule
   (`'stayer'` if the mover does not mourn).
 - c. **`MourningSeasons` and the breeding seasons read in game**: the debug log's `kin species_info`
-  line shows `seasons=0100` for wild dogs and `1111` for hyenas. `interBirthYears` (dog 1.0, hyena
-  0.95) and `mourningSeasons` (dog 4) are sent but not in that line: add them to it before the check.
+  line shows `seasons=0100` for wild dogs and `1111` for hyenas. since `9a534ff` the line also
+  names `interBirthYears` (dog 1.0, hyena 0.95) and `mourningSeasons` (dog 4).
 - d. **The season hold's notes** (their layout is untested in the harness): "The breeding season is
   on: Wild Dog 01 keeps its breeding pair until it is over." (a run in the season or the month before
   it); "… keeps its breeding pair until the breeding season is over: Dalia would not be of age for

@@ -812,8 +812,8 @@ Trade shortcuts events (`pz2qol.tradejump.lua`, `tradejump.js`):
   tests; not yet seen in game): `breedingSeasons` (the four flags; anything else sends nothing),
   `interBirthYears` (`Animals/GetFertilityData` column 6, sent when > 0), `mourningSeasons`
   (`MourningSeasons`, `GetMatingRules` column 6, sent when ≥ 0; wild dog 4, otter 8, siamang 12). Each
-  read fails soft. The detailed log's `kin species_info` line adds `seasons` (wild dog `0100`); the
-  other two are not in it. Used by `kinautocore.js` (`breedingWindow`, `fertilityAgesOf`) and
+  read fails soft. The detailed log's `kin species_info` line adds `seasons` (wild dog `0100`),
+  `mourningSeasons` and `interBirthYears`. Used by `kinautocore.js` (`breedingWindow`, `fertilityAgesOf`) and
   `kinprogramme.js` (`packMourn`).
 - **The park date in a save** (Helix, **proven** offline 2026-10-29): `parkdata` section `ParkTime`,
   token 7 = month 1–12, token 8 = year, token 3 = progress through the month; park years = year +
