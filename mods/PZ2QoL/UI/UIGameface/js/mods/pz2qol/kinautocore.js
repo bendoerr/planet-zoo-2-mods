@@ -172,7 +172,8 @@ export function locksOf(model, species, view, waiveGain = AUTO_LIMITS.waiveGain)
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
 //   programme, thin, notes: [text], held: [{ id, why }],
 //   waits: [move + { from, hab, after: [id], names: [name] }] (moves that
-//   wait until a male has left, waitForLeavingMales),
+//   wait until a male has left, waitForLeavingMales; by and pair: until
+//   when, seasonWaits),
 //   seasonUntil (calendar months: the end of the breeding season some
 //   breeding pairs wait for, seasonHold; only then) }
 // planAutoRun(input) does all three at once (tests).
@@ -362,14 +363,19 @@ export function finishAutoRun(input, prep, programme) {
     if (tuningGoal(input.tune) === 'ceiling') keepCarriers(input, out);
     seasonHold(input, out);
     stageRestructures(input, out);
+    // (what waits for the season or the next run is said after what the
+    // player can act on: the run keeps 3 notes)
+    const later = out.notes.splice(0);
     keepGameLimits(input, out);
     waitForLeavingMales(input, out);
     waitForNewLeaders(input, out);
     waitForMates(input, out);
+    seasonWaits(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
     overLimitNotes(input, out);
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
     if (idle) out.notes.push(`${idle} breeder${idle === 1 ? ' has' : 's have'} no unrelated partner in the zoo: new animals from the market would let ${idle === 1 ? 'it' : 'them'} breed.`);
+    out.notes.push(...later);
     // (last: the run keeps 3 notes)
     const own = (prep.places || []).length;
     if (own && model) out.notes.push(`${placesText(model, prep.places)} count${own === 1 ? 's as one of this species\' habitats' : ' as this species\' habitats'}: no other species lives there.`);
@@ -567,6 +573,39 @@ function brokenGroups(input, out, when, ages) {
     return res;
 }
 
+// The run's changes of leaders: the habitats joined by a move taking a
+// group's leader (packLeaderOf: the leader there now, else the eldest;
+// whether the group breeds or not) to another (Thin out's sends, the game's
+// most per sex, move.limit, and a leader too old to breed always go).
+// -> changeOf(hab): one key per change
+function leaderChanges(input, out) {
+    const { model, species } = input;
+    const sexes = leaderSexes(input.info);
+    const leads = new Map();
+    const ended = a => a.fert && (a.fert.state === 'old' || a.fert.state === 'sterile');
+    for (const [hab, group] of groupsAfter(model, species, [])) {
+        for (const sex of sexes) {
+            const a = packLeaderOf(group, sex);
+            if (a && !ended(a)) leads.set(String(a.id), hab);
+        }
+    }
+    const parent = new Map();
+    const find = h => {
+        while (parent.get(h) !== h) h = parent.get(h);
+        return h;
+    };
+    const join = (a, b) => {
+        for (const h of [a, b]) if (!parent.has(h)) parent.set(h, h);
+        parent.set(find(a), find(b));
+    };
+    for (const m of out.moves) {
+        const hab = leads.get(String(m.id));
+        if (hab == null || String(m.to) === hab || m.limit || m.stage === 'thin') continue;
+        join(hab, m.to === TRADE ? hab : String(m.to));
+    }
+    return h => (parent.has(h) ? find(h) : h);
+}
+
 // Moves held back (a mother's young following her stay with her).
 function holdMoves(model, out, moves, why) {
     for (const m of moves) {
@@ -610,7 +649,15 @@ function placesText(model, habs) {
 // right after a season is free and such a change waits a season, never for
 // good (a new pen a pair is to move to stays empty a season at most); a new
 // leader not of age or a mother still in her wait is over by the next
-// season anyway. The rest of the run (Thin out, the young, the others) goes
+// season anyway. Such a hold keeps the other breeding pairs its change links
+// together too (leaderChanges; the owner's pen, 2026-10-29: Jabarl was to
+// lead Wild Dog 02 with Thembile, held in 03, and left Mapalo mourning in
+// 05+ for an empty 02, so neither bred): their mate left behind would lose
+// the season for a change that waits. A group that does not breed in the
+// season changes now, its part of a held change too (a leader joining a
+// held pack waits there to be promoted): its mourning costs no litter, and
+// later it would (the simulator, 2026-10-29: holding those too, -0.5 ± 0.8
+// at year 15). The rest of the run (Thin out, the young, the others) goes
 // as planned.
 function seasonHold(input, out) {
     const { model, species } = input;
@@ -628,7 +675,8 @@ function seasonHold(input, out) {
     const late = [];
     for (let round = 0; round < 50; round++) {
         const after = groupsAfter(model, species, out.moves);
-        const g = brokenGroups(input, out, when, ages).find(b => {
+        const groups = brokenGroups(input, out, when, ages);
+        const g = groups.find(b => {
             if (near) {
                 // the season's young are on the way
                 const mothers = sexes.includes(Sex.Female) ? b.leaders.filter(a => a.sex === Sex.Female) : b.group.filter(a => a.sex === Sex.Female && breedsBy(a, ages, when));
@@ -645,20 +693,24 @@ function seasonHold(input, out) {
             holdMoves(model, out, g.leaving, win.inSeason ? 'its group breeds: the breeding season is on' : 'its group breeds: the breeding season starts within a month');
             continue;
         }
+        // the breeding groups its change links keep their pairs too
+        const changeOf = leaderChanges(input, out);
+        const linked = groups.filter(b => b !== g && changeOf(b.hab) === changeOf(g.hab));
+        for (const b of linked) holdMoves(model, out, b.leaving, `its group breeds this season, and its change goes with ${placesText(model, [g.hab])}'s`);
         // who would lead instead, too young for the season
         for (const sex of sexes) {
             const a = packLeaderOf(after.get(g.hab) || [], sex);
             const under = a && typeof a.age === 'number' && ages.maturity != null && a.age + win.startsIn / 12 < ages.maturity;
             if (under && !late.includes(a.name)) late.push(a.name);
         }
-        held.young.push(g.hab);
+        held.young.push(g.hab, ...linked.map(b => b.hab));
         holdMoves(model, out, g.leaving, 'its group breeds this season: its new leaders could not breed in it');
     }
     if (!held.season.length && !held.young.length) return;
     out.seasonUntil = win.until;
     const keep = habs => `${placesText(model, habs)} keep${habs.length === 1 ? 's its breeding pair' : ' their breeding pairs'}`;
     if (held.season.length) out.notes.push(`${win.inSeason ? 'The breeding season is on' : 'The breeding season starts within a month'}: ${keep(held.season)} until it is over.`);
-    if (held.young.length) out.notes.push(`${keep(held.young)} until the breeding season is over: ${late.length ? `${late.slice(0, 2).join(' and ')} would not be of age for it` : 'its new leaders could not breed in it'}.`);
+    if (held.young.length) out.notes.push(`${keep(held.young)} until the breeding season is over: ${late.length ? `${late.slice(0, 2).join(' and ')} would not be of age for it` : `${held.young.length === 1 ? 'its' : 'their'} new leaders could not breed in it`}.`);
 }
 
 // At most AUTO_LIMITS.packsPerRun groups lose a breeding leader in one run
@@ -966,6 +1018,36 @@ function waitForMates(input, out) {
     }
 }
 
+// A waiting move runs once the moves it waits for are done, which keepers
+// carry in their own time: one planned before a seasonal breeder's breeding
+// season could break up a breeding pair in it, which seasonHold keeps
+// together. So a wait taking a leader out of a group that breeds in the
+// season, while its mate stays, carries by (calendar months: the
+// seasonLeadMonths before the season) and pair (the group's other breeding
+// leaders): waitsReady drops it from then on while the pair is still there.
+// (In the season or the month before it, seasonHold has held the others.)
+function seasonWaits(input, out) {
+    const { model, species } = input;
+    const win = breedingWindow(input.info, input.months);
+    const sexes = leaderSexes(input.info);
+    if (!model || !win || !sexes.length || !out.waits.length) return;
+    if (win.inSeason || win.startsIn <= AUTO_LIMITS.seasonLeadMonths) return;
+    const ages = fertilityAgesOf(input);
+    const when = { from: win.startsIn, to: win.endsIn };
+    const going = new Set(out.moves.concat(out.waits).map(m => String(m.id)));
+    for (const [hab, group] of groupsAfter(model, species, [])) {
+        const leaders = breedingLeaders(group, sexes, ages, when, true);
+        if (!leaders) continue;
+        for (const w of out.waits) {
+            const a = leaders.find(x => String(x.id) === String(w.id));
+            if (!a || String(w.to) === hab || w.limit) continue;
+            const pair = leaders.filter(x => x !== a).map(x => String(x.id));
+            if (pair.some(id => going.has(id))) continue;
+            Object.assign(w, { by: input.months + win.startsIn - AUTO_LIMITS.seasonLeadMonths, pair });
+        }
+    }
+}
+
 // A waiting move in words: what it waits for ('Kito and Zuri have left',
 // 'Abeo has arrived and Kito has left').
 export function waitText(w) {
@@ -982,9 +1064,11 @@ export function waitText(w) {
 // habitat (`at`, else its destination) and every newcomer it waits for
 // (arrive) is there; dropped when one of them is still there, or a newcomer
 // is elsewhere, and no longer on the move (that move did not happen), or the
-// waiting animal has gone or moved meanwhile.
+// waiting animal has gone or moved meanwhile. months (the park's calendar,
+// null: unknown): a wait past its by (seasonWaits) is dropped while its pair
+// is still together.
 // -> { ready: [wait], still: [wait], dropped: [{ wait, why }] }
-export function waitsReady(model, waits) {
+export function waitsReady(model, waits, months = null) {
     const out = { ready: [], still: [], dropped: [] };
     for (const w of waits || []) {
         const a = model && model.animals.get(String(w.id));
@@ -994,6 +1078,14 @@ export function waitsReady(model, waits) {
         }
         if (a.moving || homeOf(a) !== w.from) {
             out.dropped.push({ wait: w, why: 'it was moved meanwhile' });
+            continue;
+        }
+        const together = id => {
+            const b = model.animals.get(String(id));
+            return !!b && b.alive !== false && !b.moving && homeOf(b) === w.from;
+        };
+        if (w.by != null && typeof months === 'number' && months >= w.by && (w.pair || []).every(together)) {
+            out.dropped.push({ wait: w, why: 'the breeding season is close, and its group breeds in it' });
             continue;
         }
         const at = w.at || w.hab;

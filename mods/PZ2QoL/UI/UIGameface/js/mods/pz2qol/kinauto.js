@@ -647,9 +647,10 @@ function tick() {
 // (kinautocore.js waitForLeavingMales), or a pack's leader until its new
 // leader is there (waitForNewLeaders): run as a short run of their own as
 // soon as that is so (and none of the species is still on the move);
-// dropped, with a line in the panel, when one stayed or did not arrive, or
-// the waiting animal was moved or marked "hands off". The species' next run
-// plans afresh.
+// dropped, with a line in the panel, when one stayed or did not arrive, the
+// waiting animal was moved or marked "hands off", or it would break up a
+// breeding pair just before its breeding season (seasonWaits). The species'
+// next run plans afresh.
 function runWaits() {
     const l = A.ledger;
     for (const [species, w] of A.waits) {
@@ -658,7 +659,8 @@ function runWaits() {
             A.waits.delete(species);
             continue;
         }
-        const r = waitsReady(A.model, w.items);
+        // (the park's calendar: a pack's pair is not broken up just before its breeding season)
+        const r = waitsReady(A.model, w.items, A.cal ? A.cal.months : null);
         const ready = r.ready.filter(x => {
             if (!isPinnedAnimal(l, A.model, x.id)) return true;
             r.dropped.push({ wait: x, why: 'you marked it "hands off"' });
