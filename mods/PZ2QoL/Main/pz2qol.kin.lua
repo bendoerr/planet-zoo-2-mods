@@ -2111,10 +2111,11 @@ end
 -- read went ("ok", or what failed), for the Breeding programme's notes.
 -- The space rule comes the same way (GetAnimalSpaceRequirements,
 -- Requirements_HabitatSpace): the Lua API gives only the requirement for the
--- animals there now.
+-- animals there now. And the wait between a mother's litters (GetFertilityData,
+-- Lifecycle_FertilityData InterBirthYears: no Lua call known).
 -- -> species -> { nMaxMixedMale, nMaxMixedFemale, nMaxBachelorMale,
 --    nMaxBachelorFemale, bLeaderMale, bLeaderFemale,
---    tSpace = { land = { base, per }, ... } }
+--    tSpace = { land = { base, per }, ... }, nInterBirth }
 Kin.tSpeciesDb = nil
 Kin.sDbStatus = nil
 Kin._SpeciesDb = function(self)
@@ -2229,6 +2230,15 @@ Kin._SpeciesDb = function(self)
 				end
 			end
 		end
+		-- AnimalType, FertilityValue, ElderlyAge, InfertileWhenElderly,
+		-- GestationYears, InterBirthYears, MinLitterSize, MaxLitterSize
+		for _, r in ipairs(rows("GetFertilityData", 8)) do
+			local e = entry(r)
+			local n = e ~= nil and tonumber(r[6]) or nil
+			if n ~= nil and n > 0 then
+				e.nInterBirth = n
+			end
+		end
 	end
 	if next(t) ~= nil then
 		mark("kin_db_found")
@@ -2332,6 +2342,11 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	-- habitatCapacity; young pile on top of a full habitat otherwise)
 	if tDb ~= nil and tDb.tSpace ~= nil then
 		tOut.space = tDb.tSpace
+	end
+	-- the wait between a mother's litters, in years from the birth (Auto
+	-- mode: a mother with young of the last season does not breed in this one)
+	if tDb ~= nil and tDb.nInterBirth ~= nil then
+		tOut.interBirthYears = tDb.nInterBirth
 	end
 	-- the game's conception chance by fertility grades (0..6 x 0..6), at full welfare
 	local nSpeciesFert = call(animals, "GetAnimalSpeciesFertility", sSpecies)

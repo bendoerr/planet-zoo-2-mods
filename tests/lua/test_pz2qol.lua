@@ -1412,6 +1412,9 @@ do
 			elseif inst.sSt == "GetAnimalSpaceRequirements" then
 				-- Greater flamingo's row (animals.fdb): land, water, deep swim, shelter, climb, flight
 				return { { "Zebra_Plains", 400, 40, 0, 0, 0, 0, 2, 0, 0, 0, 0 }, { "Flamingo_Greater", 100, 6, 80, 3, 0, 0, 2, 0, 0, 60, 2 } }
+			elseif inst.sSt == "GetFertilityData" then
+				-- FertilityValue, ElderlyAge, InfertileWhenElderly, GestationYears, InterBirthYears, litter sizes
+				return { { "Zebra_Plains", 0.5, 18, 1, 1.083, 0.917, 1, 1 }, { "Flamingo_Greater", 0.5, 30, 1, 0.08, 0, 1, 3 } }
 			end
 			return {}
 		end,
@@ -1431,10 +1434,12 @@ do
 	check(t.bachelorMax and t.bachelorMax.male == 6 and t.bachelorMax.female == 6, "db: the one-sex (bachelor) group limits too")
 	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules" and tStatements[3] == "Animals/GetAnimalSpaceRequirements", "db: the game's own statements")
 	check(t.space and t.space.land and t.space.land.base == 400 and t.space.land.per == 40 and t.space.water == nil, "db: the space rule, no area type without a per-animal part")
+	check(t.interBirthYears and math.abs(t.interBirthYears - 0.917) < 1e-6 and tStatements[4] == "Animals/GetFertilityData", "db: the wait between litters (InterBirthYears)")
 	local nRead = #tStatements
 	t = ask("d2", "Lion")
 	check(#tStatements == nRead, "db: read once per session")
 	check(t.space == nil, "db: no space row, no rule sent")
+	check(t.interBirthYears == nil, "db: no fertility row, no wait between litters sent")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
 	check(t.bachelorMax and t.bachelorMax.male == 4 and t.bachelorMax.female == nil, "db: no bachelor females (0) is no limit sent")
 	check(t.dbStatus == nil, "db: no status when the species was read")

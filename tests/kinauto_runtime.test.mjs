@@ -490,7 +490,7 @@ test('one male per group: a male moves in only after the male leaving has gone; 
 test('a seasonal breeder: a pack keeps its breeding pair through the breeding season, then changes', async () => {
     const A = auto._autopilotInternals();
     const D = (id, sex, hab, over) => an(id, sex, hab, [], Object.assign({ species: 'Dog', age: 5 }, over));
-    fake.speciesInfo = { Dog: { mating: 'monogamy', leaderMale: true, leaderFemale: true, fertilityAges: { maturity: 1.5, infertility: 10 }, breedingSeasons: [false, true, false, false] } };
+    fake.speciesInfo = { Dog: { mating: 'monogamy', leaderMale: true, leaderFemale: true, fertilityAges: { maturity: 1.5, infertility: 10 }, interBirthYears: 1, breedingSeasons: [false, true, false, false] } };
     // the leaders share their strands; a strong female waits at the trade centre
     fake.animals.push(D('dm', M, '3', { alpha: true, genes: G('A', 'B') }), D('df', F, '3', { alpha: true, genes: G('A', 'B') }),
         D('dk', F, '3', { age: 3.5, genes: G('A', 'B') }), D('ds', F, '', { genes: G('E', 'F') }));

@@ -27,7 +27,7 @@ const DEST = { bySpecies: { Dog: Object.fromEntries(HABS.map(h => [h, { ok: true
 const SUMMER = [false, true, false, false];
 // a pack species (only the leader pair breeds), summer breeders unless said
 const PACK = (seasons = SUMMER) => Object.assign({
-    social: { min: 2, max: 20 }, mating: 'monogamy', fertilityAges: { maturity: 1.5, infertility: 10 }, leaderMale: true, leaderFemale: true,
+    social: { min: 2, max: 20 }, mating: 'monogamy', fertilityAges: { maturity: 1.5, infertility: 10 }, interBirthYears: 1, leaderMale: true, leaderFemale: true,
     habitats: Object.fromEntries(HABS.map(h => [h, { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }])),
 }, seasons ? { breedingSeasons: seasons } : {});
 // the park's calendar: year 48, the month of the year (0-based) and part of it
@@ -98,12 +98,17 @@ test('in the season: her young on the way, the pair may change; a pair that does
         assert.deepEqual(ids(runWith(animals, REPLACE, { months: at(4) })), ['f1', 's'], JSON.stringify(over));
     }
     // her young of last summer (0.7): the wait between litters (a year from
-    // the birth) outlasts this season, so the pair does not breed; at 0.9 it
-    // is over before the season ends (2 months left) and the pair stays
-    for (const [age, kept] of [[0.7, false], [0.9, true]]) {
-        const animals = PACK1().concat([an('pup', F, '1', { juv: true, age, par: ['gm1', 'gf1'] })]);
-        assert.deepEqual(ids(runWith(animals, REPLACE, { months: at(4) })), kept ? ['s'] : ['f1', 's'], `young of ${age}`);
-    }
+    // the birth, the species' interBirthYears) outlasts this season, so the
+    // pair does not breed; at 0.9 it is over before the season ends (2 months
+    // left) and the pair stays; with the wait unknown, the young don't count
+    const pup = age => PACK1().concat([an('pup', F, '1', { juv: true, age, par: ['gm1', 'gf1'] })]);
+    assert.deepEqual(ids(runWith(pup(0.7), REPLACE, { months: at(4) })), ['f1', 's'], 'young of 0.7');
+    assert.deepEqual(ids(runWith(pup(0.9), REPLACE, { months: at(4) })), ['s'], 'young of 0.9');
+    const unknown = Object.assign(PACK(), { interBirthYears: undefined });
+    assert.deepEqual(ids(runWith(pup(0.7), REPLACE, { months: at(4), info: unknown })), ['s'], 'no wait known');
+    // a longer wait (a lion's 2.7 years): young of 1.5 still hold her back
+    const lion = Object.assign(PACK(), { interBirthYears: 2.7 });
+    assert.deepEqual(ids(runWith(pup(1.5), REPLACE, { months: at(4), info: lion })), ['f1', 's'], 'a long wait');
 });
 
 test('before the season: a pair stays where its new leader would not be of age for it, else it changes', () => {

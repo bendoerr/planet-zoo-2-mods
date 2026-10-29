@@ -397,21 +397,20 @@ function leaderSexes(info) {
     return out;
 }
 
-// The game's wait between a mother's litters (InterBirthYears, animals.fdb
-// Lifecycle_FertilityData: African wild dog 1.0, spotted hyena 0.95; no Lua
-// call known), counted from the birth: no dog mother in the saves of
+// The species' fertility ages, and the wait between a mother's litters
+// (info.interBirthYears: the game's InterBirthYears, African wild dog 1.0,
+// spotted hyena 0.95, Plains zebra 0.917) with each mother's youngest young
+// (its age). The wait counts from the birth: no dog mother in the saves of
 // 2026-10-28 littered two summers running (16 of 16 gaps 1.85 years or
 // more), and no pack whose leader female had young the summer before bred.
-const INTERBIRTH_YEARS = 1;
-
-// The species' fertility ages, and each mother's youngest young (its age)
-// for the wait between litters.
+// Unknown: no wait counted.
 function fertilityAgesOf(input) {
-    const { model, species } = input;
+    const { model, species, info } = input;
     const facts = (model && model.speciesFacts && model.speciesFacts[species]) || {};
-    const ages = Object.assign({}, (input.info && input.info.fertilityAges) || { maturity: facts.maturity, infertility: facts.infertility }, { young: new Map() });
-    for (const a of model ? model.animals.values() : []) {
-        if (a.species !== species || a.alive === false || typeof a.age !== 'number' || a.age >= INTERBIRTH_YEARS) continue;
+    const ages = Object.assign({}, (info && info.fertilityAges) || { maturity: facts.maturity, infertility: facts.infertility }, { young: new Map() });
+    ages.interBirth = info && typeof info.interBirthYears === 'number' && info.interBirthYears > 0 ? info.interBirthYears : null;
+    for (const a of model && ages.interBirth ? model.animals.values() : []) {
+        if (a.species !== species || a.alive === false || typeof a.age !== 'number' || a.age >= ages.interBirth) continue;
         for (const p of a.par || []) ages.young.set(String(p), Math.min(ages.young.has(String(p)) ? ages.young.get(String(p)) : Infinity, a.age));
     }
     return ages;
@@ -426,7 +425,7 @@ function breedsBy(a, ages, when) {
     const st = a.fert && a.fert.state;
     if (st === 'old' || st === 'sterile') return false;
     const y = a.sex === Sex.Female && ages.young ? ages.young.get(String(a.guid || a.id)) : null;
-    if (y != null && y + when.to / 12 < INTERBIRTH_YEARS) return false;
+    if (y != null && y + when.to / 12 < ages.interBirth) return false;
     if (typeof a.age !== 'number') return !a.infertile && st !== 'young';
     const young = ages.maturity != null && a.age < ages.maturity;
     // infertile for another reason than its youth
