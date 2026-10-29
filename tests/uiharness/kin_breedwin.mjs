@@ -195,6 +195,15 @@ export async function hud(page, ctx) {
         for (const sname of ['Optimiser', 'This plan', 'Moves', 'Groups', 'Search']) if (!facts.options.sections.includes(sname)) problems.push(`options: no "${sname}" section (${facts.options.sections})`);
         if (facts.options.rows < 13) problems.push(`options: ${facts.options.rows} rows`);
         if (facts.options.spill) problems.push(`options: ${facts.options.spill} choices spill out of the window`);
+        // the strand bonus (Goal): off by default on the board, three levels
+        facts.strandRow = await page.evaluate(() => {
+            const s = document.querySelector('.PZ2QoL_bwSeg[data-strandbonus]');
+            if (s) s.scrollIntoView({ block: 'center' });
+            return s ? { items: [...s.querySelectorAll('.PZ2QoL_bwSegItem')].map(b => b.textContent), on: (s.querySelector('.PZ2QoL_bwSegItem.on') || {}).textContent } : null;
+        });
+        await page.waitForTimeout(200);
+        await ctx.shot(page, 'bw_5b_options_strands');
+        if (!facts.strandRow || facts.strandRow.items.join('|') !== 'Off|Low|Medium|High' || facts.strandRow.on !== 'Off') problems.push(`options: strand bonus row ${JSON.stringify(facts.strandRow)}`);
         await click(page.locator('.PZ2QoL_bwSeg[data-relatedPenalty] .PZ2QoL_bwSegItem[data-id="allow"], .PZ2QoL_bwSeg[data-relatedpenalty] .PZ2QoL_bwSegItem[data-id="allow"]'));
         await page.waitForTimeout(300);
         facts.tune = await page.evaluate(async () => (await import('/js/mods/pz2qol/prefs.js')).getPref('progTune'));

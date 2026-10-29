@@ -69,13 +69,18 @@ export function normalizeSpecies(raw) {
     return s;
 }
 
+// The strand bonus Auto mode plans with (kinprogramme.js strandBonus; the
+// fine tuning's "Strand bonus" overrides it). 0: off, the board's plans.
+export const AUTO_STRAND_BONUS = 0;
+
 // The programme's options for these settings (the board's programmeOptions
-// with the same slider step, trade switch and make-up, and the player's
-// fine tuning, kinprogtune.js).
+// with the same slider step, trade switch and make-up, Auto mode's strand
+// bonus, and the player's fine tuning, kinprogtune.js).
 export function programmeOptionsFor(settings, ratio = 'auto', pinIds = null, tune = null) {
     const st = PROGRAMME_STEPS[settings.step] || PROGRAMME_STEPS[PROGRAMME_DEFAULT_STEP];
     const o = { moveCost: st.cost, useTradeCentre: settings.trade !== false, ratio: ratio || 'auto' };
     if (st.outsider != null) o.outsiderCost = st.outsider;
+    if (AUTO_STRAND_BONUS > 0) o.strandBonus = AUTO_STRAND_BONUS;
     if (pinIds && pinIds.size) o.pinIds = pinIds;
     return applyTuning(Object.assign(o, AUTO_SEARCH), tune);
 }

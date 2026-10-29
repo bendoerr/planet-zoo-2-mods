@@ -10,7 +10,9 @@
 //     breeders). With the goal 'ceiling' the pair's best young instead of
 //     its expected young (kinstrands.js youngUpside): the expected Size and
 //     Longevity are always the parents' average, so only pairs that can
-//     stack the best strands raise them
+//     stack the best strands raise them. With the strand bonus (strandBonus,
+//     Auto mode) the young plus its expected copies of the herd's best Size
+//     and Longevity strands while they are rare (kinstrands.js strandTargets)
 //   - relatives living together: a related, fertile male-female pair in one
 //     habitat is a heavy penalty, so the search removes it
 //   - adults over the habitat's room, breeders over the group make-up
@@ -117,7 +119,7 @@ export function programmeLogData(r) {
 // (tests/kinprogramme.test.mjs).
 import { predictOffspring, Sex, fertileNow, ownGrades, relationWord } from './kincore.js';
 import { TRADE, normalizeAssignments, assignedHabitatsOf, habitatAllowedFor } from './kinboardcore.js';
-import { ceilingWaiting, speciesStrands, youngUpside } from './kinstrands.js';
+import { ceilingWaiting, speciesStrands, strandTargets, youngCopies, youngUpside } from './kinstrands.js';
 
 export const PROGRAMME_DEFAULTS = Object.freeze({
     // the breeding goal (kinprogtune.js "Breeding goal"): 'average' pairs for
@@ -126,6 +128,12 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // 'ceiling' waits (plans as 'average') while the herd's mean is more than
     // this below its ceiling (0..1; kinstrands.js ceilingWaiting)
     ceilingWithin: 0.05,
+    // the strand bonus (Auto mode; kinprogtune.js "Strand bonus"): a pair's
+    // young + this x the young's expected copies of the herd's best Size and
+    // Longevity strands / 4, per gene only while its copies are at most
+    // strandGate of the herd's strands (kinstrands.js strandTargets). 0: off
+    strandBonus: 0,
+    strandGate: 0.5,
     // who counts as related (relatedBy): 'pedigree' | 'genes', and the young's
     // expected Fertility and Immunity a 'genes' pair of close kin must reach
     kinRule: 'pedigree',
@@ -830,12 +838,15 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
     // the pair's value, male m with female f (indices): -1 = related
     // ('ceiling' while it waits, opts.ceilingWait: the expected young)
     const young = opts.goal === 'ceiling' && !opts.ceilingWait ? youngUpside : youngQuality;
+    // + the strand bonus (opts.strandTargets from prepare: the rare best strands)
+    const sb = opts.strandTargets ? opts.strandBonus / 4 : 0;
     ctx.pv = (m, f) => {
         const k = m * n + f;
         let v = ctx.pvCache[k];
         if (v !== v) {
             const a = breeders[m], b = breeders[f];
-            v = relatedPair(model, a, b, opts) ? -1 : young(a, b) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
+            v = relatedPair(model, a, b, opts) ? -1
+                : (young(a, b) + (sb && sb * youngCopies(a, b, opts.strandTargets.best))) * conceptionChance(a, b, info) * longevityWeight(a, b, info);
             ctx.pvCache[k] = v;
         }
         return v;
@@ -2115,6 +2126,11 @@ function prepare(model, species, info, destinations, assignments, options) {
         const st = speciesStrands(model, species, info);
         if (ceilingWaiting(st, opts.ceilingWithin)) opts.ceilingWait = { mean: st.mean, ceiling: st.ceiling };
     }
+    // the strand bonus: the herd's best strands that are still rare
+    if (opts.strandBonus > 0) {
+        const t = strandTargets(model, species, info, opts.strandGate);
+        if (t.best.S != null || t.best.L != null) opts.strandTargets = t;
+    }
     const ctx = makeContext(model, infoX, opts, breeders, all, habitats, home, spares.filter(a => habitats.includes(a.hab)));
     // the deep engine has its own budgets (solveDeep)
     ctx.budget = makeBudget(opts);
@@ -2269,8 +2285,10 @@ function* programmeSteps(model, species, info, destinations, assignments, option
     }
     // the breeding goal it planned for, only when it is not the default
     // (Auto mode's runtime test checks the tuning reached it)
-    // (and, while it waits, the herd's mean and ceiling)
-    return Object.assign(opts.goal === 'ceiling' ? { goal: 'ceiling' } : {}, opts.ceilingWait ? { ceilingWait: opts.ceilingWait } : {}, {
+    // (and, while it waits, the herd's mean and ceiling; with the strand
+    // bonus, the strands it counted: { lambda, best, share })
+    const strands = opts.strandTargets ? { strandBonus: { lambda: opts.strandBonus, best: opts.strandTargets.best, share: opts.strandTargets.share } } : {};
+    return Object.assign(opts.goal === 'ceiling' ? { goal: 'ceiling' } : {}, opts.ceilingWait ? { ceilingWait: opts.ceilingWait } : {}, strands, {
         system: ctx.rule.system,
         rule: ctx.rule,
         moves,
@@ -2353,7 +2371,9 @@ function problemSig(ctx) {
     const places = ctx.placeKeys.map((k, p) => `${k}:${room(k, p)}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}${leads(p)}`).sort();
     const r = ctx.rule;
     const facts = [ratioKey(r) + (r.pack ? ' pack' : ''), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
-        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '');
+        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '')
+        // the strand bonus reads the juveniles' strands too: its targets
+        + (ctx.opts.strandTargets ? `|strands:${ctx.opts.strandBonus}:${ctx.opts.strandTargets.best.S}/${ctx.opts.strandTargets.best.L}` : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
 }
