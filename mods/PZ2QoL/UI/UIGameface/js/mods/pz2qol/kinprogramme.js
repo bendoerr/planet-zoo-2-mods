@@ -156,10 +156,14 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // else 4 seasons); nothing when it won't lead. Who mourns ('stayer'): the
     // mate left behind, or when both leave, the one moved second (Auto mode
     // moves the one that leads first); 'both': the one that moves too (the
-    // game's rule is not known)
+    // game's rule is not known). A pack whose leader female has young under
+    // `interbirth` years old skips a year of that anyway (an African wild dog
+    // mother never litters two summers running, the saves 16 of 16): one
+    // year less is lost (0: off)
     packMourn: false,
     mourner: 'stayer',
     mournWeight: 0.5,
+    interbirth: 1,
     maxEvaluations: 600000,  // search budget: layout changes scored (about 0.4 s for 100 breeders)
     timeBudgetMs: 1500,      // safety net: stop searching after this long
     exactLimit: 20000,       // score every layout when there are no more than this many
@@ -914,7 +918,23 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
     // (bondCost), per year of mourning
     ctx.packMourn = !!(rule.pack && opts.packMourn && ctx.hasMono);
     const seasons = info && typeof info.mourningSeasons === 'number' && info.mourningSeasons >= 0 ? info.mourningSeasons : 4;
-    ctx.mournFactor = opts.mournWeight * seasons / 4;
+    ctx.mournYears = seasons / 4;
+    ctx.mournFactor = opts.mournWeight * ctx.mournYears;
+    // females with young under opts.interbirth years: they skip the next
+    // breeding season anyway (bondCost)
+    ctx.interbirth = new Uint8Array(n);
+    if (ctx.packMourn && opts.interbirth > 0) {
+        const byKey = new Map();
+        breeders.forEach((a, i) => {
+            if (a.sex !== Sex.Female) return;
+            byKey.set(String(a.guid || a.id), i);
+            byKey.set(String(a.id), i);
+        });
+        for (const y of all) {
+            if (typeof y.age !== 'number' || y.age >= opts.interbirth) continue;
+            for (const p of y.par || []) if (byKey.has(String(p))) ctx.interbirth[byKey.get(String(p))] = 1;
+        }
+    }
     return ctx;
 }
 
@@ -1161,7 +1181,9 @@ function bondCost(ctx, b, at, membersOf) {
         const p = at(i);
         if (!ctx.groupPlace[p]) return 0;
         const pair = packPair(ctx, p, membersOf(p));
-        return pair && pair[0] > 0 && (pair[1] === i || pair[2] === i) ? pair[0] : 0;
+        if (!pair || !(pair[0] > 0) || (pair[1] !== i && pair[2] !== i)) return 0;
+        // the female skips the next season anyway: a year less lost
+        return ctx.interbirth[pair[2]] ? pair[0] * Math.max(0, ctx.mournYears - 1) / (ctx.mournYears || 1) : pair[0];
     };
     const movedA = at(bond.a) !== ctx.home[bond.a];
     const movedB = bond.b >= 0 && at(bond.b) !== ctx.home[bond.b];
@@ -2467,7 +2489,7 @@ function problemSig(ctx) {
     const r = ctx.rule;
     const facts = [ratioKey(r) + (r.pack ? ' pack' : ''), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
         + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '')
-        + (ctx.packMourn ? `|mourn:${ctx.opts.mourner}:${ctx.mournFactor}` : '')
+        + (ctx.packMourn ? `|mourn:${ctx.opts.mourner}:${ctx.mournFactor}:${ctx.B.filter((a, i) => ctx.interbirth[i]).map(a => a.id).sort().join('+')}` : '')
         + (ctx.cooled.some(x => x) ? `|cooled:${ctx.opts.cooledCost}:${ctx.B.map((a, i) => (ctx.cooled[i] ? a.id + '/' + Array.from(ctx.noBack[i] || []).join('/') : '')).filter(Boolean).sort().join('+')}` : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
