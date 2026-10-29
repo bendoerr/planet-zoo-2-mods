@@ -65,6 +65,23 @@
 // (the species' best genes too: they end with its breeding life): an elderly
 // one can only be rehomed (the developer, 2026-10-28: elderly wild dogs
 // filled the trade centre).
+//
+// Herd (opts.herd, Auto mode's choice: AUTO_CULL): the species' adults are
+// held to their habitats' targets together, not each habitat to its own.
+// Habitat by habitat, the weakest there went even when it was better than
+// the herd (a third of the wild dogs sent away were above the herd's
+// average, simulator 2026-10-28), while weaker ones stayed in habitats under
+// their target. So after the rules above: a habitat over its room gives up
+// its own (by the order below); then, while the herd is over its target,
+// the next in the herd's order goes, from any habitat above its floor (the
+// breeding core, or the game's smallest group if larger; at most its
+// target). The order: adults that can't breed (too old, infertile), then
+// males beyond the make-up, then the rest by their own grades, the weakest
+// first (a bonded mate's part as the pair setting says; High and Never: the
+// unpaired first). So an above-average breeder goes only while no weaker
+// adult can. A habitat with better animals keeps more than its target, up
+// to its room. Every keep above holds, and the last carrier of a best
+// strand stays (any goal).
 import { ownGrades, fertilityText, Sex } from './kincore.js';
 import { TRADE } from './kinboardcore.js';
 import { habitatCapacity, estimateSpacePerAdult, groupRule, packLeaderOf, ratioKey, relatedBy, youngByHabitat } from './kinprogramme.js';
@@ -106,7 +123,11 @@ export const CULL_DEFAULTS = Object.freeze({
     kinFloor: 0.5,
     pairs: 'normal',        // splitting a bonded pair (PAIR_STEPS id; kinprogtune.js tuningCull)
     retireYears: 1.5,       // packs: one that does not lead goes with less breeding left (0: off)
+    herd: false,            // the herd held to its habitats' targets together, the weakest first
 });
+
+// What Auto mode's Thin out adds to the board's (kinautocore.js).
+export const AUTO_CULL = Object.freeze({ herd: true });
 
 // Splitting a bonded pair (the fine tuning's choices, kinprogtune.js): what
 // a monogamous mate living here adds to the keep value (the programme's
@@ -348,6 +369,78 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
     const overLimit = [];   // [{ hab, sex, limit, ids }]: over the game's limit, but kept (fixed)
     const overLimitCull = new Set();  // sent away for the game's most per sex (move.limit)
     const givesWay = new Set();       // ... a breeding core, best genes or carrier giving way (move.yields)
+    const moveOf = c => Object.assign({ id: c.id, to: TRADE, reason: c.reason }, overLimitCull.has(c.id) ? { limit: true } : {}, givesWay.has(c.id) ? { yields: true } : {});
+    // herd: each habitat's part, chosen across the herd after the loop
+    const herd = !!opts.herd;
+    const herdParts = [];
+    const herdHeld = new Map();     // id -> why it stays (a best strand's last carrier)
+    const herdStrands = herd ? strands || speciesStrands(model, species, info) : null;
+    const socialMin = info.social && info.social.min > 0 ? Math.floor(info.social.min) : 0;
+    const herdCull = () => {
+        const gone = new Set();
+        for (const p of herdParts) for (const id of p.why.keys()) gone.add(id);
+        const staying = () => inHabitats.filter(b => !gone.has(b.id));
+        const order = (p, q) => p.bonded - q.bonded || p.strand - q.strand || p.tier - q.tier || p.gene - q.gene || p.x.k.value - q.x.k.value;
+        const known = inHabitats.filter(a => !a.juv).map(a => score(a)).filter(v => v != null);
+        const herdAvg = known.length ? known.reduce((s, v) => s + v, 0) / known.length : null;
+        const herdWhy = c => (c.tier < 2 || c.strand < 2 || herdAvg == null || score(c.x.a) == null ? c.part.reason(c.x)
+            : `weaker genes than the rest of the herd (${pct(score(c.x.a))}; herd average ${pct(herdAvg)})`);
+        let over = herdParts.reduce((s, p) => s + p.over, 0);
+        const sent = [];
+        const send = (part, a, text) => {
+            part.why.set(a.id, text);
+            gone.add(a.id);
+            sent.push(a.id);
+            part.over--;
+            over--;
+        };
+        // -> whether it went (with its mate under Never). forced: its habitat is over its room
+        const tryOne = (c, forced) => {
+            const { x, part } = c;
+            if (part.why.has(x.a.id)) return false;
+            const held = lastCarrier(herdStrands, x.a, staying());
+            if (held) {
+                herdHeld.set(x.a.id, held);
+                return false;
+            }
+            const m = pairStep.together ? part.mateHere(x.a) : null;
+            if (m) {
+                // Never: the two go together, and only to get the habitat over
+                // its room or the herd 2 over its target
+                const ok = forced || (over >= 2 && part.target + part.over - 2 >= part.floor);
+                if (part.fixed(m) || !ok || lastCarrier(herdStrands, m, staying().filter(b => b !== x.a))) {
+                    part.pairHeld.set(x.a.id, m);
+                    return false;
+                }
+                send(part, x.a, forced ? part.reason(x) : herdWhy(c));
+                send(part, m, poor.get(m.id) || `goes with its mate ${x.a.name} (bonded pairs stay together)`);
+                return true;
+            }
+            send(part, x.a, forced ? part.reason(x) : herdWhy(c));
+            return true;
+        };
+        // a habitat over its room gives up its own
+        for (const part of herdParts) {
+            if (part.room == null) continue;
+            for (const c of part.candidates.slice().sort(order)) {
+                if (part.over <= part.capacity - part.target) break;
+                tryOne(c, true);
+            }
+        }
+        // then the herd's weakest, from habitats above their floor
+        for (const c of [].concat(...herdParts.map(p => p.candidates)).sort(order)) {
+            const oldOne = c.tier === 0 && opts.oldAlways;
+            if (!(over > 0 || oldOne)) continue;
+            if (!oldOne && c.part.target + c.part.over <= c.part.floor) continue;
+            tryOne(c, false);
+        }
+        // the moves: the rules' first (habitat by habitat), then the herd's in order
+        const culls = new Map();
+        for (const p of herdParts) for (const c of p.finish()) culls.set(c.id, c);
+        const late = new Set(sent);
+        for (const c of culls.values()) if (!late.has(c.id)) moves.push(moveOf(c));
+        for (const id of sent) moves.push(moveOf(culls.get(id)));
+    };
     for (const [hab, group] of byHab) {
         const adults = group.filter(a => !a.juv);
         const r = habitatCapacity(infoX, hab, NaN); // NaN: the game gave no room for it
@@ -497,6 +590,29 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
             const bonded = new Set(candidates.filter(x => mateHere(x.a)).map(x => x.a.id));
             candidates.sort((x, y) => bonded.has(x.a.id) - bonded.has(y.a.id));
         }
+        const finish = () => {
+            const cull = scored.filter(x => why.has(x.a.id)).map(x => ({ id: x.a.id, reason: why.get(x.a.id), value: x.k.value, gene: x.k.gene }));
+            const keep = scored.filter(x => !why.has(x.a.id)).map(x => ({
+                id: x.a.id, value: x.k.value, gene: x.k.gene,
+                why: keepIds.has(x.a.id) ? 'your choice' : x.a.preg ? 'pregnant' : x.a.away ? 'away for now' : x.a.moving ? 'on the move' : core.has(x.a.id) ? (pack ? 'leads its pack (only the leaders breed)' : 'breeding core')
+                    : lastOfSex.has(x.a.id) ? 'last breeder of its sex' : carriers.has(x.a.id) ? carriers.get(x.a.id)
+                        : protectedBest.has(x.a.id) ? 'best genes of the species'
+                            : pairHeld.has(x.a.id) && !why.has(pairHeld.get(x.a.id).id) ? `bonded to ${pairHeld.get(x.a.id).name} (bonded pairs stay together)` : herdHeld.get(x.a.id) || '',
+                poor: poor.get(x.a.id) || '',
+            }));
+            habitats.push({ hab, adults: adults.length, juveniles: group.length - adults.length, capacity, room: room != null, target, keep, cull,
+                keptAdults: keep.filter(x => !model.animals.get(x.id).juv).length });
+            return cull;
+        };
+        if (herd) {
+            // the herd's order: can't breed, beyond the make-up, then own grades
+            const tierOf = a => (fertilityValue(a) === 0 ? 0 : a.sex === Sex.Male && breedsNow(a) && maleRankOf(a) >= males ? 1 : 2);
+            const part = { hab, over, target, room, capacity, finish, why, pairHeld, mateHere, fixed, floor: Math.min(target, Math.max(coreM + coreF, socialMin)) };
+            part.reason = x => cullReason(x.a, x.k, group, rule, Math.max(0, maleRankOf(x.a)), males, ceiling ? rank.get(x.a.id).why : '', score);
+            part.candidates = candidates.filter(x => !x.a.juv).map(x => ({ x, part, bonded: !!(pairStep.last && mateHere(x.a)), strand: ceiling ? rank.get(x.a.id).tier : 2, tier: tierOf(x.a), gene: (score(x.a) ?? 0.5) + x.k.pair }));
+            herdParts.push(part);
+            continue;
+        }
         for (const x of candidates) {
             // (gone with its mate)
             if (why.has(x.a.id)) continue;
@@ -522,19 +638,9 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
             why.set(x.a.id, reason());
             over--;
         }
-        const cull = scored.filter(x => why.has(x.a.id)).map(x => ({ id: x.a.id, reason: why.get(x.a.id), value: x.k.value, gene: x.k.gene }));
-        const keep = scored.filter(x => !why.has(x.a.id)).map(x => ({
-            id: x.a.id, value: x.k.value, gene: x.k.gene,
-            why: keepIds.has(x.a.id) ? 'your choice' : x.a.preg ? 'pregnant' : x.a.away ? 'away for now' : x.a.moving ? 'on the move' : core.has(x.a.id) ? (pack ? 'leads its pack (only the leaders breed)' : 'breeding core')
-                : lastOfSex.has(x.a.id) ? 'last breeder of its sex' : carriers.has(x.a.id) ? carriers.get(x.a.id)
-                    : protectedBest.has(x.a.id) ? 'best genes of the species'
-                        : pairHeld.has(x.a.id) && !why.has(pairHeld.get(x.a.id).id) ? `bonded to ${pairHeld.get(x.a.id).name} (bonded pairs stay together)` : '',
-            poor: poor.get(x.a.id) || '',
-        }));
-        habitats.push({ hab, adults: adults.length, juveniles: group.length - adults.length, capacity, room: room != null, target, keep, cull,
-            keptAdults: keep.filter(x => !model.animals.get(x.id).juv).length });
-        for (const c of cull) moves.push(Object.assign({ id: c.id, to: TRADE, reason: c.reason }, overLimitCull.has(c.id) ? { limit: true } : {}, givesWay.has(c.id) ? { yields: true } : {}));
+        for (const c of finish()) moves.push(moveOf(c));
     }
+    if (herd) herdCull();
     habitats.sort((x, y) => (y.adults - y.target) - (x.adults - x.target));
     const avg = list => {
         const v = list.map(a => geneScore(a)).filter(x => x != null);
@@ -557,6 +663,8 @@ export function cullPlan(model, species, info = {}, { options = {} } = {}) {
         removedGene: avg(gone),
         estimated: !info.social && !(info.habitats && Object.keys(info.habitats).length),
     };
+    // herd: the habitats' targets together, and the adults that stay
+    if (herd) out.herd = { target: herdParts.reduce((s, p) => s + p.target, 0), kept: herdParts.reduce((s, p) => s + p.target + p.over, 0) };
     // 'ceiling': the best strands, the ceiling, the carriers kept for them,
     // the herd's mean and whether the goal waits
     if (ceilingGoal) out.strands = { best: strands.best, ceiling: strands.ceiling, keep: Array.from(carriers.keys()), mean: strands.mean, waiting };
