@@ -33,11 +33,15 @@ export const HERD_PREF = 'herdStrands';
 const REREAD_MS = 30000;
 // the park page: how often it reads the settings again (market picks)
 const PARK_REREAD_MS = 120000;
+// the herd facts for market picks: worked out at most this often (about
+// 70 ms for a zoo of 12 species in Node; herds change slowly)
+const FACTS_MS = 60000;
 
 let lastPublished = null;
 let decoded = { raw: null, zoo: '', best: new Map(), mk: null, facts: new Map() };
 let lastReread = 0;
 let lastParkReread = 0;
+let lastFacts = { at: 0, zoo: '', text: '' };
 let identitySeen = null;
 
 // Park: the herd's best strands into the player-wide setting, when they
@@ -47,7 +51,9 @@ function publish(model) {
     const sp = encodeHerdBest(herdBest(model));
     if (!sp) return;
     const z = String((model.snapshot && model.snapshot.park) || '').slice(0, 60);
-    const mk = getKinSettings().marketPicks === true ? encodeMarketFacts(herdMarketFacts(model)) : '';
+    const on = getKinSettings().marketPicks === true;
+    if (!on) lastFacts = { at: 0, zoo: '', text: '' };
+    const mk = on ? marketFacts(model, z) : '';
     const key = `${z}|${sp}|${mk}`;
     if (key === lastPublished) return;
     const now = getPref(HERD_PREF);
@@ -55,6 +61,14 @@ function publish(model) {
     if (now && now.z === z && now.sp === sp && (now.mk || '') === mk) return;
     setPref(HERD_PREF, mk ? { z, sp, mk } : { z, sp });
     if (mk) dlog('kin', 'picks_herd', { zoo: z, species: mk.split(',').length, chars: mk.length });
+}
+
+// The herd facts' text for market picks, again at most every FACTS_MS (at
+// once after picks were off or in another zoo).
+function marketFacts(model, zoo) {
+    const now = Date.now();
+    if (!lastFacts.text || lastFacts.zoo !== zoo || now - lastFacts.at >= FACTS_MS) lastFacts = { at: now, zoo, text: encodeMarketFacts(herdMarketFacts(model)) };
+    return lastFacts.text;
 }
 
 // The park page reads the settings again now and then: a Kin setting turned
