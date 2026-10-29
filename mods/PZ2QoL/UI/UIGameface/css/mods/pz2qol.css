@@ -262,9 +262,12 @@
 
 /* --------------------------------------------------------- row badges */
 
+/* Astride the row's top edge: low enough that the list's top edge (the game
+   clips there) leaves the first row's badge text whole, high enough to
+   clear the row's name. */
 .PZ2QoL_badge {
   position: absolute;
-  top: -0.5rem;
+  top: -0.3rem;
   left: 6.5rem;
   z-index: 5;
   flex-direction: row;

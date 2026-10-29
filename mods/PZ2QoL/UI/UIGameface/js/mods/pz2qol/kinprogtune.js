@@ -26,7 +26,7 @@ export const PROGRAMME_TUNING = Object.freeze([
         // kinprogramme.js strandBonus, kinstrands.js strandTargets; the
         // default is Auto mode's own (kinautocore.js AUTO_STRAND_BONUS)
         key: 'strandBonus', group: 'Goal', label: 'Strand bonus',
-        help: 'Pairs whose young would carry the herd\'s best Vitality or Longevity strand score higher, for each while it is rare (no more than half the herd\'s strands). It spreads those strands faster, at some cost to Fertility and Immunity.',
+        help: 'Pairs whose young would carry the herd\'s best Vitality or Longevity strand score higher while that strand is rare (at most half of the herd\'s strands). It spreads those strands faster, at some cost to Fertility and Immunity. Off by default: in tests it has not yet raised a herd\'s average.',
         choices: [
             { id: 'default', label: 'Off' },
             { id: 'low', label: 'Low', value: { strandBonus: 0.1 } },
