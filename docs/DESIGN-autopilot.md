@@ -789,9 +789,23 @@ programme's settings; on Auto it needs no human maintenance.
 1. **Thin out first** (if on): Thin out's own engine on the zoo as it is, with the chosen fill
    level and make-up. It comes first because the programme counts adults that don't breed (the
    old, the infertile) as fixed room: with them still there it sends breeders away instead.
+   **Across the herd** (2026-10-29, `kincull.js` option `herd`, Auto mode's `AUTO_CULL`; the
+   board's Thin out still works habitat by habitat): after the per-habitat rules, a habitat over
+   its room gives up its own, then while the species' adults exceed the sum of their habitats'
+   targets the herd's next goes from any habitat above its floor (max(breeding core,
+   `social.min`), at most its target). Order: can't breed → fertile males beyond the make-up → own
+   grades, weakest first. A best strand's last carrier stays. Why: per habitat, a litter lowered its
+   habitat's target and that habitat sent its own weakest, often the leaders' grown young above the
+   herd, while weaker non-leaders stayed elsewhere (simulator: a third of the sends were above the
+   herd mean).
 2. **The Breeding programme** (Classic, the board's search budget, sliced so the game never
    stalls) on the zoo as Thin out leaves it, with the young that grow up within half a park year
-   counted as breeders, so a daughter is placed away from her father before she can breed.
+   counted as breeders, so a daughter is placed away from her father before she can breed. Its
+   places are the species' assigned habitats and, in Auto mode (2026-10-29, `handStockedPlaces`),
+   any unassigned habitat where only this species lives now (a pen stocked by hand: not empty, no
+   other species, not an exhibit; derived each run, never saved; named last in the run's notes).
+   Before, such a pen's residents could leave but nobody could join, so a lone animal there was
+   moved out to be paired (Matla, Cradle #2, 2026-10-28).
 3. The moves: Thin out's first, then the programme's, one at a time through the board's own
    `runPlan` (each confirmed by the game, a refusal skipped), the game's gate before each.
 
@@ -835,6 +849,63 @@ so a leader moved out waits until the run's newcomers of its sex have arrived an
 its sex leaving have gone (`waitForNewLeaders`, wait kind `leader`); a newcomer that never arrives
 drops the wait and the leader stays.
 
+**Pack mourning** (2026-10-29, `kinprogramme.js` option `packMourn`; Auto mode passes it unless the
+player's tuning sets "Splitting a bonded pair", the board keeps the flat `bondBreakCost`): a pack's
+bond ends when either leader moves, even both to one habitat. A restructure pays the litters the
+mourning costs: `mournWeight` (0.5) × years of mourning (`info.mourningSeasons` / 4, else 4 seasons)
+× the pair value of the pack the mourner leads in the plan, for both partners (`mourner: 'both'`:
+whether the one that moves mourns is not known). When both mates leave, the one that leads after
+the plan goes first and the other waits for it (`waitForMates`, wait kind `leader`). Simulator: litters
+lost to mourning 11.4 → 0.6 in 15 years. Built and off: `interbirth` (a female with young under a
+year skips the next season; lost more litters).
+
+**Breeding seasons** (2026-10-29; simulator: Auto mode's first run broke up four fertile pairs to
+make 1.05-year-olds leaders, under maturity 1.5 at summer, and year 1 lost every litter). For a
+species with leader rules and a breeding season (`info.breedingSeasons` from Lua, the park calendar
+from the gate; `breedingWindow`), `seasonHold`:
+- In the season or the `AUTO_LIMITS.seasonLeadMonths` (1) before it, no move takes a breeding leader
+  out of its group, unless its breeding females are pregnant. Note: "The breeding season is on: Wild
+  Dog 01 keeps its breeding pair until it is over."
+- Earlier in the year a pair stays only where its group would have no pair able to breed in the
+  season: a new leader not of age by then, or a mother still in her wait. Note: "Wild Dog 01 keeps
+  its breeding pair until the breeding season is over: Dalia would not be of age for it."
+- **One-season bound**: a group left with nobody of a leading sex is held only from 12 months less
+  the season and one run's interval before it (wild dogs on a run a season: 6 months). The run right
+  after a season is free, so such a change waits one season at most and a pen a pair is to move to
+  stays empty a season at most.
+- A held change keeps every breeding pair it links (`leaderChanges`): a leader that would leave its
+  own breeding pair to lead a held pack stays. A group that does not breed in the season (its mother
+  in her wait, its young on the way) changes now, its part of a held change too: its mourning
+  overlaps the wait and costs no litter (holding those too: −0.9 at year 15).
+- Not for all-year breeders, species without season data, no calendar or no leader rule. Thin out
+  of non-leaders, the young and newcomers still run; a held mother's young stay with her.
+
+**The mother's wait** (`fertilityAgesOf`): a mother whose youngest young is younger than the
+species' InterBirthYears (Lua `interBirthYears`, from the game's `GetFertilityData`; wild dog 1.0,
+spotted hyena 0.95) less the months to the season's end does not count as breeding. The wait counts
+from the birth: in the owner's saves no dog mother littered two summers running.
+
+**Staging** (`stageRestructures`): at most `AUTO_LIMITS.packsPerRun` (2) groups lose a breeding
+leader in one run (any leader species, all-year breeders too), the best gains first. A change
+spanning packs goes whole; the first always goes. The rest keep their leaders until the next run.
+Note: "At most 2 breeding groups change leaders in one run: Wild Dog 03 keeps its leaders until the
+next run."
+
+**Waits and the season** (`seasonWaits`): keepers carry moves in their own time, so a leader's wait
+planned before the season could run in it. A wait taking a breeding leader out while its mate stays
+carries `by` (the month before the season) and `pair`; `waitsReady(model, waits, months)` drops it
+from then on (`runWaits` passes the calendar): "Mosi still leads its pack (it was to leave once Matla
+had arrived): the breeding season is close, and its group breeds in it."
+
+**Notes order** (the run keeps 3): what the player can act on first (the trade centre full, over
+the game's limit, no unrelated partner), then what waits for the season or the next run, then the
+hand-stocked pens.
+
+**Strand bonus** (`AUTO_STRAND_BONUS` 0, off): the Breeding programme's optional pair-value bonus
+for young that would carry the herd's best Vitality or Longevity strand while it is rare. The
+player's fine tuning "Strand bonus" (player-wide) turns it on for the board and Auto mode alike. Off
+because the simulator found no pass (plan `docs/PLAN-best-breeder.md` 14.6).
+
 **The game's most per sex** (2026-10-26, leopards: one male and one female to a mixed group,
 one male alone): Thin out sends the extra ones away for both sexes and both kinds of group
 (`kincull.js` `sexLimit`, the game's `Requirements_GroupComposition` mixed and bachelor limits,
@@ -876,7 +947,9 @@ programme's best layout: without a cooldown Best genetics moved some animals bac
 moves back within a park year in one soak seed). So an animal Auto mode moved stays put for a
 park year (`AUTO_LIMITS.cooldownYears`, the same window as a reversal). If a plan still moves an
 animal back where it came from, two such runs stop Auto mode for the species with a notice and
-"Hand it back" in the panel.
+"Hand it back" in the panel. A waiver is built and off (`AUTO_LIMITS.waiveGain` null, 2026-10-29):
+it would let an animal moved once in the window move once more for a large gain (a young better
+pair taking over a pack), never back where it came from; the simulator found no steady gain.
 
 ### When it acts
 
@@ -935,14 +1008,17 @@ animal back where it came from, two such runs stop Auto mode for the species wit
 
 | File | Role |
 |---|---|
-| `kinautocore.js` | Pure: settings (`SPECIES_DEFAULTS`, `EVERY_CHOICES`), `prepareAutoRun` / `finishAutoRun` / `planAutoRun`, `projectGrownUp`, the locks, fingerprints, park clock |
-| `kinautoledger.js` | Pure: the per-zoo memory `kinAuto` v2 (per-species settings and countdown, pins, the player's moves, history and cooldown, refusals, the log, Undo), budget 12 KB: `fitBudget` trims the saved copy (`kinauto.js` `saveLedger`), the log's older entries above its newest `LOG_FLOOR` (12; each species' last run last), then the last runs' notes, then the oldest history, refusals and trade centre memory, then the log; park times kept to 0.001 year |
-| `kinauto.js` | Runtime: store binding, schedule, gate, Franchise click, runs through `runPlan`, Undo, pins |
+| `kinautocore.js` | Pure: settings (`SPECIES_DEFAULTS`, `EVERY_CHOICES`), `prepareAutoRun` / `finishAutoRun` / `planAutoRun`, `projectGrownUp`, the locks, fingerprints, park clock. 2026-10-29: `AUTO_LIMITS.seasonLeadMonths` 1, `packsPerRun` 2, `waiveGain` null; `AUTO_STRAND_BONUS` 0; `handStockedPlaces`, `breedingWindow`, `seasonHold`, `leaderChanges`, `stageRestructures`, `waitForMates`, `seasonWaits`, `waitsReady(model, waits, months)`; `programmeOptionsFor` passes `packMourn` and the waiver's `cooled` / `cooledCost` |
+| `kinautoledger.js` | Pure: the per-zoo memory `kinAuto` v2 (per-species settings and countdown, pins, the player's moves, history and cooldown, refusals, the log, Undo), budget 12 KB: `fitBudget` trims the saved copy (`kinauto.js` `saveLedger`), the log's older entries above its newest `LOG_FLOOR` (12; each species' last run last), then the last runs' notes, then the oldest history, refusals and trade centre memory, then the log; park times kept to 0.001 year. `ledgerView` `once` (moved exactly once in the cooldown window, for the waiver) |
+| `kinauto.js` | Runtime: store binding, schedule, gate, Franchise click, runs through `runPlan`, Undo, pins. `makePlan` passes the calendar (`months`), the player's and derived assignments and the waiver; `runWaits` passes the calendar to `waitsReady` |
+| `kincull.js` | Thin out; option `herd` and `AUTO_CULL = { herd: true }` (the herd held to its habitats' targets together, the weakest first; `herd: { target, kept }` in the result) |
+| `kinstrands.js` | `strandTargets` (the herd's best strands while rare, gate `strandGate`), `youngCopies` (the strand bonus) |
+| `kinprogtune.js` | Tuning "Strand bonus" (Off / Low 0.1 / Medium 0.25 / High 0.4), player-wide |
 | `kinautoui.js` | The board extension (button, panel, tags, menu item) and the notices |
 | `kinboard.js` | Hooks: the Auto button, the panel slot (`S.auto`), `isBoardBusy(species)`, `openAutoPanel`, `refreshAutoPanel`; `PROG_STEPS` now from `kinprogramme.js` `PROGRAMME_STEPS` |
-| `kinprogramme.js` | `PROGRAMME_STEPS` (shared), opt-in `pinIds` (unset: the same plan, `tests/engines_equivalence.test.mjs`) |
+| `kinprogramme.js` | `PROGRAMME_STEPS` (shared), opt-in `pinIds` (unset: the same plan, `tests/engines_equivalence.test.mjs`). Opt-in since 2026-10-29, all off for the board: `packMourn` (`mourner`, `mournWeight`, `interbirth`; `bondCost`), `cooled` / `cooledCost`, `strandBonus` / `strandGate` |
 | `kinmoves.js` | `runPlan` opt-in `beforeEach` (the gate) and `owner` |
-| `pz2qol.kin.lua` | `Kin.AutoGate` unchanged from section 15 |
+| `pz2qol.kin.lua` | `Kin.AutoGate` unchanged from section 15. `Kin.SpeciesInfo` sends `breedingSeasons` (four flags from `GetSpeciesBreedingSeasons`, else nothing), `interBirthYears` (`GetFertilityData`) and `mourningSeasons` (`GetMatingRules` column 6); log line `species_info` adds `seasons` |
 
 The zoo-wide pieces are gone: the launcher button (hudlauncher.js is main's again), presets,
 the veto window, contraception, the commit gate, the zoo-wide objective.
@@ -954,7 +1030,12 @@ the veto window, contraception, the commit gate, the zoo-wide objective.
 | `tests/kinauto.test.mjs` | Settings, the board's programme options per step, `pinIds`, a run equals the programme's plan (with its waiting moves), locks, trade-centre memory, Thin out first, refusals and reversals, cooldown, growing up (also adults in looks not yet of age), the last breeder, one male per group (who waits, trading places, ready and dropped), the game's most per sex (no move into an over-limit habitat after a held send, Thin out past Auto mode's cooldown but not hands off, a young male marked hands off holding his place against Auto mode's, the notes), the player's own moves holding nothing, runs settle on 50 seeded zoos, the ledger |
 | `tests/kinauto_runtime.test.mjs` | Fake game: nothing on Auto sends or writes nothing; an offline run by itself, logged and kept; the schedule; the player's move held; another zoo gets nothing; Franchise waits for the click and makes a stale plan again; Run now; off removes every hook; slow keepers: a male moves in only after the leaving male has gone, and stays when that move never happens |
 | `tests/kinauto_soak.test.mjs` | 50 park years, 3 settings, 3 seeds: no reversal, no churn, no move of a held or pinned animal, every move logged, inbred births at most 2 %, no species dies out, the population in hand with Thin out |
-| `tests/engines_equivalence.test.mjs` | The board's engines answer as before (golden recorded from main's code) |
+| `tests/kinauto_season.test.mjs` (2026-10-29) | The breeding window on the calendar; in the season a breeding pair stays (unless her young are on the way; a pair that does not breed may change); before it, a pair stays where its new leader would not be of age; a pack left without a pair, in turn; harems; a held leader does not wait; no season data, all-year, no calendar, no leader rule: as before; staging (at most two, best gains first, a spanning change whole, the first always) |
+| `tests/kinauto_combined.test.mjs` (2026-10-29) | The changes together: staging keeps a split pair whole; a held change keeps its linked breeding pairs; a leader's wait does not run in the month before the season; notes order; a hand-stocked pen's pair held with its change; the real planner on 12 random pack zoos × 4 calendars |
+| `tests/kinauto.test.mjs`, `kincull.test.mjs`, `kinprogramme.test.mjs`, `kinstrands.test.mjs` (2026-10-29) | The herd cull (Auto mode only; "herd: …" incl. a property test over 30 zoos × 5 mating systems); `waitForMates`; the waiver (off; on: once, never back); hand-stocked pens; pack mourning ("packs: …", exhaustive = search); the strand bonus (off = as before) |
+| `tests/kinauto_runtime.test.mjs` | Also: a seasonal breeder keeps its pair through the season, then changes (the calendar reaches the core) |
+| `tests/lua/test_pz2qol.lua` section 11 | Also: breeding seasons (four flags, odd shapes send nothing), the wait between litters, `mourningSeasons` (0, 4, absent) |
+| `tests/engines_equivalence.test.mjs` | The board's engines answer as before (golden recorded from main's code; not re-recorded for any of this) |
 | `tests/uiharness/kin_autopilot.mjs` | The board with the button, the panel off and on, every setting saved, hands off, Esc and the other panels, a 1280x720 window |
 
 ### Still to do (in game)
