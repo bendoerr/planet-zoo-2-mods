@@ -1042,18 +1042,18 @@ test('packs: a broken bond costs the litters of the mate left behind while it le
     assert.ok(Math.abs(mourn(retires)) < 1e-9, 'the one that leads moves first, the other mourns but leads nothing');
     // 'both' (the one that moves mourns too): Chibeka's litter is lost either way
     assert.ok(score({ packMourn: true, mourner: 'both' }, retires) < score({ packMourn: true }, retires) - 0.1);
-    // Chibeka littered last summer (a pup of 0.5): she skips the next one
-    // anyway (a wild dog mother never litters two summers running), so her
-    // mourning costs nothing; with interbirth off it does
+    // interbirth 1: Chibeka littered last summer (a pup of 0.5), so she
+    // skips the next one anyway (a wild dog mother never litters two
+    // summers running) and her mourning costs nothing; off (the default) it does
     const pup = an('pup', M, '1', ['Mosi', 'Chibeka'], { age: 0.5, juv: true });
     const ib = buildKinModel(snap(MOURN_ZOO().concat([pup]), ['1', '2']));
     const ibMourn = (o, m) => scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true }, FREE, o) }, m)
         - scoreLayout(ib, 'Lion', PACK_AGES, d, { options: Object.assign({ packMourn: true, mournWeight: 0 }, FREE, o) }, m);
-    assert.ok(Math.abs(ibMourn({}, stays)) < 1e-9, `${ibMourn({}, stays)}`);
-    assert.ok(Math.abs(ibMourn({ interbirth: 0 }, stays) - mourn(stays)) < 1e-9);
+    assert.ok(Math.abs(ibMourn({ interbirth: 1 }, stays)) < 1e-9, `${ibMourn({ interbirth: 1 }, stays)}`);
+    assert.ok(Math.abs(ibMourn({}, stays) - mourn(stays)) < 1e-9);
     // 8 seasons (Asian small-clawed otter): a year of the two is still lost
     const otter = Object.assign({ mourningSeasons: 8 }, PACK_AGES);
-    const o8 = scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true }, FREE) }, stays) - scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, mournWeight: 0 }, FREE) }, stays);
+    const o8 = scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, interbirth: 1 }, FREE) }, stays) - scoreLayout(ib, 'Lion', otter, d, { options: Object.assign({ packMourn: true, interbirth: 1, mournWeight: 0 }, FREE) }, stays);
     assert.ok(Math.abs(o8 - mourn(stays)) < 1e-9, `${o8}`);
 });
 
