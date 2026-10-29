@@ -250,22 +250,32 @@ end
 resetNative()
 
 -- a quick trade / release as the native does it (Phase 0b, Y: 2026-10-18):
--- the row leaves the storage list ~0.33 s later; a.quickOutcome "stay"
--- keeps it, a function does something else; a.quickError raises
+-- each key's row leaves the storage list ~0.33 s later; a.quickOutcome
+-- "stay" keeps it, a function does something else; a.quickError raises.
+-- The keys are read before anything leaves (they are positions).
 local function quickAct(t)
-	local sKey = type(t) == "table" and t[1] or nil
-	local g = sKey and guidAt(sKey)
-	local a = g and tAnimals[g]
-	if a == nil then return end
-	if a.quickError then error("quick call blew up") end
-	if a.quickOutcome == "stay" then return end
-	if type(a.quickOutcome) == "function" then return a.quickOutcome(g) end
-	after(a.quickDelay or tNative.nGoneDelay, function()
-		local tNew = {}
-		for _, x in ipairs(tOrder) do if x ~= g then tNew[#tNew + 1] = x end end
-		tOrder = tNew
-		tNative.tSelection = {}
-	end)
+	local tG = {}
+	for _, sKey in ipairs(type(t) == "table" and t or {}) do
+		local g = guidAt(sKey)
+		if g ~= nil and tAnimals[g] ~= nil then tG[#tG + 1] = g end
+	end
+	for _, g in ipairs(tG) do
+		if tAnimals[g].quickError then error("quick call blew up") end
+	end
+	for _, g in ipairs(tG) do
+		local a = tAnimals[g]
+		if a.quickOutcome == "stay" then
+		elseif type(a.quickOutcome) == "function" then
+			a.quickOutcome(g)
+		else
+			after(a.quickDelay or tNative.nGoneDelay, function()
+				local tNew = {}
+				for _, x in ipairs(tOrder) do if x ~= g then tNew[#tNew + 1] = x end end
+				tOrder = tNew
+				tNative.tSelection = {}
+			end)
+		end
+	end
 end
 local tAuctions = {}
 local planetHub = {
@@ -1218,6 +1228,11 @@ p = Lister.ParseSeen("v1|animal_3||0|-,-,-,-,-,-|[STRING_LITERAL:Value=|Pregnant
 check(p and #p.tSel == 0 and p.bAllowed == false and p.tLimits.nPriceMin == nil and p.sReason == "[STRING_LITERAL:Value=|Pregnant|] ", "parse: empty selection, a reason with pipes")
 p = Lister.ParseSeen("v1|animal_3|?|-|-,-,-,-,-,-|")
 check(p and p.tSel == nil and p.bAllowed == nil, "parse: unreadable selection")
+-- v2 with the storage rows the page shows (a batch waits on them); older pages send none
+local pR = Lister.ParseSeen("v2|animal_3|animal_3|0|100,5000,800,1,12,6||1|||1|||0|1200,85|0,0|-||PG1|42")
+check(pR and pR.nRows == 42 and pR.sPage == "PG1", "parse: the page's storage rows")
+pR = Lister.ParseSeen("v2|animal_3|animal_3|0|100,5000,800,1,12,6||1|||1|||0|1200,85|0,0|-||PG1")
+check(pR and pR.nRows == nil, "parse: no rows from an older page")
 check(Lister.ParseSeen("v2|animal_3|||||") == nil and Lister.ParseSeen(nil) == nil and Lister.ParseSeen("v1||a|1|1|") == nil, "parse: junk refused")
 
 -- the fake page: gets Lua's events a frame late, reports every 0.1 s what
@@ -2042,7 +2057,7 @@ do
 		return table.concat({ "v2", tPage.sKey, table.concat(tSel, ","), f(A.tradeAllowed), table.concat(tN, ","), pct(A.tradeDisallowedReason),
 			f(A.quickTradeAllowed), pct(A.quickTradeDisallowedReason), pct(A.quickTradeValue), f(A.quickReleaseAllowed), pct(A.quickReleaseDisallowedReason),
 			pct(A.quickReleaseValue), f(A.rehomeAllowed), n(L.quickTradePrice) .. "," .. n(L.quickReleasePrice), f(tNative.bConnecting) .. "," .. f(tNative.bLoading),
-			"-", pct(""), tPage.sPageId or "PG1" }, "|")
+			"-", pct(""), tPage.sPageId or "PG1", tPage.fnRows and tPage.fnRows() or tostring(#tOrder) }, "|")
 	end
 	local NBZ = "[AnimalExchange_Conditions_Concatenate:first=[AnimalList_SelectionCannotTrade]:second=[AnimalList_Problem_NoBirthZoo]]"
 	local function quick(t)
@@ -2051,6 +2066,13 @@ do
 		for k, v in pairs(t or {}) do
 			if k == "q" then for kk, vv in pairs(v) do o.quick[kk] = vv end else o[k] = v end
 		end
+		return o
+	end
+	-- an animal with its own quick values (the next select's data must differ)
+	local function qx(nPrice, t)
+		local o = quick(t)
+		o.limits.quickTradePrice = nPrice
+		o.quick.quickTradeValue = "[COST:Value={" .. nPrice .. "}]"
 		return o
 	end
 	local nQ = 0
@@ -2090,23 +2112,48 @@ do
 		return t
 	end
 
-	-- A. two animals quick-traded: one key each, exactly the handler's shape, the list decides
+	-- A. two animals quick-traded: checked one by one, then ONE call with both
+	-- keys (the vanilla multi-select's shape); the page's settled view, then
+	-- one read of the list, decides (2026-10-28: Lua's reads during the
+	-- rebuild crashed the game)
 	tLog = {}
 	quickRun({ { 3001, quick() }, { 3002, quick({ limits = lim({ quickTradePrice = 1250, quickReleasePrice = 88 }), q = { quickTradeValue = "[COST:Value={1250}]" } }) } }, "quicktrade")
 	check(runToEnd(60), "quick: run finished")
 	local s = lastState()
 	local q = sends("QuickTrade")
-	check(#q == 2 and #calls("Release") == 0 and #tAuctions == 0, "quick: two quick trades, nothing else (" .. #q .. ")")
-	check(q[1] and q[1].tArgs.n == 1 and type(q[1].tArgs[1]) == "table" and #q[1].tArgs[1] == 1 and q[1].tArgs[1][1] == "animal_1", "quick: { [1] = key }, one key per call")
+	check(#q == 1 and #calls("Release") == 0 and #tAuctions == 0, "batch: one call for both (" .. #q .. ")")
+	local tK = q[1] and q[1].tArgs[1] or {}
 	local nKeys = 0
-	for _ in pairs(q[1] and q[1].tArgs[1] or {}) do nKeys = nKeys + 1 end
-	check(nKeys == 1, "quick: the table holds the key only")
-	check(s.mode == "quicktrade" and s.phase == "done" and s.message == "Quick-traded 2 of 2." and s.results[1].status == "traded" and s.results[2].status == "traded", "quick: done (" .. tostring(s.message) .. ")")
-	check(s.results[1].price == 1200 and s.results[1].verdict.quickTrade == true, "quick: the price and verdict with the result")
-	local g1 = find("quick_gone", "3001")
-	check(g1 and g1.ms >= 1000 and g1.ms <= 1600, "quick: quick_gone ms logged, gone read twice (" .. tostring(g1 and g1.ms) .. ")")
-	check(q[2] and q[2].t - q[1].t >= 1.0, "quick: a pause of at least 1 s between the two")
-	check(countMarks("lister_quick_send") == 2 and countMarks("lister_quick_gone") == 2, "quick: marked")
+	for _ in pairs(tK) do nKeys = nKeys + 1 end
+	check(q[1] and q[1].tArgs.n == 1 and type(tK) == "table" and nKeys == 2 and tK[1] == "animal_1" and tK[2] == "animal_2", "batch: { key, key }, the keys only, in the order checked")
+	check(s.mode == "quicktrade" and s.phase == "done" and s.message == "Quick-traded 2 of 2." and s.results[1].status == "traded" and s.results[2].status == "traded", "batch: done (" .. tostring(s.message) .. ")")
+	check(s.results[1].price == 1200 and s.results[2].price == 1250 and s.results[1].verdict.quickTrade == true, "batch: each price and verdict with its result")
+	local tClears = calls("Clear")
+	check(#tClears > 0 and math.abs(tClears[#tClears].t - q[1].t) < 1e-6, "batch: the selection cleared in the call's tick")
+	local g1 = find("batch_gone")
+	check(g1 and g1.ms >= 1800 and g1.ms < 2600 and g1.gone == 2 and g1.left == 0, "batch: confirmed once the page's rows held 1.5 s (" .. tostring(g1 and g1.ms) .. ")")
+	local nReads = 0
+	for _, r in ipairs(tNative.tListReads or {}) do if r > q[1].t then nReads = nReads + 1 end end
+	check(nReads == 1, "batch: one Lua read of the list after the call (" .. nReads .. ")")
+	check(countMarks("lister_batch_send") == 1 and countMarks("lister_batch_gone") == 1 and countMarks("lister_quick_queued") == 2 and countMarks("lister_quick_traded") == 2, "batch: marked")
+	-- the page's questions don't read the list while the batch waits
+	quickRun({ { 3003, quick() } }, "quicktrade")
+	check(tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 30), "batch: waiting for the rebuild")
+	local nBefore = #(tNative.tListReads or {})
+	fire("PZ2QoL_ListerHello", "LPG1_hello")
+	fire("PZ2QoL_ListerResolve", "LPG1_res", "animal_1")
+	check(#(tNative.tListReads or {}) == nBefore and countMarks("lister_hello_rebuilding") == 1, "batch: Hello and Resolve read nothing meanwhile")
+	check(runToEnd(30) and lastState().results[1].status == "traded", "batch: then confirmed")
+	-- more than nBatchMax: in calls of nBatchMax, the pace between them
+	local nMax = Lister.nBatchMax
+	Lister.nBatchMax = 2
+	quickRun({ { 3004, quick() }, { 3005, qx(1250) }, { 3006, qx(1300) } }, "quicktrade")
+	check(runToEnd(60), "batches: finished")
+	q = sends("QuickTrade")
+	s = lastState()
+	check(#q == 2 and #q[1].tArgs[1] == 2 and #q[2].tArgs[1] == 1 and q[2].t - q[1].t >= 1.0, "batches: two calls (2 + 1), the pace between (" .. #q .. ")")
+	check(s.phase == "done" and s.message == "Quick-traded 3 of 3.", "batches: all done (" .. tostring(s.message) .. ")")
+	Lister.nBatchMax = nMax
 
 	-- B. release: its own native and flag
 	quickRun({ { 3011, quick() } }, "release")
@@ -2179,25 +2226,41 @@ do
 	check(runToEnd(30), "mid-step: finished")
 	check(#calls("QuickTrade") == 0 and lastState().results[1].kind == "nopage", "mid-step: no report after the step began, nothing sent")
 
-	-- E. still there after 10 s: not confirmed, the run stops, nothing more sent
-	quickRun({ { 3071, quick({ quickOutcome = "stay" }) }, { 3072, quick() } }, "quicktrade")
-	check(runToEnd(60), "timeout: finished")
+	-- E. one still there after the call: the other done, it not confirmed, the run stops
+	tLog = {}
+	quickRun({ { 3071, quick({ quickOutcome = "stay" }) }, { 3072, qx(1250) } }, "quicktrade")
+	check(runToEnd(60), "stay: finished")
 	s = lastState()
 	q = sends("QuickTrade")
-	check(#q == 1 and s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[1].detail == "Not confirmed: check storage." and s.results[2].status == "pending", "timeout: stopped, not confirmed")
-	local tTo = find("quick_timeout")
-	check(tTo and tTo.ms >= 10000 and tTo.ms < 10600, "timeout: after 10 s (" .. tostring(tTo and tTo.ms) .. ")")
-	-- a database error during the wait shortens it; the list still decides
+	check(#q == 1 and s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[1].detail == "Still in storage after the call: check storage." and s.results[2].status == "traded", "stay: stopped, that one not confirmed (" .. tostring(s.results[1].detail) .. ")")
+	local tBg = find("batch_gone")
+	check(tBg and tBg.gone == 1 and tBg.left == 1, "stay: one gone, one left")
+	-- nothing left at all: the unchanged count settles after nBatchQuiet
 	tLog = {}
-	quickRun({ { 3081, quick({ quickOutcome = function() after(0.1, function() serverError(5, 31) end) end }) } }, "quicktrade")
-	check(runToEnd(60), "error stay: finished")
-	tTo = find("quick_timeout")
-	check(lastState().results[1].status == "unconfirmed" and tTo and tTo.ms >= 3000 and tTo.ms < 3700, "a stray error: the wait shortened to 3 s (" .. tostring(tTo and tTo.ms) .. ")")
+	quickRun({ { 3073, quick({ quickOutcome = "stay" }) } }, "quicktrade")
+	check(runToEnd(60), "stay alone: finished")
+	tBg = find("batch_gone")
+	check(lastState().results[1].status == "unconfirmed" and tBg and tBg.ms >= 5000 and tBg.ms < 5700, "stay alone: read once after 5 s (" .. tostring(tBg and tBg.ms) .. ")")
+	-- the page's rows never hold: nothing is read, none confirmed, after 30 s
+	local nFlip = 0
+	quickRun({ { 3074, quick() } }, "quicktrade", { page = { fnText = pageTextQ, fnRows = function() nFlip = nFlip + 1 return tostring(nFlip) end } })
+	check(runToEnd(60), "never settles: finished")
+	q = sends("QuickTrade")
+	nReads = 0
+	for _, r in ipairs(tNative.tListReads or {}) do if q[1] and r > q[1].t then nReads = nReads + 1 end end
+	check(#q == 1 and lastState().results[1].status == "unconfirmed" and lastState().phase == "stopped" and nReads == 0 and countMarks("lister_batch_timeout") == 1, "never settles: not confirmed, the list never read after the call (" .. nReads .. ")")
+	-- the page goes quiet after the call: the same
+	quickRun({ { 3075, quick() } }, "quicktrade")
+	check(tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 30), "quiet page: sent")
+	tPage.bOn = false
+	check(runToEnd(60), "quiet page: finished")
+	check(lastState().results[1].status == "unconfirmed", "quiet page: not confirmed")
+	-- a database error during the wait is only logged: the page and the read decide
 	quickRun({ { 3082, quick({ quickDelay = 1.0, onSelect = function() end, quickOutcome = nil }) } }, "quicktrade")
-	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "gone" end, 30)
+	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 30)
 	serverError(255, 77)
 	check(runToEnd(30), "error gone: finished")
-	check(lastState().results[1].status == "traded", "a stray error, then gone: done (the list decides)")
+	check(lastState().results[1].status == "traded", "a stray error, then gone: done")
 
 	-- F. a fingerprint-token animal: gone by its look; an ambiguous look stops the run
 	local function fpRun(fnOutcome)
@@ -2225,20 +2288,27 @@ do
 	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[1].kind == "ambiguous", "fp: two rows with its look: stopped")
 
 	-- G. one run at a time; the frozen job never grows
-	quickRun({ { 3101, quick({ quickDelay = 2 }) }, { 3102, quick() } }, "quicktrade")
+	quickRun({ { 3101, quick({ quickDelay = 2 }) }, { 3102, qx(1250) } }, "quicktrade")
 	local nRunId = Lister.tRun.nId
 	tick(5)
 	fire("PZ2QoL_ListerStart", "RPG1_x", "v1 1000 quicktrade\n3103 animal_1 - default\n3104 animal_2 - default\n3105 animal_3 - default")
 	check(Lister.tRun and Lister.tRun.nId == nRunId and #Lister.tRun.tAnimals == 2 and #Lister.tRun.tResults == 2, "frozen: a second start is refused, the job never grows")
 	fire("PZ2QoL_ListerStart", "RPG1_y", "v1 1000 list\n3101 animal_1 500 max")
 	check(Lister.tRun and Lister.tRun.nId == nRunId, "frozen: nor a listing")
-	-- Stop while the first waits to leave storage: after it
-	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "gone" end, 30)
+	-- Stop while the batch waits to leave storage: after it
+	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 60)
 	fire("PZ2QoL_ListerStop")
-	check(Lister.tRun ~= nil, "stop: waits for the animal sent")
+	check(Lister.tRun ~= nil, "stop: waits for the batch sent")
 	check(runToEnd(30), "stop: ended")
 	s = lastState()
-	check(s.phase == "stopped" and s.message == "Stopped by you." and s.results[1].status == "traded" and s.results[2].status == "pending" and #calls("QuickTrade") == 1, "stop: after the current animal")
+	check(s.phase == "stopped" and s.message == "Stopped by you." and s.results[1].status == "traded" and s.results[2].status == "traded" and #calls("QuickTrade") == 1, "stop: after the batch (" .. tostring(s.message) .. ")")
+	-- Stop while still checking: nothing sent, the checked one stays to do
+	quickRun({ { 3106, quick() }, { 3107, quick() } }, "quicktrade")
+	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.nIndex == 2 and Lister.tRun.sStep == "selected" end, 60)
+	fire("PZ2QoL_ListerStop")
+	check(runToEnd(10), "stop checking: ended")
+	s = lastState()
+	check(#calls("QuickTrade") == 0 and s.results[1].status == "pending" and s.results[1].detail == "Checked, not sent: the run ended first." and s.results[2].status == "pending", "stop while checking: nothing sent (" .. tostring(s.results[1].detail) .. ")")
 
 	-- H. a page reload stops the run: Hello from another page, or a report from one
 	quickRun({ { 3111, quick({ onSelect = function() after(0.4, function() tNative.bDbBusy = true end) after(5, function() tNative.bDbBusy = false end) end }) }, { 3112, quick() } }, "quicktrade")
@@ -2263,10 +2333,10 @@ do
 	check(lastState().results[1].status == "traded", "same page hello: carries on")
 
 	-- I. a mod error in the send (the game's call raising): not confirmed, the run stops
-	quickRun({ { 3121, quick({ quickError = true }) }, { 3122, quick() } }, "quicktrade")
+	quickRun({ { 3121, quick({ quickError = true }) }, { 3122, qx(1250) } }, "quicktrade")
 	check(runToEnd(30), "error: finished")
 	s = lastState()
-	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[1].kind == "error" and s.results[2].status == "pending", "a mod error stops a quick run")
+	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[1].kind == "error" and s.results[2].status == "unconfirmed", "a mod error in the call: the call not confirmed, the run stopped")
 
 	-- L. in game (Y: 2026-10-18): "ambiguous" 250 ms after a quick trade that
 	-- worked, while the list was rebuilt; transient readings are waited out
@@ -2312,7 +2382,7 @@ do
 	check(runToEnd(60), "game pattern: finished")
 	s = lastState()
 	check(s.phase == "done" and s.results[1].status == "traded" and s.results[2].status == "traded" and s.results[3].status == "traded", "the game's pattern: all three counted gone (" .. tostring(s.message) .. ")")
-	check(#calls("QuickTrade") == 3 and countMarks("lister_quick_ambiguous") == 0 and countMarks("lister_quick_unconfirmed") == 0, "the game's pattern: no stop")
+	check(#calls("QuickTrade") == 1 and countMarks("lister_quick_unconfirmed") == 0, "the game's pattern: one call, no stop")
 	-- reading the list during that rebuild crashed the game (Y: 2026-10-18 20:20,
 	-- dump 3f4d438e): no read in the first second after a send
 	local nEarly = 0
@@ -2322,8 +2392,8 @@ do
 		end
 	end
 	check(nEarly == 0, "the game's pattern: the list is not read in the second after a send (" .. nEarly .. ")")
-	local tG3 = find("quick_gone", "3221")
-	check(tG3 and tG3.ms >= 1000 and tG3.ms <= 1600, "the game's pattern: gone once the list was rebuilt, read twice (" .. tostring(tG3 and tG3.ms) .. ")")
+	local tG3 = find("batch_gone")
+	check(tG3 and tG3.ms >= 2500 and tG3.ms <= 3100 and tG3.gone == 3, "the game's pattern: read once the page's rows held after the rebuild (" .. tostring(tG3 and tG3.ms) .. ")")
 	-- ... the same for Quick release
 	quickRun({ { 3231, quick() } }, "release")
 	tAnimals[3231].quickOutcome = function(gg)
@@ -2337,7 +2407,7 @@ do
 	tAnimals[3241].quickOutcome = function(gg) tAnimals[gg].aidFn = function() return 4711, 0 end end
 	check(runToEnd(30), "leaving forever: finished")
 	s = lastState()
-	check(s.results[1].status == "unconfirmed" and string.find(s.message, "still in storage", 1, true), "leaving until the deadline: not confirmed, stopped")
+	check(s.results[1].status == "unconfirmed" and s.results[1].detail == "Still in storage after the call: check storage." and s.phase == "stopped", "a row with no id that stays: not confirmed, stopped")
 
 	-- a single "gone" reading is not enough: gone, then back (a rebuild), then still there -> not confirmed
 	quickRun({ { 3211, quick({ quickOutcome = function(g)
@@ -2349,8 +2419,8 @@ do
 		end)
 		after(0.55, function() tOrder = tSaved end)
 	end }) } }, "quicktrade")
-	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "gone" end, 30)
-	-- poll exactly once while it is out: the next look sees it back
+	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 30)
+	-- the page sees it go and come back: the count held only from then
 	check(runToEnd(30), "flicker: finished")
 	check(lastState().results[1].status == "unconfirmed", "gone once, then back: not confirmed (" .. tostring(lastState().results[1].status) .. ")")
 
@@ -2363,8 +2433,8 @@ do
 	check(#calls("QuickTrade") == 0 and s.phase == "stopped" and s.results[1].kind == "gone" and s.results[2].status == "pending", "a frozen animal gone from storage: the run stops (" .. tostring(s.results[1].kind) .. ")")
 	-- (2) a GUID animal whose look is unknown: an absent GUID alone is never "gone"
 	quickRun({ { 3151, quick() } }, "quicktrade")
-	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "gone" end, 30)
-	Lister.tRun.tCur.sFp = nil
+	tickUntil(function() return Lister.tRun ~= nil and Lister.tRun.sStep == "batchgone" end, 30)
+	Lister.tRun.tCur.tItems[1].sFp = nil
 	check(runToEnd(30), "no look: finished")
 	s = lastState()
 	check(s.results[1].status == "unconfirmed" and s.phase == "stopped", "no fingerprint: not confirmed by the id alone, the run stops")
@@ -2385,13 +2455,13 @@ do
 	quickRun({ { 3171, quick() }, { 3172, quick() } }, "quicktrade")
 	check(runToEnd(60), "same data: finished")
 	s = lastState()
-	check(#calls("QuickTrade") == 1 and s.results[1].status == "traded" and s.results[2].kind == "unselectable" and s.phase == "stopped", "data equal to the animal before: not sent, stopped (" .. tostring(s.results[2].detail) .. ")")
+	check(#calls("QuickTrade") == 0 and s.results[1].status == "pending" and s.results[2].kind == "unselectable" and s.phase == "stopped", "data equal to the animal before: nothing sent, stopped (" .. tostring(s.results[2].detail) .. ")")
 	local tFl = find("quick_flags", "3171")
 	check(tFl and tFl.clearedEmpty == true and type(tFl.ms) == "number", "the time the flags took is logged")
 	-- ... a native that empties the data on Clear: equal values are fine
 	quickRun({ { 3181, quick() }, { 3182, quick() } }, "quicktrade", { native = { bClearResets = true } })
 	check(runToEnd(60), "reset on clear: finished")
-	check(#calls("QuickTrade") == 2 and lastState().results[2].status == "traded", "data emptied by the clear: the same values go")
+	check(#calls("QuickTrade") == 1 and lastState().results[2].status == "traded", "data emptied by the clear: the same values go")
 	-- (4) a quick job without a page id in its request is refused
 	reset()
 	oStorage:TransitionIn()
@@ -2440,7 +2510,7 @@ do
 		return table.concat({ "v2", tPage.sKey, table.concat(tNative.tSelection, ","), f(A.tradeAllowed), table.concat(tN, ","), pct(A.tradeDisallowedReason),
 			f(A.quickTradeAllowed), pct(A.quickTradeDisallowedReason), pct(A.quickTradeValue), f(A.quickReleaseAllowed), pct(A.quickReleaseDisallowedReason),
 			pct(A.quickReleaseValue), f(A.rehomeAllowed), n(L.quickTradePrice) .. "," .. n(L.quickReleasePrice), f(tNative.bConnecting) .. "," .. f(tNative.bLoading),
-			"-", pct(""), "PG1" }, "|")
+			"-", pct(""), "PG1", tostring(#tOrder) }, "|")
 	end
 	-- a tradeable animal with quick actions allowed (each its own values)
 	local function tiger(g, t)
@@ -2490,7 +2560,7 @@ do
 	check(#tAuctions == 2 and #tQ == 1 and tQ[1].tArgs[1][1] == "animal_1" and #calls("Release") == 0, "refused -> trade: one quick trade of the refused one (" .. #tQ .. ")")
 	check(s.results[1].status == "traded" and s.results[1].afterRefused == true and s.results[1].price == 1010 and s.results[2].status == "listed", "refused -> trade: traded after refusal, the other listed")
 	check(s.phase == "done" and s.message == "Listed 1 of 2 · Quick-traded 1 after refusal." and s.onRefused == "quicktrade", "refused -> trade: summary (" .. tostring(s.message) .. ")")
-	check(find("refused_then_quick", "4001") ~= nil and find("quick_gone", "4001") ~= nil and countMarks("lister_refused_then_quick") == 1, "refused -> trade: logged")
+	check(find("refused_then_quick", "4001") ~= nil and find("batch_gone") ~= nil and countMarks("lister_refused_then_quick") == 1, "refused -> trade: logged")
 	local tSent = calls("QuickTrade")[1].t
 	local tAuc1 = tAuctions[1].t
 	check(tSent - tAuc1 >= 1.0, "refused -> trade: the pace before the quick action")
@@ -2549,7 +2619,7 @@ do
 	refusedRun({ { 4051, tiger(4051, { outcome = REFUSE, quickOutcome = "stay" }) }, { 4052, tiger(4052) } }, "onrefused=quicktrade")
 	check(runToEnd(90), "stay: finished")
 	s = lastState()
-	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[2].status == "pending" and #tAuctions == 1, "refused -> trade, still in storage: the run stops")
+	check(s.phase == "stopped" and s.results[1].status == "unconfirmed" and s.results[2].status == "listed" and #tAuctions == 2, "refused -> trade, still in storage after the batch at the end: the run stops")
 	-- the game won't quick-trade it now: it stays refused, the run goes on
 	refusedRun({ { 4061, tiger(4061, { outcome = REFUSE, q = { quickTradeAllowed = false, quickTradeDisallowedReason = "[AnimalList_Problem_Infertile_Sell]" } }) }, { 4062, tiger(4062) } }, "onrefused=quicktrade")
 	check(runToEnd(90), "not allowed: finished")
@@ -2587,7 +2657,7 @@ do
 		return table.concat({ "v2", tPage.sKey, table.concat(tSel, ","), f(A.tradeAllowed), table.concat(tN, ","), pct(A.tradeDisallowedReason),
 			f(A.quickTradeAllowed), pct(A.quickTradeDisallowedReason), pct(A.quickTradeValue), f(A.quickReleaseAllowed), pct(A.quickReleaseDisallowedReason),
 			pct(A.quickReleaseValue), f(A.rehomeAllowed), n(L.quickTradePrice) .. "," .. n(L.quickReleasePrice), f(tNative.bConnecting) .. "," .. f(tNative.bLoading),
-			"-", pct(""), tPage.sPageId or "PG1" }, "|")
+			"-", pct(""), tPage.sPageId or "PG1", tPage.fnRows and tPage.fnRows() or tostring(#tOrder) }, "|")
 	end
 	-- the native's Cancel: takes the selected animal off ~0.4 s later
 	local nCancelDelay = 0.4

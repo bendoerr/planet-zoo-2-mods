@@ -668,15 +668,19 @@ Trade shortcuts events (`pz2qol.tradejump.lua`, `tradejump.js`):
   (Lua's own reads never count; `_IsSelected` returns nil without one) → the flag (`tQuick.bTrade` / `bRelease`) true and not
   `rehomeAllowed`, else skip `notallowed` / `rehome` → send step: `_Busy` (wait ≤ 10 s, then skip), a page report that arrived
   **after the send step began**, `_IsSelected` (page) and `_Holds` in the same tick, the data print (quick values included)
-  unchanged (else settle again, ≤ 3) → `api.planetHub.StorageUIQuickTradeAnimals({ key })` / `StorageUIReleaseAnimalsToWild({ key })`
-  (exactly what the hub handler passes on) → the storage list decides: GUID gone (fingerprint gone for a `fp` token; a GUID
-  gone while its look stays counts as ambiguous) = done; still there at 10 s (`nQuickTimeout`; a database error shortens it to
-  3 s) = `unconfirmed` and the run **stops**; ambiguous = stops. The list is "unreadable" (look again) while `loadingItems` or
-  when it shrank by more than one row. Log `lister quick_gone ms=` every time.
+  unchanged (else settle again, ≤ 3) → queued (since 2026-10-28; before, one `{ key }` call each, confirmed by polling the
+  list) → after the last animal one call per up to 40, `StorageUIQuickTradeAnimals({ key, ... })` /
+  `StorageUIReleaseAnimalsToWild({ key, ... })` (the vanilla Confirm's multi-selection shape), the selection cleared first →
+  **no Lua read of the list until the page's view settles** (its rows, v2 field 18, held 1.5 s once all left, else 5 s; not
+  loading) → one read decides each animal (`_BatchState`: GUID absent + look one fewer + the list exactly that many rows
+  shorter = done; else `unconfirmed`, the run **stops**); no settled view in 30 s = none confirmed, nothing read. Log
+  `lister send_batch`, `batch_rows`, `batch_gone`. **Rule: Lua never reads the storage list as a table while a quick trade or
+  release is being applied**: the per-animal polling crashed the game twice more (2026-10-23, 2026-10-28; debugging.md).
 - Other stops: two animals in a row without a fresh page report (`nopage`); a page reload (the report's 17th v2 field is the
   page id, `listerlua.js PAGE`; a report or a `PZ2QoL_ListerHello` from another page id ends the run with
   "Stopped: page reloaded.", and the new page is shown that state once); a mod error. The player's Stop waits for a sent
-  animal's result. A second Start is refused (the job is frozen).
+  call's result (before the call nothing is sent). A second Start is refused (the job is frozen). While a call waits, and
+  10 s after the game's own quick handlers, `Hello` and `Resolve` don't read the list (`_ListRebuilding`).
 - Page (`marketdesk.js`): the mode switch, red panel, the sheet with a **Confirm button** (the developer found a 2 s hold too
   much, 2026-10-18; also Enter and gamepad `UI_Select` through `Input.onShouldBlockInput`, which also keeps `UI_Cancel` from the
   game while the sheet is open; input ignored for 300 ms after it opens), the live acceptance in prefs
@@ -684,8 +688,9 @@ Trade shortcuts events (`pz2qol.tradejump.lua`, `tradejump.js`):
   and has no limit (`listercore.js QUICK_PROVEN`). Rows whose
   `source` is `[AnimalExchange_Source_Description:Value=|Frontier Zoo|]` are Quick trade before any check (`pre`), labelled
   "from the storage list"; `readAnimal().source`.
-- Trace marks `lister_quick_*` (send, gone, traded, released, unconfirmed, ambiguous, timeout, nopage, stop, stop_nopage,
-  reloaded, notallowed, changed, server_error, start), `js_desk_quick_*`.
+- Trace marks `lister_quick_*` (queued, traded, released, unconfirmed, nopage, stop, stop_nopage, reloaded, notallowed,
+  changed, server_error, start; send, gone, ambiguous, timeout before 2026-10-28), `lister_batch_*` (send, gone, timeout,
+  nopage), `lister_hello_rebuilding`, `js_desk_quick_*`.
 - Safety review (2026-10-18), now enforced: in a quick run **every** skip but "not allowed now" (`notallowed`, `rehome`; and
   `nopage`, which stops on the second in a row) **stops** the run: a changed selection or key, an ambiguous or gone animal,
   a busy game, data that never changed. "Gone" needs the row count exactly one below the count at the send, and a GUID
@@ -701,7 +706,8 @@ Trade shortcuts events (`pz2qol.tradejump.lua`, `tradejump.js`):
   with one row fewer and renumbered keys. The engine's first rule read that as "ambiguous" and stopped (the animals had gone).
   Now `_QuickState` calls it "leaving", and every state but "there" and "gone" is **waited out** until the 10 s deadline;
   gone = GUID absent + its look gone + rows == rowsAtSend − 1, **read twice in a row**; still not gone at the deadline stops
-  the run (logged `lister quick_transient state=` once, `quick_gone transient=`).
+  the run (logged `lister quick_transient state=` once, `quick_gone transient=`). Superseded 2026-10-28 by the one call and
+  the one read after the page's view settles (a look with no id is still never gone).
 
 - **Quick modes offer every animal the game allows** (developer, 2026-10-18): `listercore.js quickEligible` takes the verdict's
   own flag (`quickTrade` / `quickRelease`), market-listable animals included; not listed, moving or Rehome-only. Server-refused

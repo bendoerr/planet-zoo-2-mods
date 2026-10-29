@@ -712,6 +712,12 @@ lister_quick_released
 lister_quick_unconfirmed
 lister_quick_ambiguous
 lister_quick_timeout
+lister_quick_queued
+lister_batch_send
+lister_batch_gone
+lister_batch_timeout
+lister_batch_nopage
+lister_hello_rebuilding
 lister_quick_nopage
 lister_quick_stop
 lister_quick_stop_nopage

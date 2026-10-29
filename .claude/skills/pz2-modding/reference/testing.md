@@ -285,14 +285,18 @@ Run all of these before installing a build.
   quick trade, the old row still listed with no id for ~1 s, then one row fewer, counted gone, also for release; gone once then
   back is not confirmed): `listercore.test.mjs` (Frontier Zoo pre-classification,
   `quickEligible`, the sheet's go/skip lists, exact vs ≈ totals, the first-run limit, 12 names + "and N more", the frozen
-  quick job, run summary, `acceptedMode`, the page id in v2); `test_lister.lua` section 21 (one `{ [1] = key }` per animal
-  after the flag and `_Holds`; release's own native and flag; not-allowed / rehome skips; Lua's reads, stale reports or a v1
+  quick job, run summary, `acceptedMode`, the page id in v2); `test_lister.lua` section 21 (since 2026-10-28: checked one by one, then one call
+  `{ key, ... }` per up to `nBatchMax` with the pace between calls, the selection cleared in its tick, one Lua read of the list
+  after the call and none before the page's rows held, Hello and Resolve reading nothing meanwhile, one still in storage =
+  unconfirmed and stopped, the page never settling or going quiet = nothing read and none confirmed, Stop while checking sends
+  nothing; before, one `{ [1] = key }` per animal; all after the flag and `_Holds`; release's own native and flag; not-allowed / rehome skips; Lua's reads, stale reports or a v1
   page never send and two such animals stop the run; a report older than the send step (a mid-step reload) sends nothing;
-  `_IsSelected` false, `_Holds` false, `_Busy` (wait then skip), a changed data print (settle again, new price); the list
-  decides incl. a stray database error (wait shortened to 3 s), the 10 s timeout and an ambiguous fingerprint stop; a
+  `_IsSelected` false, `_Holds` false, `_Busy` (wait then skip), a changed data print (settle again, new price); a stray
+  database error only logged; an ambiguous fingerprint stops; a
   fingerprint-token animal confirmed by its look; a second start refused and the job never grows; Stop after the current
   animal; Hello or a report from another page stops it, the same page's Hello does not; a mod error stops; offline / no native
-  refused). The mock's quick natives drop the row 0.33 s later (`quickOutcome` / `quickDelay` / `quickError`). Mutation-checked:
+  refused). The mock's quick natives drop each key's row 0.33 s later (`quickOutcome` / `quickDelay` / `quickError`); the fake page
+  reports the storage rows (`tPage.fnRows`). Mutation-checked:
   removing the page-only selection, the fresh-report-at-send, the 2-miss stop or `_Holds` each fails a test. Harness
   `desk_quicktrade.mjs` (after `desk_quick.mjs`): the pre-classified row and note, the red panel and header, only quick rows
   tick, no limit for Quick trade and the first-run limit for Quick release, the sheet, Cancel / Esc / a double click / the

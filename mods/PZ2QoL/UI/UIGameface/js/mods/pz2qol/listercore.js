@@ -940,7 +940,8 @@ export function readSeen(key, read) {
 // the reasons (nested loc tokens with "|" in them) can sit anywhere.
 // "v2|<key>|<sel,...|?>|<allowed 1|0|->|<pmin,pmax,pdef,hmin,hmax,hdef>|<reason%>|
 //  <quickTrade>|<its reason%>|<its value%>|<quickRelease>|<its reason%>|<its value%>|
-//  <rehome>|<quickTradePrice,quickReleasePrice>|<connecting,loading>|<isReleaseable>|<source%>"
+//  <rehome>|<quickTradePrice,quickReleasePrice>|<connecting,loading>|<isReleaseable>|<source%>|
+//  <page id>|<rows of the storage list, or ->"
 export function encodeSeen(s) {
     const token = x => String(x).replace(/[|,\s]/g, '');
     const flag = v => (v === true ? '1' : v === false ? '0' : '-');
@@ -954,11 +955,11 @@ export function encodeSeen(s) {
         flag(q.quickTradeAllowed), pct(q.quickTradeDisallowedReason), pct(q.quickTradeValue),
         flag(q.quickReleaseAllowed), pct(q.quickReleaseDisallowedReason), pct(q.quickReleaseValue),
         flag(q.rehomeAllowed), `${n(q.quickTradePrice)},${n(q.quickReleasePrice)}`,
-        `${flag(net.connecting)},${flag(net.loading)}`, flag(s.releaseable), pct(s.source), token(s.page || '')].join('|');
+        `${flag(net.connecting)},${flag(net.loading)}`, flag(s.releaseable), pct(s.source), token(s.page || ''), n(s.rows)].join('|');
 }
 
 // What Lua's parseSeen makes of a report (v1 or v2), for the tests and the
-// harness: { v, key, sel, allowed, reason, limits, quick?, net?, releaseable?, source? } or null.
+// harness: { v, key, sel, allowed, reason, limits, quick?, net?, releaseable?, source?, page?, rows? } or null.
 export function decodeSeen(text) {
     const s = String(text == undefined ? '' : text);
     const flag = v => (v === '1' ? true : v === '0' ? false : null);
@@ -990,6 +991,7 @@ export function decodeSeen(text) {
             },
             net: { connecting: flag(net[0]), loading: flag(net[1]) }, releaseable: flag(t[14]), source: unpct(t[15]),
             page: t[16] || null,
+            rows: t[17] === undefined || t[17] === '-' || t[17] === '' || !Number.isFinite(Number(t[17])) ? null : Number(t[17]),
         };
     }
     const m = /^v1\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([\s\S]*)$/.exec(s);

@@ -197,3 +197,30 @@ Phase 2 copies the key shape **exactly** and doesn't depend on knowing error typ
 - The skill's references (game-data-and-events.md, the storage actions) are updated with each phase: the key shape and confirmation timing from 0b, with a changelog line each time.
 - The README states that quick runs **stop** on anything unexpected, unlike the lister's skip-and-carry-on rule, so the developer signs off on it.
 - If `source` or `isReleaseable` classifies the rows, the segment shows 'Classified from the storage list; each animal is checked again before it goes.'
+
+## 7. Revision 4 (2026-10-28): one call per run
+
+7.1. Bottom line: a quick run sends its animals in one call, and Lua never reads the storage list
+while the game rebuilds it. Reason: two game crashes with the same Lua stack (Y: 2026-10-23 13:46 and
+2026-10-28 21:07, the developer quick releasing): `_QuickGone` -> `_QuickState` -> `_List` ->
+`GetDataStoreContextAsTable` on the storage list, a native access violation on a worker thread
+(`PlanetZoo2.exe+0x22e6cc` / `+0x22e72c`). The per-animal confirm read the list every 0.25 s after
+each send; the 1 s first look and the `loadingItems` check had both passed.
+
+7.2. The run:
+
+| Step | What |
+|---|---|
+| Check | Per animal as before (page report only, the flag allowed now, `_Holds`, the data settled). It is then queued, not sent: result `pending`, "Checked: goes with the others at the end of the run." A listing the server refused is queued the same way (result `refused` until the call). |
+| Call | After the last animal, up to `nBatchMax` (40) a call, in the order checked: idle; a page report newer than the step whose list is not loading; every key found again in one list read (no rebuild under way) and checked against its GUID (`_Holds`), each key once; the selection cleared (should the native act on the selection, nothing goes and the run stops unconfirmed); then `StorageUIQuickTradeAnimals({ key, ... })` / `StorageUIReleaseAnimalsToWild({ key, ... })`, the vanilla Confirm's multi-selection shape. Anything changed: nothing sent, the run stops. |
+| Confirm | No Lua read until the page's own view settles: its reports carry the storage rows (v2 field 18) and `loadingItems`; the count must hold for `nBatchSettle` 1.5 s once every animal's row has left, or `nBatchQuiet` 5 s while some are shown. Then one read (`_BatchState`): GUID absent, look one fewer, and the list exactly that many rows shorter = done; else `unconfirmed` and the run stops. No settled view in `nBatchTimeout` 30 s: nothing read, all `unconfirmed`, stopped. |
+| Next | The player's pace, then the next call. Stop during the checks sends nothing; Stop after a call waits for its result. |
+
+7.3. The page's own questions (`Hello`'s row count, `Resolve`) read nothing while a batch waits, nor
+for `nVanillaQuiet` 10 s after the game's own Quick trade / Quick release handler ran (the player's
+vanilla multi-select); they answer without the list and the page asks again.
+
+7.4. Unproven in game (first run: two throwaway animals, tracing on): that the quick natives act on
+the keys passed and not on the selection; how the game takes several keys out (all at once or one
+after another; both are handled); that the page's DataStore reads are safe during the rebuild (the
+game's own UI reads the same list then). Tests: `test_lister.lua` sections 20-22.

@@ -6,7 +6,7 @@
 import { breadcrumb } from '/js/mods/pz2qol/errors.js';
 import { dlog } from '/js/mods/pz2qol/debuglog.js';
 import { encodeSeen, normalizeState, readSeen } from '/js/mods/pz2qol/listercore.js';
-import { get } from '/js/mods/pz2qol/game.js';
+import { STORAGE_LIST, childrenOf, get } from '/js/mods/pz2qol/game.js';
 
 const ANSWER_TIMEOUT_MS = 2500;
 const CAPS_MAX_AGE_MS = 4000;
@@ -115,6 +115,17 @@ function startWatch(req, key) {
     if (watch) watch.timer = setInterval(reportSeen, WATCH_POLL_MS);
 }
 
+// The storage list's rows as this page's DataStore shows them (the game's
+// own UI path; Lua's read of the list during a rebuild crashed the game).
+function storageRowCount() {
+    try {
+        return childrenOf(STORAGE_LIST).length;
+    }
+    catch (e) {
+        return null;
+    }
+}
+
 function stopWatch(quiet = false) {
     if (!watch) return;
     clearInterval(watch.timer);
@@ -131,8 +142,10 @@ function reportSeen() {
         return;
     }
     try {
-        // with this page's id: a quick run stops if another page (a reload) reports
-        const text = encodeSeen(Object.assign(readSeen(w.key, get), { page: PAGE }));
+        // with this page's id: a quick run stops if another page (a reload) reports;
+        // the rows of the storage list as this page sees them: a batch of quick
+        // actions waits on them for the game's rebuild (pz2qol.lister.lua _BatchGone)
+        const text = encodeSeen(Object.assign(readSeen(w.key, get), { page: PAGE, rows: storageRowCount() }));
         engine.trigger('PZ2QoL_ListerSeen', w.req, text);
         if (!w.reported) {
             w.reported = true;

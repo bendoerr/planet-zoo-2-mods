@@ -96,7 +96,9 @@ A third word on the first line picks the job's mode (2026-10-18, `docs/PLAN-desk
 carries `verdict` (trade, quickTrade, quickRelease, rehome, reasons, values, prices, src) once the
 animal was selected, and the state carries `mode`.
 `v1 <paceMs> quicktrade` / `release` (2026-10-18, Phase 2) quick-trade / release exactly the listed animals,
-one `{ [1] = key }` call each, confirmed by the storage list; such a run stops at anything unexpected
+checked one by one, then sent in one call (`{ key, key, ... }`, at most `nBatchMax` 40 a call; since
+2026-10-28, see the plan's section 7), confirmed by one read of the storage list once the page's own view
+of it has settled; such a run stops at anything unexpected
 (see the plan, section 4, and the skill's game-data-and-events.md).
 
 Lua → page:

@@ -95,14 +95,30 @@ Lister.tQuickModes = {
 	quicktrade = { sNative = "StorageUIQuickTradeAnimals", sFlag = "bTrade", sWhy = "sTradeReason", sDone = "traded", sVerb = "Quick-traded", sSending = "Quick trading it." },
 	release = { sNative = "StorageUIReleaseAnimalsToWild", sFlag = "bRelease", sWhy = "sReleaseReason", sDone = "released", sVerb = "Released", sSending = "Releasing it to the wild." },
 }
-Lister.nQuickTimeout = 10    -- s: max(10, 3 x the slowest list update Phase 0b saw, 0.343 s)
 -- s after a quick send before the storage list is first read: reading it
 -- while the game rebuilds it crashed the game natively (access violation in
 -- GetDataStoreContextAsTable, Y: 2026-10-18 20:20, dump 3f4d438e: the third
 -- quick trade of a run, at the 250 ms look; the row leaves at ~0.33 s)
 Lister.nQuickFirstLook = 1
-Lister.nQuickErrWait = 3     -- s: a database error during the wait shortens it to this
 Lister.nQuickMissStop = 2    -- animals in a row without a fresh page report that stop a quick run
+-- One call for many (2026-10-28, the developer: quick release crashed the
+-- game twice, Y: 2026-10-23 13:46 and 2026-10-28 21:07, both with Lua in
+-- _QuickGone -> _QuickState -> _List: the storage list read while the game
+-- rebuilt it after a send, past nQuickFirstLook and with loadingItems
+-- false; a native access violation on a worker thread). Every animal is
+-- checked as before, one call takes all their keys (the vanilla Confirm
+-- passes a multi-selection the same way), the page's own view of the list
+-- tells when the rebuild is over, and Lua reads the list once after that.
+Lister.nBatchMax = 40        -- keys per call; the rest go in the next call, after the pace
+Lister.nBatchSettle = 1.5    -- s the page's row count must hold, not loading, once every row has left
+Lister.nBatchQuiet = 5       -- s it must hold while some rows are still shown (one by one, or kept)
+Lister.nBatchTimeout = 30    -- s for the page's list to settle; then nothing is read and none is confirmed
+-- The page's own questions (Hello's row count, Resolve) read the list too:
+-- not while a batch waits for the game's rebuild, nor this long after the
+-- game's own Quick trade / Quick release handler ran (the player's vanilla
+-- multi-select); they answer without the list and the page asks again.
+Lister.nVanillaQuiet = 10    -- s
+Lister.nListQuietUntil = nil
 Lister.nMaxKeys = 5000       -- per Resolve
 -- Taking a listing off the market (mode "unlist", docs/DESIGN-reprice.md):
 -- the game's Cancel button sends AnimalStorage_Cancel("Trade"), whose
@@ -934,6 +950,9 @@ local function parseSeen(s)
 			tNet = { bConn = tNet[1], bLoading = tNet[2] }, bReleaseable = flagOf(t[15]), sSource = unpct(t[16]),
 			-- the reporting page's id (listerlua.js PAGE), when it sends one
 			sPage = (t[17] ~= nil and t[17] ~= "") and t[17] or nil,
+			-- the rows of the storage list as the page shows them (a batch's
+			-- rebuild is over when they hold; older pages send none)
+			nRows = toNumber(t[18]),
 		}
 	end
 	local sKey, sSel, sAllowed, sLimits, sReason = string.match(s, "^v1|([^|]*)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
@@ -1392,7 +1411,7 @@ end
 -----------------------------------------------------------------------
 local tResultMarks = { listed = "lister_listed", refused = "lister_refused", timeout = "lister_timeout", skipped = "lister_skip", checked = "lister_checked",
 	traded = "lister_quick_traded", released = "lister_quick_released", unconfirmed = "lister_quick_unconfirmed", unlisted = "lister_unlisted",
-	renamed = "lister_renamed" }
+	renamed = "lister_renamed", pending = "lister_quick_queued" }
 
 local tSkipText = {
 	gone = "No longer in storage (sold, moved or filtered out).",
@@ -1414,8 +1433,8 @@ local tSkipText = {
 	named = "It has this name already.",
 }
 
--- The steps the page watches the selection in.
-local tWatchSteps = { clear = true, select = true, selected = true, send = true }
+-- The steps the page watches the selection in (and, for a batch, the list).
+local tWatchSteps = { clear = true, select = true, selected = true, send = true, batchsend = true, batchgone = true }
 
 Lister._SetStep = function(self, tRun, sStep, sMessage)
 	log("step", runFields(tRun, { step = sStep, from = tRun.sStep, msg = sMessage,
@@ -1487,6 +1506,10 @@ end
 
 Lister._Next = function(self, tRun)
 	if tRun.nIndex > #tRun.tAnimals then
+		-- every animal checked: the quick ones go now, nBatchMax a call
+		if tRun.tBatch ~= nil and tRun.nBatchNext <= #tRun.tBatch then
+			return self:_BatchBegin(tRun)
+		end
 		return self:_End(tRun, "done", self:_Summary(tRun))
 	end
 	self:_Begin(tRun)
@@ -1620,88 +1643,91 @@ Lister._PageReloaded = function(self, tRun, sHow)
 	return self:_End(tRun, "stopped", "Stopped: page reloaded.")
 end
 
--- Where a sent quick animal is now: "gone" (its GUID absent and exactly one
--- row fewer), "there", or a state to wait out (the list is being rebuilt):
--- "leaving" (the id is gone, its row still shown), "ambiguous" (more rows
--- with its look than at the send), "unreadable" (loading, or another count).
--- _QuickGone waits until gone reads twice in a row, or stops at the deadline.
-Lister._QuickState = function(self, tCur)
-	-- the cheap flag first: the list itself is not read while it loads
-	local ctx = context("hubAnimalsData", "network")
-	if ctx ~= nil and element(ctx, "loadingItems") == true then
-		return "unreadable"
-	end
-	local tList = self:_List()
-	if tList == nil then
-		return "unreadable"
-	end
+-- Where each animal of a sent batch is, from one read of the list after the
+-- game's rebuild (_BatchGone): "gone" (its GUID absent and its look one
+-- fewer than at the call), "there" (its GUID or its look as at the call),
+-- or "unclear" (more rows with its look, no look known, or the list not
+-- one row fewer per animal gone). A look without an id is how a row
+-- shows while the list is about to be rebuilt (in game, Y: 2026-10-18:
+-- 250 ms after a quick trade the row was there, its key gave id type 0;
+-- about 1 s later one row fewer), so an absent GUID alone is never gone.
+-- -> { [item] = state }, the number gone
+local function second(_, b)
+	return b
+end
+
+Lister._BatchState = function(self, tCur, tList)
+	local tState, nGone = {}, 0
 	local nRows = 0
 	for _, tRow in pairs(tList) do
 		if type(tRow) == "table" then
 			nRows = nRows + 1
 		end
 	end
-	if tCur.nRowsAtSend ~= nil and nRows < tCur.nRowsAtSend - 1 then
-		return "unreadable"
-	end
-	-- gone means exactly one row fewer than at the send (else: look again;
-	-- still so at the deadline, the run stops unconfirmed)
-	local bOneFewer = tCur.nRowsAtSend ~= nil and nRows == tCur.nRowsAtSend - 1
-	if isFpToken(tCur.sGuid) then
-		local _, n = fpMatches(tList, self.tFpOf[tCur.sGuid] or "")
-		if n == 0 then
-			return bOneFewer and "gone" or "unreadable"
-		end
-		return n == 1 and "there" or "ambiguous"
-	end
+	local tThere = {}
 	for k, tRow in pairs(tList) do
 		local sKey = type(tRow) == "table" and rowKey(k, tRow) or nil
-		if sKey ~= nil and guidOf(sKey) == tCur.sGuid then
-			return "there"
+		local sGuid = sKey ~= nil and guidOf(sKey) or nil
+		if sGuid ~= nil then
+			tThere[sGuid] = true
 		end
 	end
-	-- the id is gone: its look must be gone too (one row fewer), else a row
-	-- may only have lost its id for a moment; no look known: never gone by
-	-- the id alone
-	if tCur.sFp == nil then
-		return "unreadable"
+	for _, x in ipairs(tCur.tItems) do
+		local sFp = isFpToken(x.sGuid) and self.tFpOf[x.sGuid] or x.sFp
+		local n = sFp ~= nil and second(fpMatches(tList, sFp)) or nil
+		if not isFpToken(x.sGuid) and tThere[x.sGuid] then
+			tState[x] = "there"
+		elseif n == nil then
+			tState[x] = "unclear"
+		elseif n < (x.nFpAtSend or 1) then
+			tState[x] = "gone"
+			nGone = nGone + 1
+		elseif n == (x.nFpAtSend or 1) then
+			tState[x] = "there"
+		else
+			tState[x] = "unclear"
+		end
 	end
-	local _, n = fpMatches(tList, tCur.sFp)
-	if n > (tCur.nFpAtSend or 1) then
-		return "ambiguous"
+	-- gone only if the list is exactly that many rows shorter (another change
+	-- under it: nothing counts)
+	if tCur.nRowsAtSend == nil or nRows ~= tCur.nRowsAtSend - nGone then
+		for x, s in pairs(tState) do
+			if s == "gone" then
+				tState[x] = "unclear"
+			end
+		end
+		nGone = 0
 	end
-	if n == (tCur.nFpAtSend or 1) then
-		-- the native no longer gives the id but the old row is still shown:
-		-- the list is about to be rebuilt (proven in game, Y: 2026-10-18: at the
-		-- first look, 250 ms after each of 3 quick trades that worked, the row
-		-- was still there and its key gave id type 0; ~1 s later one row fewer)
-		return "leaving"
-	end
-	return bOneFewer and "gone" or "unreadable"
+	return tState, nGone, nRows
 end
 
 Lister._End = function(self, tRun, sPhase, sMessage)
 	local tCur = tRun.tCur
-	local tQ = self:_Q(tRun)
-	if tCur ~= nil and tCur.bSent and tQ ~= nil then
-		-- a quick animal sent: one last look at the list
-		local tRes = tRun.tResults[tRun.nIndex]
-		-- not while the game may still be rebuilding the list (nQuickFirstLook)
-		local bOk, sState = false, nil
-		if now() - (tCur.nSentAt or 0) >= self.nQuickFirstLook then
-			bOk, sState = pcall(self._QuickState, self, tCur)
+	if tCur ~= nil and tCur.bBatch then
+		-- a batch mid-way (Stop, a reload, Animal Storage closed): sent, it is
+		-- not read again (the game may still be rebuilding the list)
+		for _, x in ipairs(tCur.tItems) do
+			local tRes = tRun.tResults[x.nIndex]
+			if tCur.bSent and tRes.status == "working" then
+				tRes.status, tRes.kind = "unconfirmed", "unconfirmed"
+				tRes.detail = (sPhase == "closed" and "Animal Storage was closed" or "Stopped") .. " before it was confirmed: check storage."
+				mark(tResultMarks.unconfirmed)
+			end
 		end
-		if bOk and sState == "gone" then
-			tRes.status, tRes.kind, tRes.detail = tQ.sDone, nil, ""
-			mark(tResultMarks[tQ.sDone])
-		else
-			tRes.status, tRes.kind = "unconfirmed", "unconfirmed"
-			tRes.detail = (sPhase == "closed" and "Animal Storage was closed" or "Stopped") .. " before it was confirmed: check storage."
+		if tCur.bSent then
+			self.nLastServer = now()
 		end
-		tRun.nIndex = tRun.nIndex + 1
-		self.nLastServer = now()
 		tRun.tCur = nil
 		tCur = nil
+	end
+	-- checked for the batch but never sent: nothing happened to them
+	for _, x in ipairs(tRun.tBatch or {}) do
+		local tRes = tRun.tResults[x.nIndex]
+		if not x.bSent and (tRes.status == "pending" or tRes.status == "working") then
+			tRes.status, tRes.kind, tRes.detail = "pending", nil, "Checked, not sent: the run ended first."
+		elseif not x.bSent and x.bAfterRefusal and tRes.status == "refused" then
+			tRes.detail = tostring(tRes.listRefused or "Refused by the server.") .. " Not " .. (x.sQuick == "release" and "released" or "quick-traded") .. ": the run ended first."
+		end
 	end
 	if tCur ~= nil and tCur.bSent and tRun.sMode == "rename" then
 		-- a new name was asked for: one last look at its row
@@ -2186,6 +2212,15 @@ end
 -- One animal's step on this frame. Errors are caught by Tick.
 Lister._Step = function(self, tRun, t)
 	local tCur = tRun.tCur
+	if tCur.bBatch then
+		if tRun.sStep == "batchsend" then
+			return self:_BatchSend(tRun, tCur, t)
+		end
+		if tRun.sStep == "batchgone" then
+			return self:_BatchGone(tRun, tCur, t)
+		end
+		return
+	end
 	if tRun.sStep == "pause" then
 		-- within an animal (a refused listing, before its quick action)
 		if t - (tRun.nPauseStart or 0) >= (tRun.nPaceMs or self.nPaceMs) / 1000 then
@@ -2581,9 +2616,6 @@ Lister._Step = function(self, tRun, t)
 		self:_SetStep(tRun, "confirm", "Waiting for the server to confirm.")
 		return
 	end
-	if tRun.sStep == "gone" then
-		return self:_QuickGone(tRun, tCur, t)
-	end
 	if tRun.sStep == "unconfirm" then
 		return self:_UnlistConfirm(tRun, tCur, t)
 	end
@@ -2677,80 +2709,242 @@ Lister._QuickSend = function(self, tRun, tCur, t)
 	if fn == nil then
 		return self:_StopRun(tRun, "skipped", "error", "This game version has no api.planetHub." .. tQ.sNative .. ".", "Stopped: the game's call is missing.")
 	end
-	-- what identifies the row after the call: its look and the list's size
-	local tRow = tList and rowOf(tCur.sKey, tList) or nil
-	tCur.sFp = tRow and fpOf(tRow) or nil
-	if tCur.sFp ~= nil then
-		local _, n = fpMatches(tList, tCur.sFp)
-		tCur.nFpAtSend = n
+	-- checked as for a call of its own: it goes with the others, in one call
+	-- once every animal is checked (_BatchSend)
+	local _, sQMode = self:_Q(tRun)
+	local tRes = tRun.tResults[tRun.nIndex]
+	tRun.tBatch[#tRun.tBatch + 1] = { nIndex = tRun.nIndex, sGuid = tCur.sGuid, sKey = tCur.sKey, sQuick = sQMode, bAfterRefusal = tCur.bAfterRefusal == true }
+	log("quick_queued", runFields(tRun, { key = tCur.sKey, mode = sQMode, n = #tRun.tBatch, price = tRes.price, data = tCur.sDataPrint }))
+	if tCur.bAfterRefusal then
+		mark("lister_quick_queued")
+		return self:_Result(tRun, "refused", "refused", tostring(tRes.listRefused or "Refused by the server.") .. " "
+			.. (sQMode == "release" and "Released" or "Quick-traded") .. " with the others at the end of the run.")
+	end
+	return self:_Result(tRun, "pending", nil, "Checked: goes with the others at the end of the run.")
+end
+
+-- The next call of the batch: up to nBatchMax animals, in the order checked.
+Lister._BatchBegin = function(self, tRun)
+	local tItems = {}
+	local i = tRun.nBatchNext
+	while i <= #tRun.tBatch and #tItems < self.nBatchMax do
+		tItems[#tItems + 1] = tRun.tBatch[i]
+		i = i + 1
+	end
+	tRun.nBatchNext = i
+	local tFirst = tItems[1]
+	tRun.tCur = { bBatch = true, tItems = tItems, sQuick = tFirst.sQuick, sGuid = tFirst.sGuid, sKey = tFirst.sKey }
+	for _, x in ipairs(tItems) do
+		tRun.tResults[x.nIndex].status = "working"
+	end
+	tRun.nBatchCalls = (tRun.nBatchCalls or 0) + 1
+	log("batch", runFields(tRun, { n = #tItems, of = #tRun.tBatch, call = tRun.nBatchCalls, mode = tFirst.sQuick }))
+	self:_SetStep(tRun, "batchsend", (tFirst.sQuick == "release" and "Releasing " or "Quick trading ") .. #tItems .. " in one call.")
+	-- the page's watch: its own view of the list tells when the game is done
+	self:_Watch(tRun, tFirst.sKey)
+end
+
+-- The freshest page report under the batch's watch (any key; the page that
+-- started the run only), or nil.
+Lister._BatchReport = function(self, tRun)
+	local r = tRun and tRun.tSeen
+	if r == nil or r.sReq ~= tRun.sWatchReq or now() - r.nAt > self.nPageFresh then
+		return nil
+	end
+	if tRun.sPage ~= nil and r.sPage ~= tRun.sPage then
+		return nil
+	end
+	return r
+end
+
+-- Every animal of the call gets this result and the run stops (bSent: the
+-- call went, so "unconfirmed"; else nothing was sent for them).
+Lister._BatchStop = function(self, tRun, bSent, sKind, sDetail, sMessage)
+	local tCur = tRun.tCur
+	for _, x in ipairs(tCur and tCur.tItems or {}) do
+		local tRes = tRun.tResults[x.nIndex]
+		if bSent then
+			tRes.status, tRes.kind, tRes.detail = "unconfirmed", sKind, sDetail
+		elseif x.bAfterRefusal then
+			tRes.status, tRes.kind = "refused", "refused"
+			tRes.detail = tostring(tRes.listRefused or "Refused by the server.") .. " Quick action not sent: " .. tostring(sDetail or "")
+		else
+			tRes.status, tRes.kind, tRes.detail = "skipped", sKind, sDetail
+		end
+		mark(tResultMarks[tRes.status] or "lister_skip")
+		x.bDone = true
+	end
+	log("batch_stop", runFields(tRun, { sent = bSent, kind = sKind, detail = sDetail, n = tCur and #tCur.tItems or 0 }))
+	if bSent then
+		self.nLastServer = now()
+	end
+	tRun.tCur = nil
+	mark("lister_quick_stop")
+	return self:_End(tRun, "stopped", sMessage)
+end
+
+-- One call for the batch, in one tick: idle; a page report newer than this
+-- step whose list is not loading; every animal's key found again in a list
+-- read now and checked against its GUID (_Holds: nothing is being rebuilt,
+-- the last call's rebuild was over before its read); then the selection
+-- cleared (should the native act on it rather than on the keys, nothing
+-- goes and the run stops unconfirmed) and the game's call with all the
+-- keys, the shape the vanilla Confirm sends for a multi-selection.
+Lister._BatchSend = function(self, tRun, tCur, t)
+	local tQ = self:_Q(tRun)
+	local bBusy, sWhy = self:_Busy()
+	if bBusy and sWhy == "requests" and (tRun.bRequestsIgnored or t - tRun.nStepStart > self.nRequestsGrace) then
+		if not tRun.bRequestsIgnored then
+			tRun.bRequestsIgnored = true
+			mark("lister_busy_requests_ignored")
+		end
+		bBusy = false
+	end
+	if bBusy then
+		self:_MarkBusy(tRun, sWhy)
+		if t - tRun.nStepStart > self.nServerTimeout then
+			return self:_BatchStop(tRun, false, "busy", "The game stayed busy with another server request; not sent.",
+				"Stopped: the game stayed busy; nothing more was sent.")
+		end
+		tRun.sMessage = "Waiting for the game's other server requests."
+		return
+	end
+	local r = self:_BatchReport(tRun)
+	if r == nil or not (r.nAt > tRun.nStepStart) or r.nRows == nil or (r.tNet ~= nil and r.tNet.bLoading == true) then
+		if t - tRun.nStepStart > self.nSelectTimeout then
+			mark("lister_batch_nopage")
+			return self:_BatchStop(tRun, false, "nopage", "No fresh report from the page; nothing was sent.",
+				"Stopped: no fresh report from the page; nothing more was sent.")
+		end
+		return
+	end
+	local fn = hubFn(tQ.sNative)
+	if fn == nil then
+		return self:_BatchStop(tRun, false, "error", "This game version has no api.planetHub." .. tQ.sNative .. ".", "Stopped: the game's call is missing.")
+	end
+	local tList = self:_List()
+	if tList == nil then
+		return self:_BatchStop(tRun, false, "changed", "The storage list could not be read; nothing was sent.", "Stopped: the storage list could not be read; nothing was sent.")
+	end
+	local tKeys, tUsed = {}, {}
+	for _, x in ipairs(tCur.tItems) do
+		local sKey, sNotWhy = self:_Find({ sGuid = x.sGuid, sKey = x.sKey, sHint = x.sKey }, tList)
+		if sKey == nil or tUsed[sKey] or not self:_Holds(x.sGuid, sKey, tList) then
+			log("changed", runFields(tRun, { why = "batch key", key = x.sKey, now = sKey, detail = sNotWhy }))
+			mark("lister_quick_changed")
+			return self:_BatchStop(tRun, false, sNotWhy == "ambiguous" and "ambiguous" or "changed", "The storage list changed before the call; nothing was sent.",
+				"Stopped: the storage list changed before the call; nothing was sent.")
+		end
+		tUsed[sKey] = true
+		x.sKey = sKey
+		-- its look, for the one read after the call
+		local tRow = rowOf(sKey, tList)
+		x.sFp = tRow and fpOf(tRow) or nil
+		if x.sFp ~= nil then
+			x.nFpAtSend = second(fpMatches(tList, x.sFp))
+		end
+		tKeys[#tKeys + 1] = sKey
 	end
 	local nRows = 0
-	for _, x in pairs(tList or {}) do
+	for _, x in pairs(tList) do
 		if type(x) == "table" then
 			nRows = nRows + 1
 		end
 	end
 	tCur.nRowsAtSend = nRows
-	-- counts as sent even if the call raises (then the list still decides)
+	local fnClear = hubFn("StorageUIClearSelectedItems")
+	if fnClear ~= nil then
+		pcall(fnClear)
+	end
+	-- counts as sent even if the call raises (then the page and one read decide)
 	tCur.bSent = true
 	tCur.nSentAt = t
-	tCur.nLastPoll = t
-	tCur.nDeadline = t + self.nQuickTimeout
-	mark("lister_quick_send")
-	log("send_quick", runFields(tRun, { key = tCur.sKey, mode = tRun.sMode, native = tQ.sNative, price = tRun.tResults[tRun.nIndex].price,
-		rows = nRows, fp = tCur.nFpAtSend, data = tCur.sDataPrint }))
-	fn({ tCur.sKey })
-	return self:_SetStep(tRun, "gone", "Waiting for it to leave storage.")
+	tCur.nDeadline = t + self.nBatchTimeout
+	for _, x in ipairs(tCur.tItems) do
+		x.bSent = true
+	end
+	mark("lister_batch_send")
+	log("send_batch", runFields(tRun, { n = #tKeys, keys = table.concat(tKeys, ","), mode = tCur.sQuick, native = tQ.sNative, rows = nRows, pageRows = r.nRows }))
+	self:_SetStep(tRun, "batchgone", "Waiting for them to leave storage.")
+	-- a new watch: only what the page sees after the call counts
+	self:_Watch(tRun, tKeys[1])
+	fn(tKeys)
 end
 
--- 4.3 step 8: the storage list decides. Gone: done. Still there at the
--- deadline (10 s, shortened by a database error): not confirmed, and the
--- run stops. Ambiguous: the run stops.
-Lister._QuickGone = function(self, tRun, tCur, t)
+-- After the call the storage list is not read by Lua until the game's
+-- rebuild is over (that read crashed the game): the page's reports (its own
+-- view, every ~0.1 s) must show the list not loading and its row count
+-- unchanged for nBatchSettle once every animal's row has left, or for
+-- nBatchQuiet while some are still shown (the game may take them out one
+-- after another, or keep one). Then one read decides every animal
+-- (_BatchState). No settled view by nBatchTimeout: nothing is read, none
+-- is confirmed, the run stops.
+Lister._BatchGone = function(self, tRun, tCur, t)
 	local tQ = self:_Q(tRun)
-	if t - tCur.nSentAt < self.nQuickFirstLook and t < tCur.nDeadline then
+	local r = self:_BatchReport(tRun)
+	if r ~= nil and r.nAt > tCur.nSentAt and r.nAt ~= tCur.nSeenAt then
+		tCur.nSeenAt = r.nAt
+		if r.nRows == nil or (r.tNet ~= nil and r.tNet.bLoading == true) then
+			tCur.nStableSince = nil
+		elseif r.nRows ~= tCur.nPageRows or tCur.nStableSince == nil then
+			if r.nRows ~= tCur.nPageRows then
+				log("batch_rows", runFields(tRun, { rows = r.nRows, was = tCur.nPageRows, ms = toInteger((t - tCur.nSentAt) * 1000) }))
+			end
+			tCur.nPageRows = r.nRows
+			tCur.nStableSince = r.nAt
+		end
+	end
+	local bAllOut = tCur.nPageRows ~= nil and tCur.nPageRows <= tCur.nRowsAtSend - #tCur.tItems
+	local bSettled = r ~= nil and tCur.nStableSince ~= nil and t - tCur.nSentAt >= self.nQuickFirstLook
+		and t - tCur.nStableSince >= (bAllOut and self.nBatchSettle or self.nBatchQuiet)
+	if not bSettled then
+		if t >= tCur.nDeadline then
+			mark("lister_batch_timeout")
+			return self:_BatchStop(tRun, true, "unconfirmed", "Not confirmed: the storage list did not settle; check storage.",
+				"Stopped: the storage list did not settle within " .. self.nBatchTimeout .. " s of the call; check storage.")
+		end
 		return
 	end
-	if t - tCur.nLastPoll < self.nConfirmPoll and t < tCur.nDeadline then
-		return
+	local tList = self:_List()
+	if tList == nil then
+		return self:_BatchStop(tRun, true, "unconfirmed", "Not confirmed: the storage list could not be read; check storage.",
+			"Stopped: the storage list could not be read after the call; check storage.")
 	end
-	tCur.nLastPoll = t
-	local sState = self:_QuickState(tCur)
+	local tState, nGone, nRows = self:_BatchState(tCur, tList)
 	local nMs = toInteger((t - tCur.nSentAt) * 1000)
-	-- While the game rebuilds the list (in game, Y: 2026-10-18, "ambiguous"
-	-- 250 ms after a quick trade that worked) every reading but "there" can
-	-- be transient: decide gone only when it reads gone twice in a row, and
-	-- stop only if it is still not gone at the deadline.
-	if sState == "gone" then
-		tCur.nGoneSeen = (tCur.nGoneSeen or 0) + 1
-		if tCur.nGoneSeen >= 2 then
-			mark("lister_quick_gone")
-			log("quick_gone", runFields(tRun, { ms = nMs, key = tCur.sKey, mode = tRun.sMode, transient = tCur.sTransient,
-				err = tCur.tError ~= nil and (tCur.tError.sName or tCur.tError.nError) or nil }))
-			return self:_Result(tRun, tQ.sDone, nil, "")
+	local nLeft = 0
+	for _, x in ipairs(tCur.tItems) do
+		local tRes = tRun.tResults[x.nIndex]
+		local s = tState[x]
+		if s == "gone" then
+			tRes.status, tRes.kind, tRes.detail = tQ.sDone, nil, ""
+		else
+			nLeft = nLeft + 1
+			tRes.status, tRes.kind = "unconfirmed", s == "there" and "unconfirmed" or "ambiguous"
+			tRes.detail = s == "there" and "Still in storage after the call: check storage." or "Not confirmed: check storage."
 		end
-		return
+		mark(tResultMarks[tRes.status])
+		x.bDone = true
 	end
-	tCur.nGoneSeen = 0
-	if sState ~= "there" and tCur.sTransient == nil then
-		-- logged once: what the list showed while it was changing
-		tCur.sTransient = sState
-		mark("lister_quick_transient")
-		log("quick_transient", runFields(tRun, { ms = nMs, key = tCur.sKey, state = sState }))
+	mark("lister_batch_gone")
+	log("batch_gone", runFields(tRun, { ms = nMs, n = #tCur.tItems, gone = nGone, left = nLeft, rows = nRows, atSend = tCur.nRowsAtSend, pageRows = tCur.nPageRows,
+		err = tCur.tError ~= nil and (tCur.tError.sName or tCur.tError.nError) or nil }))
+	tRun.tCur = nil
+	self.nLastServer = now()
+	tRun.bDirty = true
+	if nLeft > 0 then
+		mark("lister_quick_stop")
+		return self:_End(tRun, "stopped", "Stopped: " .. nLeft .. " of " .. #tCur.tItems .. " not confirmed after the call; check storage.")
 	end
-	if t >= tCur.nDeadline then
-		if sState == "ambiguous" then
-			mark("lister_quick_ambiguous")
-			log("quick_ambiguous", runFields(tRun, { ms = nMs, key = tCur.sKey }))
-			return self:_StopRun(tRun, "unconfirmed", "ambiguous", "Not confirmed: another animal in storage looks the same; check storage.",
-				"Stopped: an animal could not be told apart " .. secs(t - tCur.nSentAt) .. " s after sending; check storage.")
-		end
-		mark("lister_quick_timeout")
-		log("quick_timeout", runFields(tRun, { ms = nMs, key = tCur.sKey, state = sState }))
-		return self:_StopRun(tRun, "unconfirmed", "unconfirmed", "Not confirmed: check storage.",
-			(sState == "there" or sState == "leaving") and ("Stopped: an animal was still in storage " .. secs(t - tCur.nSentAt) .. " s after sending; check storage.")
-				or ("Stopped: the storage list did not settle " .. secs(t - tCur.nSentAt) .. " s after sending; check storage."))
+	if tRun.bStopAfter then
+		return self:_End(tRun, "stopped", "Stopped by you.")
 	end
+	if tRun.nBatchNext <= #tRun.tBatch then
+		-- the next call after the player's pace
+		tRun.nPauseStart = self.nLastServer
+		return self:_SetStep(tRun, "pause", "Pausing before the next call.")
+	end
+	return self:_End(tRun, "done", self:_Summary(tRun))
 end
 
 -- Taking a listing off the market, in one tick: idle, a page report fresher
@@ -2964,7 +3158,9 @@ Lister.Tick = function(self)
 			mark("lister_error")
 			trace("step " .. tostring(tRun.sStep) .. " failed: " .. tostring(sErr))
 			log("error", runFields(tRun, { step = tRun.sStep, err = tostring(sErr) }))
-			if self:_Q(tRun) ~= nil then
+			if tRun.tCur.bBatch then
+				self:_BatchStop(tRun, tRun.tCur.bSent == true, "error", "Mod error: " .. tostring(sErr), "Stopped: a mod error; check storage.")
+			elseif self:_Q(tRun) ~= nil then
 				self:_StopRun(tRun, tRun.tCur.bSent and "unconfirmed" or "skipped", "error", "Mod error: " .. tostring(sErr), "Stopped: a mod error; check storage.")
 			else
 				self:_Result(tRun, "skipped", "error", "Mod error: " .. tostring(sErr))
@@ -3008,9 +3204,10 @@ Lister.OnServerError = function(self, nError, sName, nRequestType)
 		mark("lister_rename_server_error")
 		log("rename_server_error", runFields(tRun, { code = nError, name = sName or "?", req = nRequestType, afterSend = secs(now() - tCur.nSentAt) }))
 	end
-	if tRun ~= nil and tCur ~= nil and tCur.bSent and tRun.sStep == "gone" then
+	if tRun ~= nil and tCur ~= nil and tCur.bBatch and tCur.bSent then
+		-- a batch waiting for the game's rebuild: an error is only logged (the
+		-- page's settled view and the one read after it still decide)
 		tCur.tError = tCur.tError or { nError = nError, sName = sName, nTime = now() }
-		tCur.nDeadline = math.min(tCur.nDeadline or now(), now() + self.nQuickErrWait)
 		mark("lister_quick_server_error")
 		log("quick_server_error", runFields(tRun, { code = nError, name = sName or "?", req = nRequestType, afterSend = secs(now() - tCur.nSentAt) }))
 	end
@@ -3061,12 +3258,25 @@ end
 -----------------------------------------------------------------------
 -- Page -> Lua
 -----------------------------------------------------------------------
+-- Whether the storage list may be rebuilding now (a batch sent and not yet
+-- confirmed, or the game's own quick handler moments ago): no read then.
+Lister._ListRebuilding = function(self)
+	local tRun = self.tRun
+	if tRun ~= nil and tRun.tCur ~= nil and tRun.tCur.bBatch and tRun.tCur.bSent then
+		return true
+	end
+	return self.nListQuietUntil ~= nil and now() < self.nListQuietUntil
+end
+
 Lister.Hello = function(self, oUI, sReq)
 	mark("lister_hello")
 	local tMissing = self:_Missing()
 	local bStorage = self.oStorageMode ~= nil
 	local nRows = NULL
-	if bStorage then
+	if bStorage and self:_ListRebuilding() then
+		-- the row count waits for the rebuild (the page asks again)
+		mark("lister_hello_rebuilding")
+	elseif bStorage then
 		local tList = self:_List()
 		if tList == nil then
 			tMissing[#tMissing + 1] = "storageList"
@@ -3123,7 +3333,9 @@ end
 -- the type it gave, whether the row was found).
 Lister.Resolve = function(self, oUI, sReq, sKeys)
 	local tIds, tRows, tVia, tFailed = {}, {}, {}, array()
-	local bStorage = self.oStorageMode ~= nil
+	-- keys only mean something while Animal Storage is open, and not while
+	-- the list may be rebuilding (no ids then: the page asks again later)
+	local bStorage = self.oStorageMode ~= nil and not self:_ListRebuilding()
 	local tList = bStorage and self:_List() or nil
 	-- the whole list, identified as the engine's send will check it
 	local tInfo = tList ~= nil and identify(tList) or nil
@@ -3308,6 +3520,11 @@ Lister.Start = function(self, oUI, sReq, sJob)
 		tRun.nRefusedMax = tOpts.nRefusedMax
 		tRun.sPage = pageOf(sReq)
 		mark("lister_onrefused_start")
+	end
+	if tQ ~= nil or sOnRefused ~= nil then
+		-- quick actions are checked one by one and sent together (_BatchSend)
+		tRun.tBatch = {}
+		tRun.nBatchNext = 1
 	end
 	log("start", { run = tRun.nId, req = sReq, n = #tAnimals, mode = sMode, paceMs = tRun.nPaceMs or self.nPaceMs, online = self:_Online(), releaseable = tRun.vReleaseable })
 	for i, tJob in ipairs(tAnimals) do
@@ -3678,6 +3895,9 @@ Lister._WrapQuick = function(self, StorageMode)
 		elseif not StorageMode["_PZ2QoL_probe_" .. sName] then
 			StorageMode["_PZ2QoL_probe_" .. sName] = true
 			StorageMode[sName] = function(...)
+				-- the game rebuilds the storage list now: the page's own
+				-- questions don't read it for a while (_ListRebuilding)
+				self.nListQuietUntil = now() + self.nVanillaQuiet
 				-- the probe only logs: a release build has no log, so no probe
 				-- (it read the storage list while the game rebuilt it)
 				if tracing() then

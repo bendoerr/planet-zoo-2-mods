@@ -461,8 +461,15 @@ test('page report v2: the quick fields round trip with |, ",", % and long nested
     const s = readSeen('animal_3', read);
     const text = encodeSeen(s);
     assert.ok(text.startsWith('v2|animal_3|animal_3|0|100,5000,812.5,1,12,6|'));
-    // 18 fields: no raw "|" left inside one (the last, the page id, empty here)
-    assert.equal(text.split('|').length, 18);
+    // 19 fields: no raw "|" left inside one (the page id, empty here, then the
+    // storage rows, unknown here)
+    assert.equal(text.split('|').length, 19);
+    assert.equal(decodeSeen(text).rows, null);
+    // the rows the page shows (a batch of quick actions waits on them)
+    const withRows = encodeSeen(Object.assign({}, s, { page: 'pg1', rows: 42 }));
+    assert.ok(withRows.endsWith('|pg1|42'));
+    assert.equal(decodeSeen(withRows).rows, 42);
+    assert.equal(decodeSeen(withRows).page, 'pg1');
     const d = decodeSeen(text);
     assert.equal(d.v, 2);
     assert.equal(d.reason, LONG + '\n');
@@ -479,7 +486,7 @@ test('page report v2: the quick fields round trip with |, ",", % and long nested
     assert.equal(d.source, '[AnimalExchange_Source_Description:Value=|Wild, rescued|]');
     // nothing readable: every field still there, all unknown
     const empty = encodeSeen(readSeen('animal_3', () => { throw new Error('x'); }));
-    assert.equal(empty, 'v2|animal_3|?|-|-,-,-,-,-,-||-|||-|||-|-,-|-,-|-||');
+    assert.equal(empty, 'v2|animal_3|?|-|-,-,-,-,-,-||-|||-|||-|-,-|-,-|-|||-');
     assert.equal(decodeSeen(empty).quick.quickTradeAllowed, null);
     // v1 still decodes; junk does not
     assert.equal(decodeSeen('v1|animal_3|animal_3|1|100,5000,812.5,1,12,6|[x|y]').reason, '[x|y]');

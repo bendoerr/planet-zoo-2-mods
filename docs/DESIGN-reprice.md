@@ -109,8 +109,8 @@ remembered (back to Reprice when the desk closes or the view changes).
   nothing sent; Lua test 23 K). So: take off first.
 - **Run:** phase 1 the same take-off job (`unlist`), 5 s settle, phase 2 the desk's own quick job
   (`encodeQuickJob`, `v1 <pace> quicktrade|release`): per animal a fresh page report, the game's
-  flag for the action allowed right then, `_Holds`, exactly `{ [1] = key }`, confirmed by the row
-  leaving storage; **it stops at anything unexpected** (permanent actions, the desk's rule). Each
+  flag for the action allowed right then, `_Holds`; then one call for all of them (`{ key, ... }`,
+  2026-10-28), confirmed by one read of the list once the page's view of it has settled; **it stops at anything unexpected** (permanent actions, the desk's rule). Each
   item keeps its asking price as its "list again" price.
 - **Panel:** the red quick header, how many go, the money: asking now (CC) against what the
   action pays (`quickPreview` = the desk's `quickSheet` on the rows as if off the market: prices
