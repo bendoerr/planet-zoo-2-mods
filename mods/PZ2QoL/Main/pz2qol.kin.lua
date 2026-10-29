@@ -2411,6 +2411,7 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 				sexMaxMale = tOut.sexMax and tOut.sexMax.male, sexMaxFemale = tOut.sexMax and tOut.sexMax.female, sexMaxFrom = tOut.sexMaxFrom,
 				leaderMale = tOut.leaderMale, leaderFemale = tOut.leaderFemale,
 				groups = table.concat(tG, ","), habitats = nHabs, seasons = sSeasons,
+				mourningSeasons = tOut.mourningSeasons, interBirthYears = tOut.interBirthYears,
 			})
 		end
 	end)
