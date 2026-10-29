@@ -163,12 +163,23 @@ Used by the proposal `docs/PROPOSAL-inbreeding-qol.md`.
 - `animals.fdb` `Social_MatingRules` (**offline**): only the leader male mates in the harem species
   (warthog, springbok, wildebeest, zebra, ostrich, nyala, sable, gazelle, lion), only the leader
   female in meerkat and hyena. Extra adults of that sex breed nothing. Cycle = gestation +
-  interbirth (1 y most species, 2 y zebra and aardvark).
+  interbirth (1 y most species, 2 y zebra and aardvark). Interbirth counts from the birth to the
+  next conception (**proven** in the saves, 2026-10-29: "Breeding measured" below).
 - A simulation of real herds 23–35 points below their ceilings: breeding for the young's best
   quarter plus a keep value without Immunity lowered the four-gene mean by 2–8 points over 20
   years (Immunity fell to 54–72%). Push the ceiling therefore waits until a herd is within 5 points
   (`kinstrands.js` `ceilingWaiting`) and its keep value counts the young's Immunity with the herd
   (`youngImmunity`).
+- **Strand bonus** (PZ2QoL 2026-10-29, built, **off**): `kinprogramme.js` option `strandBonus` (λ,
+  0 off) adds λ / 4 × the young's expected copies of the herd's best Size and Longevity strands
+  (`kinstrands.js` `youngCopies`: c / 2 per parent per gene) to a pair's young, per gene while that
+  strand's copies are at most `strandGate` (0.5) of the herd's strands (`strandTargets`, the herd as
+  `herdBest` reads it). Tuning "Strand bonus" Off / Low 0.1 / Medium 0.25 / High 0.4 (player-wide,
+  board and Auto mode); Auto mode's own `AUTO_STRAND_BONUS` 0. Never in Thin out's keep value (a
+  keep-value variant lowered Immunity). `problemSig` carries the targets, so a birth that gates a
+  strand off re-plans a kept plan. Simulated (**offline**): it doubles the best strands' spread, but
+  Fertility and Immunity give most of it back; on top of Auto mode's 2026-10-29 build, dogs +0.4 to
+  +0.9 at year 15, and hyenas lose 2.3–3.5 Fertility or Immunity. Not a default.
 
 ## UI surfaces and keys
 
@@ -548,7 +559,8 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   by these). `geneticDiversity` is a Release-to-Wild group metric only.
 - Conception chance: `animals:CalculateProbabilityOfBreedingEvent(welfareMother, welfareFather,
   fertMother*6, fertFather*6, GetAnimalSpeciesFertility(sp), GetMatingResearchBonus(sp))` -> 0..1,
-  a pure function (best case welfare 1).
+  a pure function (best case welfare 1). Whether it is per breeding event or per season is not
+  known; the saves give 0.48 litters per eligible dog pair-summer ("Breeding measured" below).
 - Social: `GetSocialRequirements(sp)` -> `{nMin, nMax}` adults; `GetSocialityData(e)` -> members
   `{nID, nGender, nAlpha, nType}` + `nMaturationType` (`MaturationType_RejectMales|RejectFemales|
   RejectAll|RejectNone`); outsiders: `GetIntegrationProgress(e)`, `GetRejectionReason(e)`
@@ -568,7 +580,8 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
 - **Moving has no stress stat.** Costs of a move are outsider integration (or rejection) when
   joining a group, and mourning when a bonded mate is left (`GetCurrentMournTimeForUI(e)`).
   Pregnancy does not block a move (see "Pregnant animals" below).
-- Breeding timing: `GetSpeciesBreedingSeasons(sp)` (array by season), `GetSpeciesFertilityBounds(sp)`
+- Breeding timing: `GetSpeciesBreedingSeasons(sp)` (four booleans, indexed by
+  `TimeOfMonth:Season() + 1`: `game-data-and-events.md`, Park calendar), `GetSpeciesFertilityBounds(sp)`
   -> `nMaturityAge, nInfertilityAge` years (>900 = never), `GetMatingWarnings(e, 0)` ->
   `{tLabelsArray, bMatingBlocked, bInfertile}` (Interbirth is a per-animal flag only).
   `IsInfertile` is probably also true under contraception: sterile = infertile and not contracepted.
@@ -676,6 +689,69 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
     plan (≥ 2 of them with gene data); (4) more breeding females there than its fertile males can
     take under the make-up (`partnersPer(rule).male`, 1:1, 1:3…) and she has the lowest gene
     score (≥ 1 other with data). No gene data for her: no gene advice. Never applied by itself.
+
+## Breeding measured (2026-10-29: conception, the wait between litters, seasons)
+
+Source: 34 save copies of the developer's Cradle #2 (park years 8–49), 55 wild dog litters (182
+pups), 89 spotted hyena litters (166 cubs); births dated by animal ID (UUIDv7) and the save's
+`ParkTime` (`game-data-and-events.md`, Park calendar). Why it matters: every simulator before it let a
+pair litter every summer at (fM+fF)/12, so their gains were too high.
+
+- **Conception** (**proven** in the saves): an eligible wild dog leader pair (adult, not elderly,
+  past the wait) litters in **0.48** of summers (14 of 29, CI 0.31–0.66); (fM+fF)/12 predicted 0.735
+  (p = 0.002). No Fertility effect visible in grades 1–6 (slope −0.18 per sixth, CI −0.65 to +0.27;
+  F1 × F6 and F2 × F3 pairs bred). Spotted hyena: a leader female past her wait conceives at 2.1 a
+  year (CI 1.3–3.3; 0.41 a quarter), no Fertility effect, births in all four seasons. **Guess**: the
+  game's table (`CalculateProbabilityOfBreedingEvent`, PZ2QoL `info.conception`) has a Fertility
+  effect, and the rate is about 6.5 × FertilityValue a year (dog : hyena 2.6 : 2.1 = 0.4 : 0.3).
+  Used in: the simulators and forecasts (scratch, not repo).
+- **The wait between litters counts from the birth to the next conception** (**proven**: hyena
+  minimum birth gap 1.27 y = InterBirthYears 0.95 + gestation 0.30; dogs consistent). A dog mother
+  never litters two summers running (16 of 16 gaps 1.85 y or more), and a leader female that
+  littered blocks her pack the next summer (7 of 7, p ≈ 0.01; 5 had free adult females): only the
+  leader female breeds. Consequence: a stable dog pair litters at most 0.48 / 1.48 = **0.32 a
+  pack-year**. Used in: `kinautocore.js` `fertilityAgesOf` (the mother's wait), `seasonHold`,
+  `stageRestructures`.
+- **Wild dog season** (**proven**: saves, `animals.fdb` and game Lua agree): summer = season index 1
+  (0-based), park months 4–6, year fraction 0.25–0.50; all 55 litters conceived inside it, births at
+  0.48–0.72; conceptions spread over the whole window. Used in: `breedingWindow`, `seasonHold`.
+- **Litter sizes** (**proven**, not rejected on small samples): uniform 1–6 (dogs) and 1–3
+  (hyenas); no Fertility effect. Pup loss before maturity is small (at most 4 of 182 dog pups, 0 of
+  166 cubs; storage hides young moved out).
+- **A new leader pair breeds in the first season after the change** (6 dated cases, 0.34–0.65 park
+  years after it; **proven** in the saves). Males also switched to another leader female in the same
+  pack while their blocked mate stayed: the bond did not stop it.
+- **Mourning**: the mate left behind lost no summer in the one dated case; whether the mate that
+  moves mourns: **open** (one weak case for). PZ2QoL assumes both may (`mourner: 'both'`).
+- **The breeding-season table** (**offline**, 1.0.5): `animals.fdb`
+  `BehaviourParameters_BreedingSeasons (AnimalType, BreedsInSpring, BreedsInSummer, BreedsInAutumn,
+  BreedsInWinter)`, `ENUM_Season` A (Spring) 0 … D (Winter) 3; the game reads it through
+  `GetSpeciesBreedingSeasons` (shape and index: `game-data-and-events.md`, Park calendar). 85
+  species: all year 31 (spotted hyena, lions, leopards, meerkats, Plains zebra among them), summer
+  only 20, spring only 19, autumn only 7, winter only 3, two seasons 5. Seasonal species with leader
+  rules:
+
+  | Kind | Summer | Spring | Autumn | Winter |
+  |---|---|---|---|---|
+  | Packs | African wild dog | Grey wolf | Golden lion tamarin (and winter) | Eurasian beaver |
+  | Harems | Sable, ostrich, giant grouper | Bactrian camel, saltwater crocodile, Galápagos tortoise, Przewalski's horse, black and blue wildebeest | Nyala, European bison, wild boar, red deer | Gharial |
+- **Prepared statements** (**offline**, `animals.pscollection`): `Animals/GetBreedingSeasons` (the
+  table above); `Animals/GetFertilityData` (AnimalType, FertilityValue, ElderlyAge,
+  InfertileWhenElderly, GestationYears, InterBirthYears, MinLitterSize, MaxLitterSize);
+  `Animals/GetFertilityDataForZoopedia`. InterBirthYears ranges 0.25–9: African wild dog 1.0, grey
+  wolf 0.81, Eurasian beaver 0.71, golden lion tamarin 0.64, warthog 0.58, sable 0.29, Plains zebra
+  0.917, spotted hyena 0.95, lion 2.7, elephants 8–9. PZ2QoL `Kin._SpeciesDb` reads it
+  (`SpeciesInfo.interBirthYears`).
+- **Wild dog ages** (**offline**, `Lifecycle_LongevityData`): SexualMaturityAge 1.5, AdultPrimeAge 4,
+  AdultOldAge 8, ElderlyAge 10, InfertileWhenElderly 1.
+- **Spotted hyena** (**offline**, `animals.fdb` 1.0.5): `Social_MatingRules` 1 / 0 / 0 / 1, mourning
+  0; `Social_LeadershipRules` female only, PromoteEldestPeacefully 1; `Requirements_GroupComposition`
+  2–3, MaxMixed 2 / 2, MaxBachelor 3 / 3 (dog: 2–27, 26 / 26, 27 / 27); space 940 m² + 180; longevity
+  12–20, mature 3, elderly and infertile 12; FertilityValue 0.3, gestation 0.3, litters 1–3, all
+  seasons; `Social_Sociality` Matrilineal; females fight. Males sired with two females within a year 9
+  times (not monogamous in practice). **Open**: when a hyena counts as adult (`juv` at 2–3 years). In
+  the simulator, with adults from 2, Auto mode sent young adults away before maturity and lost the
+  herd; if so in game, `AUTO_LIMITS.growUpYears` needs a per-species gap.
 
 ## Group make-up: males per female (2026-10-17)
 
@@ -786,7 +862,9 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   `Gibbon_Siamang`, `Monkey_GoldenLionTamarin`, `Otter_AsianSmallClawed`, `Wolf_Grey`; all with
   both SingleMate flags, `Social_LeadershipRules` both sexes FightsForLeader 0,
   PromoteEldestPeacefully 1. Wild dog: `Requirements_HabitatSpace` 930 m² + 100 per extra,
-  `Lifecycle_FertilityData` FertilityValue 0.4, gestation 0.21 y, one litter a year of 1-6.
+  `Lifecycle_FertilityData` FertilityValue 0.4, gestation 0.21 y, InterBirthYears 1.0, litters of
+  1-6. The wait counts from the birth, so a mother skips the summer after a litter (**proven** in the
+  saves, 2026-10-29: "Breeding measured" below), not one litter a year as read before.
   - **Proven 2026-10-28 (Cradle #2's wild dogs: the developer's in-game alphas at 16:34 and
     19:30, a few seasons apart, with Auto mode's move history and the young's parents):**
     - A leader (`bAlpha`) keeps leading while it stays, whoever joins: Wild Dog 03's Mosi (3.1)
@@ -821,7 +899,8 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
     pair breeds, the eldest present is promoted, keepers deliver a run's moves in random order):
     herd average 69% to 82 / 80 / 76% (before: 71 / 74 / 71%); litters 45 / 48 / 52 (27 / 33 /
     31); elderly dogs to the trade centre 3 / 6 / 2 (25 / 25 / 22). Longevity stays at 70-75%:
-    the best Longevity strand present is 5/6.
+    the best Longevity strand present is 5/6. (Old breeding rule: a litter every summer at
+    (fM+fF)/12; the measured game gives far fewer, "Breeding measured" below.)
 - **The game's most per sex, both kinds of group** (2026-10-26, a developer report: Auto mode left
   two male leopards together, and two females). `Requirements_GroupComposition` for
   `Leopard_African`: MaxPopulation 2, MaxMixedMale 1, MaxMixedFemale 1, MaxBachelorMale 1,
@@ -894,8 +973,21 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   breeder whose monogamous mate lives there but does not breed (old, contracepted, moving) pairs with
   no one. This follows the game's `IconLock` rule (proven), so plans no longer count pairs the game
   won't allow. `bondBreakCost` (0.15, flat) is charged only for monogamous bonds; mates listed for
-  other species cost nothing to part. Scaling it by mourning length waits for a way to read
-  `MourningSeasons` in game (no Lua call known). Tests: `kinprogramme.test.mjs` "bonds: …".
+  other species cost nothing to part. Since 2026-10-29 Lua reads `MourningSeasons` (`GetMatingRules`
+  column 6, `SpeciesInfo.mourningSeasons`) and Auto mode's packs scale the cost by it (next bullet);
+  the board keeps the flat cost. Tests: `kinprogramme.test.mjs` "bonds: …".
+- **Pack mourning in the optimiser** (2026-10-29, `kinprogramme.js` option `packMourn`, `bondCost`;
+  Auto mode passes it unless the player's tuning sets "Splitting a bonded pair"): a pack's bond is
+  its leader pair's; either leader moving ends it (leadership stays behind), even both to one
+  habitat. Cost: `mournWeight` (0.5) × years of mourning (`info.mourningSeasons` / 4, else 4
+  seasons) × the pair value of the pack the mourner leads in the plan; nothing if it leads nothing.
+  `mourner: 'both'` (default) charges both partners; `'stayer'` only the one left behind (both
+  leaving: the one moved second). `kinautocore.js` `waitForMates`: when both mates leave, the one
+  that leads after the plan goes first and the other waits for it (wait kind `leader`, `after`).
+  `interbirth` (off): a female with young under a year skips the next season, one year less lost
+  (simulator: lost more litters). Simulated (**offline**): litters lost to mourning in 15 years
+  11.4 → 0.6. Whether the mover mourns, and whether a pair moved together keeps its bond: **open**
+  (the planner assumes not). Tests: `kinprogramme.test.mjs` "packs: …".
   The objective changed, so the `kinprogrammedeep.test.mjs` benchmark optima were proven again with
   HiGHS (the MILP gets `y + x_i + x_j ≤ 2` for every pair of a bonded animal with someone else, and
   no pairs for a breeder at its non-breeding mate's place; it matched the exhaustive plan on 144
@@ -1091,6 +1183,52 @@ All **offline** (decompiled `editors.animal.animalmovementeditmode.lua`,
   (`Kin._GameMode` says offline whenever the hub type is not the Franchise constant, also when the
   constant is missing). Auto mode also needs `PZ2QoL_AutoGate`'s `hubTypeKnown` and
   `franchiseZoo === false` (`franchise:GetCurrentZooGUID()` is nil outside Franchise).
+- **The breeder build** (2026-10-29, branch `feat/best-breeder`; **offline**: Node, harness and
+  simulator, not yet in game; design `docs/DESIGN-autopilot.md` 16, results
+  `docs/PLAN-best-breeder.md` 14). Auto mode only; the board's panels answer as before.
+  - **Thin out across the herd** (`kincull.js` option `herd`, Auto mode's `AUTO_CULL`): after the
+    per-habitat rules, a habitat over its room gives up its own; then, while the herd's adults exceed
+    the sum of its habitats' targets, the herd's next goes from any habitat above its floor
+    (max(breeding core, `social.min`), at most its target). Order: can't breed → fertile males beyond
+    `maleRoom` → own grades (+ the pair setting's bond part; High / Never unpaired first; the ceiling
+    goal's strand tiers first). A best strand's last carrier stays for any goal (`lastCarrier`).
+    Moves come in priority order (a nearly full trade centre takes the important sends first).
+    Output `herd: { target, kept }`; a habitat may keep more than its target, up to its room. Why:
+    per habitat, a litter lowers its habitat's target (room = space − young), so the natal habitat
+    sent its own weakest, often the leaders' grown young above the herd (simulator: 34% of sends
+    above the herd mean, 29% with `herd`). Hyena groups (at most 3) have no slack: no change.
+  - **Places** (`handStockedPlaces`): where a species has assigned habitats, the programme's places
+    are those, plus each habitat its breeders live in as their home only (they may stay or leave;
+    nobody is moved in). Auto mode adds each unassigned habitat where only this species lives now
+    (no other species, not an exhibit, not unsuitable by the destinations, one of it there now);
+    passed to `planProgramme` as extra assignments, derived each run, never saved, named last in the
+    notes. Thin out takes no assignments (every habitat the species lives in has its target).
+  - **Season hold** (`seasonHold`, `breedingWindow(info, months)`): for a leader species with a
+    breeding season, no move takes a breeding leader out of its group in the season or the
+    `seasonLeadMonths` (1) before it, unless its breeding females are pregnant. Earlier, a pair stays
+    only where its group would have no pair able to breed in the season (a new leader not of age, a
+    mother in her wait); a group left with nobody of a leading sex only from 12 months less the
+    season and one run's interval before it (one season at most). A held change keeps every breeding
+    pair it links (`leaderChanges`); a group that does not breed in the season changes now (holding
+    it cost −0.9 at year 15 in the simulator). Age counts in park time (age + months / 12).
+  - **The mother's wait** (`fertilityAgesOf`): a mother whose youngest young is younger than
+    `info.interBirthYears` less the months to the season's end does not breed.
+  - **Staging** (`stageRestructures`): at most `AUTO_LIMITS.packsPerRun` (2) groups lose a breeding
+    leader per run, best gains first; a change spanning packs goes whole; the first always goes.
+  - **Waits** (`seasonWaits`): a wait taking a breeding leader out while its mate stays carries `by`
+    (the month before the season) and `pair`; `waitsReady(model, waits, months)` drops it from then
+    on. `waitForMates`: pack mates leaving together, the new leader first.
+  - **Cooldown waiver** (built, **off**: `AUTO_LIMITS.waiveGain` null): `locksOf(…, waiveGain)`,
+    ledger view `once` (moved once in the window), programme `cooled` (id → habitats left) /
+    `cooledCost`; never back (also held in `addMove`). Simulator: no steady gain.
+  - **Notes** (the run keeps 3): actionable first, then season and staging, then the pens.
+  - **Simulated, the build together** (**offline**, real planner, measured breeding, 24 paired
+    seeds): wild dog litters 0.31–0.32 a pack-year (the stable-pair limit; before 0.24–0.25), frictions
+    22–25 → 8 of 75 pack-summers, no herd lost (today's Auto mode loses 3 of 24 within 20 years: no
+    litter in years 1–2 while per-habitat Thin out keeps sending), the best 20 dogs +1.9 to +4.7,
+    the whole herd −0.1 to +2.0 (it holds 8–13 more dogs). Hyenas (all year, leader female, groups
+    of 3): unchanged. If neither mate mourns, most of the dog gain goes (litters +1.8 in 15 years
+    instead of +5.8).
 
 ## Breeding programme: non-breeders and the make-up (2026-10-19, offline)
 

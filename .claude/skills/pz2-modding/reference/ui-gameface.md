@@ -68,6 +68,15 @@
 - **Rows are recycled** by the game's `Repeater`. Never restyle or attach state to row roots. Put
   badges inside an inner element (`.MarketAnimalListItem_listRoot`) and refresh them after updates.
   **proven**
+  - The `Repeater` places its row elements with `transform: translate(0, y)`, so DOM order is not
+    screen order: `:first-child` is not the top row, and no CSS rule can pick the top row alone.
+    `.Repeater_container` clips with `overflow: hidden` at the list's top edge. **proven** in the
+    harness (2026-10-29).
+  - PZ2QoL's row badge (`pz2qol.css` `.PZ2QoL_badge`) sits at `top: -0.3rem` (was −0.5rem: the list
+    hid half of the first row's badge). The list now cuts only its border on the first row, and the
+    badge ends above the row's name, whose line box starts 16 px (0.9rem) below the row's top.
+    **proven** in the harness; in game: **open** (Gameface font metrics; −0.35rem if a badge touches
+    the name).
 - **Select-all safety:** while a filter hides rows, turn the game's select-all event into "clear,
   then tick each visible row" with the per-item checkbox event. Clear the selection whenever a
   filter changes. **proven**

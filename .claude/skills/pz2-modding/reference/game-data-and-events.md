@@ -175,14 +175,23 @@ the game's may print it exactly: deterministic either way, so only compare token
   Old gene-score tiers only when no listing of the species has a medal. In the harness the
   schema generator gives random medals.
 
-### Strands on market rows (2026-10-28, **offline**)
+### Strands on market rows (2026-10-28; filled on market rows: **proven** 2026-10-29)
 
 - Market, Trade History, Rewards and Storage rows declare **`geneticIdentities.<size|longevity|
   fertility|immunity>.genes.gene0..gene5`** (strings; schema `AnimalMarketAndStorageSchema.js`
   ~950/1001/1050/1111, generator: two random letters A-D as a string literal). `MarketUtil.js`
   passes them on as `idContext`, but no market component draws them: the market screen shows only
-  the percentages (the developer, 2026-10-28). Whether the native fills them on market rows is
-  **unknown**; PZ2QoL's debug log says once a session (`ui strands identity=present|absent`).
+  the percentages (the developer, 2026-10-28). **Filled natively on market rows** (**proven**):
+  Helix's market copy (in game, 1.0.5, 2026-10-20, 24 Frontier Zoo listings) found the letter pairs
+  on every row, equal to `api.planetHub.GetMarketListingAnimalGenes(id)` (`id` from
+  `api.planetHub.GetIDAndAIDType(row key)`, type 7, as Compare Mates reads them). PZ2QoL's debug log
+  still says once a session (`ui strands identity=present|absent`). Row `gender`: 0 male, 1 female;
+  `age`: `[AnimalExchange_Animal_Age:Years=(13.711668)]` (**proven**, same copy).
+- Listing quality (the same 24, Eurasian lynx and grey wolf; a small sample): Vitality / Longevity
+  letters good (A, B) 0.486, so random (a 6/6 strand about 1 in 75 strands); Fertility / Immunity
+  letters A .363, B .366, C .146, D .125; prices 170-718 CC, mean 449, r = 0.16 with the gene mean;
+  ages 2.0-13.7, 15 of 24 within about a year of adulthood. **proven** for that sample; whether
+  player-bred listings are better is **unknown**.
 - The letters' order, from the park's Genealogy popup (`editors.animal.genealogypopup.lua`
   `getAnimalToleranceBarData`): `"[STRING_LITERAL:Value=|" .. tGenes[i] .. tGenes[i + 6] .. "|]"`,
   so locus i of strand A, then strand B. **offline** (the same format is assumed for market rows).
@@ -194,6 +203,22 @@ the game's may print it exactly: deterministic either way, so only compare token
   `kinstrands.js` `herdBest` / `encodeHerdBest`; the hub page reads it, again at most every 30 s,
   `prefs.js` `rereadPrefs`), `badges.js` ("▲Long6", "▲Vit5+"), `kinboard.js` `strandTag` (trade
   centre and stored cards, "▲L6").
+- PZ2QoL **Market picks** (2026-10-29, experimental, Kin setting `marketPicks`, off by default;
+  switch "Market picks (experimental)" on the market's Quick filters toolbar, `bars.js`): marks a
+  listing whose young with the herd's best mate of the other sex would beat the young of the herd's
+  best pairs by at least 2 points (`PICK_MIN` 0.02): green "Pick +x.x" with the reason, "sure" from
+  strands, "rough" from grades (`badges.js`); Mark / First / Only through the market list hook. The
+  mod never buys. `marketpickcore.js` (pure): `herdMarketFacts` (per species in habitats, breeders
+  not past breeding: best V / L strands and copies, the bench = young of the herd's best disjoint
+  pairs the game does not call inbred, 2 best mates per sex), `encodeMarketFacts` (base-64, 14
+  characters a species + 10 a mate, cap 1000), `scoreListing` (V / L the parents' average, F / I the
+  strand pairs' differences; infertile or too old skipped; under 2 breeding years left counted in
+  proportion). `strandmark.js` adds field `mk` to `herdStrands` only while on; the park page reads the
+  settings every 2 minutes (so the hub's switch reaches it), also while off. `marketpicks.js`: row
+  picks (cached per row and facts), debug lines `ui picks` (per page: `rows`, `scored`, `identity`,
+  `picks`, `best`), `ui pick` (per pick: `score`, `young`, `bench`, `sure`, `why`), `ui
+  picks_setting`, `kin picks_herd`. Simulated (**offline**, measured conception, one pick a year):
+  hyenas +3.0 / +3.8 points at years 15 / 25; dogs nothing at the measured listing quality.
 
 ### Colour morph on market rows (1.0.5, **offline**, 2026-10-18)
 
@@ -765,6 +790,37 @@ Trade shortcuts events (`pz2qol.tradejump.lua`, `tradejump.js`):
   month are not in the Lua. `ParkUIUtils.GetMonthsAndYearsString` (`/ 8`) is unused legacy.
 - **The HUD's season bar shows the season index (0–3), not progress through the season**
   (`windows.mainhud.lua:1623` `seasonProgress = TimeOfMonth:Season()`, four fixed arrow positions).
+- **Breeding seasons** (**offline**, 1.0.5; the wild dog's index **proven** 2026-10-29):
+  `animals:GetSpeciesBreedingSeasons(sp)` returns a Lua array of four booleans, indexed by
+  `TimeOfMonth:Season() + 1`. The info panel reads `matingSeasonActive =
+  tMatingSeasons[GetApparentTimeOfMonth():Season() + 1]`; the exhibits API and boid flocks have the
+  call too. The index is the calendar season (index s = months 3s+1 to 3s+3) in every biome and does
+  not depend on the hemisphere; only the names change (`WeatherUtils.tPerBiomeSeasonOrder`, e.g.
+  savannah `{6, 4, 5, 7}`):
+
+  | Biome | Season names, index 0–3 |
+  |---|---|
+  | Temperate, coniferous, tundra | Spring, Summer, Autumn, Winter |
+  | Savannah | Dry 1, Wet 1, Wet 2, Dry 2 |
+  | Rainforest | Wet 1, Wet 2, Dry 1, Dry 2 |
+  | Desert | Dry 1–4 |
+
+  African wild dog: summer only = index 1 = park months 4–6 ("Wet Season 1" in a savannah zoo); all
+  55 litters in the developer's saves were conceived in it. The table behind it:
+  `animals-and-breeding.md`, "Breeding measured".
+- **Species facts Lua sends for Auto mode** (PZ2QoL `Kin.SpeciesInfo`, 2026-10-29; **offline**, Lua
+  tests; not yet seen in game): `breedingSeasons` (the four flags; anything else sends nothing),
+  `interBirthYears` (`Animals/GetFertilityData` column 6, sent when > 0), `mourningSeasons`
+  (`MourningSeasons`, `GetMatingRules` column 6, sent when ≥ 0; wild dog 4, otter 8, siamang 12). Each
+  read fails soft. The detailed log's `kin species_info` line adds `seasons` (wild dog `0100`); the
+  other two are not in it. Used by `kinautocore.js` (`breedingWindow`, `fertilityAgesOf`) and
+  `kinprogramme.js` (`packMourn`).
+- **The park date in a save** (Helix, **proven** offline 2026-10-29): `parkdata` section `ParkTime`,
+  token 7 = month 1–12, token 8 = year, token 3 = progress through the month; park years = year +
+  (month − 1 + progress) / 12 (matches Auto mode's clock: 48.93368 against the ledger's 48.933679).
+  Datastore ages are synced in bursts (up to 1 park year behind at a save). Animal IDs are UUIDv7:
+  the first 48 bits are the record's creation time (UTC ms), so a zoo-born animal's ID gives its
+  real birth time; littermates share the millisecond.
 - **Reading the date** (park world API, `api.world.GetWorldAPIs().park`): `GetTimeOfMonth()` (real)
   and `GetApparentTimeOfMonth()` (what the HUD/weather/lighting use; the player's time slider can
   override it: schedule on the real one). Both return a `TimeOfMonth` with `:Year() :Month()

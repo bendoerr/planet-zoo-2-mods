@@ -76,6 +76,14 @@ Run all of these before installing a build.
 - Screenshots go to the scratchpad `harness/out`. **Look at them**: layout bugs pass the
   assertions surprisingly often.
 - It prints `OK` or `FAIL` with `HARNESS ERRORS`.
+- **Pitfall (2026-10-29, proven): a newer unpack of the game UI opens the Frontend page under the
+  game's `FrontEnd_Hub_ConservationMap_CreateLocation` modal.** `bars.js` builds no bar while
+  `cover.js` `gameOnTop()`, so every toolbar step of the Frontend fails on any build there: modded
+  storage, storage filter Pregnant, storage sort, market lister, market desk (and its debug log),
+  kin storage, storagesend, tradejump and gene names (Frontend), kin marketpicks (Frontend). Judge
+  them on an older unpack (`--game` or `PZ2H_GAME`), where they pass, or close the popup in a page
+  shim. `kin market desk quick trade` is a timing race (a 200 ms snapshot against a 350 ms check
+  step) that fails now and then on any build.
 - **Pitfall:** the harness runs detached, so `Engine.isCoherentPlayer()` is **true**. The game's
   debug-player-only listeners, such as `SetAnimalMarketScreen`, work here but **not in game**.
   Never let mod code depend on them, only harness navigation.
@@ -237,6 +245,33 @@ Run all of these before installing a build.
   stays). Harness `kin_strands.mjs`: HUD (a trade lion with a 6/6 Longevity strand tagged "▲L6",
   none in habitats, `herdStrands` kept with the park's name) and Frontend (three market lions:
   "▲Long6" from the identity, "▲Long6+" from 92%, none at 83%; no lion herd, no mark).
+- Strand bonus (2026-10-29): `kinstrands.test.mjs` (`strandTargets`: the herd's best strands of
+  animals in habitats that can still breed, juveniles in, trade centre and past breeding out, the
+  gate; `youngCopies`; off, and every best strand common, plan as the default on 4 seeded zoos; a
+  carrier pair beats slightly better young, gated off it does not, also under the waiting ceiling
+  goal), `kinprogramme.test.mjs` "strand bonus: a kept plan is redone when a birth gates a strand
+  off, not for every birth" (`problemSig`), `kinprogtune.test.mjs` "Strand bonus: off on the board
+  unless chosen; Auto mode plans with its own unless chosen" (never Thin out's). Harness
+  `kin_breedwin.mjs`: the "Strand bonus" row in More options (Off / Low / Medium / High, Off chosen,
+  `bw_5b_options_strands`). It scrolls the options list to that row and back to its top before
+  `bw_5c_options_deep`, which checks that the Optimiser and Deep search rows are on screen.
+- Market picks (2026-10-29): `marketpicks.test.mjs` (13 tests: a row's genes strand A then B and its
+  age text; herd facts from habitats only, the best mates per sex, the bench without pairs the game
+  calls inbred; the text's round trip and cap; the score from strands and from grades alone, skips,
+  the age factor, the strand notes, at least 2 points). Harness `kin_marketpicks.mjs` (`--only
+  marketpicks`): HUD (`mk` only while on, `kin picks_herd`) and Frontend (four lions: a sure pick, a
+  rough pick, none, an infertile one; off shows nothing new; marks inside their rows; Mark keeps the
+  page's order; First; Only; off again restores the order; the debug lines). The picks are seeded
+  after the poor and old lions, the lesser pick first, so First must move both and swap them; the
+  step checks the whole order.
+- Pack mourning and the waiver (2026-10-29): `kinprogramme.test.mjs` "packs: a broken bond costs the
+  litters of the mate left behind while it leads (packMourn)", "… 'stayer' the mate that keeps
+  breeding moves; 'both' …; the board plans as before", "an animal in its cooldown moves only for
+  cooledCost, never back", "packMourn scores every layout as from scratch" (exhaustive and search,
+  both rules); `kinauto.test.mjs` "a pack leader pair split by the run: the one that leads goes first,
+  its mate waits for it" (`waitForMates`) and "an animal moved once in its cooldown may move again
+  for a large gain, never back where it came from" (off by default; on: once, never back, hands off,
+  twice). Lua `test_pz2qol.lua` section 11: `mourningSeasons` 0, 4 and absent.
 - `tests/autosave.test.mjs`: autosave summary and countdown helpers. Lua test sections 13–15:
   ModeHelper sweep and the Move guard, SaveTrace, Autosave clock.
 - `kin_board.mjs` checks the board's `Pause between moves` slider and that a refused move is
@@ -505,6 +540,36 @@ Run all of these before installing a build.
   group waits for the leaving male), `tests/kinauto_soak.test.mjs` (50 park years, 3 settings x 3 seeds, about 2 minutes;
   `SOAK_SEEDS=13` runs one zoo, `SOAK_DEBUG=1` prints each zoo's numbers, `SOAK_TRADE` the trade
   centre's places, 40 by default). Seeded zoos: `tests/helpers/zoogen.mjs`.
+- Auto mode, the breeder build (2026-10-29, design section 16):
+  - `tests/kinauto_season.test.mjs` (10 tests): the breeding window on the calendar (starts, ends,
+    nothing known); in the season a breeding pair stays, the newcomer still comes; her young on the
+    way, or a pair that does not breed, may change; before the season a pair stays where its new
+    leader would not be of age; a pack left without a pair holds its leaders in turn; no season
+    data, all-year breeders, no calendar or no leader rule: as before; harems keep the male; a held
+    leader does not wait either; staging (at most two, the best gains first; a change spanning packs
+    whole; the first always goes).
+  - `tests/kinauto_combined.test.mjs` (6 tests, the changes together): staging keeps a split pack
+    pair whole and lets a non-breeding pack change; a breeding pair linked to a held change stays
+    before the season; a leader's wait does not run in the month before the season (in time, late,
+    mate gone, no calendar, autumn, all year); notes order; a hand-stocked pen's pair held with its
+    change; the real planner on 12 random pack zoos × 4 calendars (leaders held together, no wait
+    on a non-moving animal, a dated wait's pair stays, Thin out sends no planned leader, notes unique
+    and ≤ 160 characters). Against `c1e1ca3` 4 of the 6 fail: the faults they pin.
+  - `tests/kincull.test.mjs` "herd: …" (6 tests: the herd's weakest from any habitat and the floor;
+    room; old → extra male → grades; packs, young, the last carrier, pregnant, keeps; Never; a
+    property test over 30 random zoos × 4 species × 5 mating systems: no juvenile, pregnant, moving,
+    kept or breeding leader sent, no herd send better than a same-sex adult left free, the herd at
+    its target unless every free adult sits in a habitat at its floor). `kinauto.test.mjs` "Thin out
+    holds the herd to its habitats' targets together" (Auto mode does, the board's `cullPlan` not).
+  - `kinauto.test.mjs` hand-stocked pens: "a pen stocked with the species alone counts as one of its
+    places" (the player's object unchanged, the mate brought in, the note once, Thin out lists the
+    pen with a target) and "a pen with another species, assigned to another species, or empty is
+    not one of its places" (also a resident on the move or in quarantine, unsuitable by the
+    destinations).
+  - `kinauto_runtime.test.mjs` "a seasonal breeder: a pack keeps its breeding pair through the
+    breeding season, then changes" (fake species facts; fails when `kinauto.js` does not pass
+    `months`). Lua `test_pz2qol.lua` section 11 "breeding seasons: …" (four flags in calendar order,
+    all year; no call, an error or an odd shape sends nothing) and "db: the wait between litters".
 - `kin_autopilot.mjs` (harness): the board with nothing on Auto (the "Auto mode" button, no Auto
   tags, rail marks or menu items), the panel opened and closed (button, Close, Esc, the other two
   panels), Turn on in a Franchise zoo (`kinAuto` saved, nothing sent), every setting saved and read
