@@ -16,7 +16,7 @@
 // ever raises its own score (every move it keeps gains something), and
 // Thin out only takes animals away. So runs stop finding work until
 // something changes in the zoo (a birth, a death, the player).
-import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore.js';
+import { TRADE, assignedHabitatsOf, canMove, isPinned, moveText, normalizeAssignments, simulatePlan } from './kinboardcore.js';
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, conceptionChance, groupRule, isBreeder, packLeaderOf, planProgramme, youngQuality } from './kinprogramme.js';
 import { AUTO_CULL, FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
@@ -148,7 +148,8 @@ export function locksOf(model, species, view) {
 //          centre, null: unknown), tune (the fine tuning, kinprogtune.js:
 //          its Breeding goal and kin rule also decide how Thin out culls),
 //          months (the park's calendar, calendarMonths; null: unknown) }
-// prepareAutoRun(input) -> { model (after Thin out), pins, ... } for the
+// prepareAutoRun(input) -> { model (after Thin out), pins, assignments (the
+// player's and the hand-stocked pens, handStockedPlaces), ... } for the
 // programme; finishAutoRun(input, prep, programmeResult) -> the run:
 // { species, moves: [{ id, to, reason, stage: 'thin'|'programme', reversal }],
 //   programme, thin, notes: [text], held: [{ id, why }],
@@ -161,10 +162,13 @@ export function prepareAutoRun(input) {
     const { model, species, info = null, destinations = null } = input;
     const settings = normalizeSpecies(Object.assign({}, input.settings, { on: true }));
     const out = { species, moves: [], programme: null, thin: null, notes: [], held: [] };
-    const prep = { out, settings, model, pins: new Set(), locked: new Set(), view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity };
+    const prep = { out, settings, model, pins: new Set(), locked: new Set(), view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity, assignments: input.assignments || null, places: [] };
     if (!model || !species) return prep;
     const { locked, pins, view } = locksOf(model, species, input.view);
     Object.assign(prep, { locked, pins, view, tradeLeft: input.tradeFree == null ? Infinity : Math.max(0, input.tradeFree) });
+    // the pens the player stocked with this species alone count as its places
+    const places = handStockedPlaces(model, species, input.assignments, destinations);
+    Object.assign(prep, { assignments: places.assignments, places: places.habs });
     if (settings.thin) {
         // animals Auto mode placed lately stay (Thin out does not undo the
         // programme's last runs), and so does what it must not touch
@@ -247,6 +251,44 @@ export function projectGrownUp(model, species, info, years) {
     return buildKinModel(Object.assign({}, model.snapshot, { animals, normalized: true }), opts);
 }
 
+// A species with habitats assigned to it is planned in those: the programme
+// moves none of it into another habitat, though the ones living there may
+// stay or leave. So a pen the player stocked by hand and never assigned was
+// emptied: Matla, alone in the owner's new pen until his mate came, went to
+// Wild Dog 02 (2026-10-28). For Auto mode's run an unassigned habitat where
+// only this species lives (adults or young; not an exhibit, nobody of
+// another species, one of it living there now: an empty habitat is not
+// used) counts as one of its places: its animals stay, the programme may
+// place more there (the game's own space rule, as anywhere) and Thin out
+// holds it to its room as before. An assignment to another species wins.
+// Worked out each run, never saved (the player store is nearly full). A
+// species with no assignment may use every habitat already.
+// -> { assignments (the player's, with these added), habs: [habitat id] }
+export function handStockedPlaces(model, species, assignments, destinations = null) {
+    const out = { assignments: assignments || null, habs: [] };
+    const assign = normalizeAssignments(assignments);
+    if (!model || !species || !assignedHabitatsOf(assign, species).length) return out;
+    const ok = destinations && destinations.bySpecies && destinations.bySpecies[species];
+    const lives = new Set(), others = new Set();
+    for (const a of model.animals.values()) {
+        if (!a.hab || a.exhibit || a.alive === false) continue;
+        if (a.species !== species) others.add(a.hab);
+        else if (a.lt === 'habitat' && !a.moving) lives.add(a.hab);
+    }
+    for (const h of lives) {
+        const hab = model.habitats.get(h);
+        if (assign.has(h) || others.has(h) || (hab && hab.kind === 'exhibit')) continue;
+        // not suitable for it (the rule for an assigned habitat too)
+        if (ok && ok[h] && !ok[h].ok) continue;
+        out.habs.push(h);
+    }
+    if (!out.habs.length) return out;
+    out.habs.sort();
+    for (const h of out.habs) assign.set(h, new Set([species]));
+    out.assignments = assign;
+    return out;
+}
+
 // overCooldown: the game's own rules (its most per sex, an old leader)
 // outrank Auto mode's own cooldown, never the player's hands off.
 // limit: Thin out sends it away for the game's most per sex (move.limit).
@@ -302,6 +344,9 @@ export function finishAutoRun(input, prep, programme) {
     overLimitNotes(input, out);
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
     if (idle) out.notes.push(`${idle} breeder${idle === 1 ? ' has' : 's have'} no unrelated partner in the zoo: new animals from the market would let ${idle === 1 ? 'it' : 'them'} breed.`);
+    // (last: the run keeps 3 notes)
+    const own = (prep.places || []).length;
+    if (own && model) out.notes.push(`${placesText(model, prep.places)} count${own === 1 ? 's as one of this species\' habitats' : ' as this species\' habitats'}: no other species lives there.`);
     return out;
 }
 
@@ -908,7 +953,7 @@ export function planAutoRun(input) {
     const prep = prepareAutoRun(input);
     if (!input.model || !input.species) return prep.out;
     const r = planProgramme(prep.model, input.species, input.info || {}, input.destinations || null, {
-        assignments: input.assignments || null,
+        assignments: prep.assignments,
         options: programmeOptionsFor(prep.settings, input.ratio || 'auto', prep.pins, input.tune || null),
     });
     return finishAutoRun(input, prep, r);
