@@ -150,6 +150,16 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // retireYears)
     packLeaveCost: 0.03,
     packKeepYears: 1.5,
+    // packs (Auto mode; off: bondBreakCost, flat): a broken bond costs the
+    // litters the mourning mate loses, mournWeight x the pair value of the
+    // pack it leads in the plan per year of mourning (info.mourningSeasons,
+    // else 4 seasons); nothing when it won't lead. Who mourns ('stayer'): the
+    // mate left behind, or when both leave, the one moved second (Auto mode
+    // moves the one that leads first); 'both': the one that moves too (the
+    // game's rule is not known)
+    packMourn: false,
+    mourner: 'stayer',
+    mournWeight: 0.5,
     maxEvaluations: 600000,  // search budget: layout changes scored (about 0.4 s for 100 breeders)
     timeBudgetMs: 1500,      // safety net: stop searching after this long
     exactLimit: 20000,       // score every layout when there are no more than this many
@@ -176,6 +186,12 @@ export const PROGRAMME_DEFAULTS = Object.freeze({
     // breeders that count where they are but never move (hands off, moved
     // by the player, sent away by Auto), like a pregnant one
     pinIds: null,
+    // Auto mode only: breeders it moved lately that may move once more when
+    // that gains cooledCost each (kinautocore.js AUTO_LIMITS.waiveGain), never
+    // back to a habitat they left lately: Map(id -> [habitat ids]) or
+    // { id: [...] }
+    cooled: null,
+    cooledCost: 0.1,
 });
 
 // "Fewer moves <-> Best genetics": the optimiser's cost per moved animal
@@ -771,6 +787,7 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
         estab: placeKeys.map(k => established.has(k)),
         capacity, fixedAdults, fixedSex, spares,
         memo: new Map(),
+        pairMemo: new Map(),
         pvCache: new Float64Array(n * n).fill(NaN),
         // random words for the score cache's keys (32 + 21 bits)
         zA: new Uint32Array(n), zB: new Uint32Array(n), zpA: new Uint32Array(P), zpB: new Uint32Array(P),
@@ -819,14 +836,24 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
     // (and the animals Auto mode must leave where they are, opts.pinIds)
     const pinIds = opts.pinIds instanceof Set ? opts.pinIds : new Set(Array.isArray(opts.pinIds) ? opts.pinIds.map(String) : []);
     ctx.pinned = Uint8Array.from(breeders.map(a => (a.preg || a.away || pinIds.has(a.id) ? 1 : 0)));
+    // moved by Auto mode lately (opts.cooled): a move costs cooledCost more,
+    // and never back to where it came from
+    const cooled = opts.cooled instanceof Map ? opts.cooled : new Map(Object.entries(opts.cooled || {}));
+    ctx.cooled = Uint8Array.from(breeders.map(a => (cooled.has(a.id) ? 1 : 0)));
+    ctx.noBack = breeders.map((a, i) => {
+        const s = new Set();
+        for (const h of cooled.get(a.id) || []) if (placeOf.has(String(h)) && placeOf.get(String(h)) !== ctx.home[i]) s.add(placeOf.get(String(h)));
+        return s.size ? s : null;
+    });
     ctx.targetsOf = ctx.all.map(i => {
         if (ctx.pinned[i]) return [ctx.home[i]];
         const t = new Set(ctx.groupPlaces);
         t.add(trade);
+        if (ctx.noBack[i]) for (const p of ctx.noBack[i]) t.delete(p);
         t.add(ctx.home[i]);
         return Array.from(t).sort((x, y) => x - y);
     });
-    ctx.canGo = (i, p) => p === ctx.home[i] || (!ctx.pinned[i] && (p === trade || (groupPlace[p] && allowed.has(placeKeys[p]))));
+    ctx.canGo = (i, p) => p === ctx.home[i] || (!ctx.pinned[i] && !(ctx.noBack[i] && ctx.noBack[i].has(p)) && (p === trade || (groupPlace[p] && allowed.has(placeKeys[p]))));
     // the pair's value, male m with female f (indices): -1 = related
     // ('ceiling' while it waits, opts.ceilingWait: the expected young)
     const young = opts.goal === 'ceiling' && !opts.ceilingWait ? youngUpside : youngQuality;
@@ -883,6 +910,11 @@ function makeContext(model, info, opts, breeders, all, habitats, home, spares = 
         }
     });
     ctx.hasMono = ctx.bonds.length > 0;
+    // packs (opts.packMourn): a broken bond costs the mourning mate's litters
+    // (bondCost), per year of mourning
+    ctx.packMourn = !!(rule.pack && opts.packMourn && ctx.hasMono);
+    const seasons = info && typeof info.mourningSeasons === 'number' && info.mourningSeasons >= 0 ? info.mourningSeasons : 4;
+    ctx.mournFactor = opts.mournWeight * seasons / 4;
     return ctx;
 }
 
@@ -1082,7 +1114,8 @@ function placeScore(ctx, p, list) {
 function moveCost(ctx, i, p) {
     if (p === ctx.home[i]) return 0;
     return ctx.opts.moveCost + (ctx.groupPlace[p] && ctx.estab[p] ? ctx.opts.outsiderCost : 0)
-        + (ctx.rule.pack ? (ctx.packKeep[i] ? (p === ctx.trade ? ctx.opts.packLeaveCost : 0) : (ctx.groupPlace[p] ? ctx.opts.packLeaveCost / 3 : 0)) : 0);
+        + (ctx.rule.pack ? (ctx.packKeep[i] ? (p === ctx.trade ? ctx.opts.packLeaveCost : 0) : (ctx.groupPlace[p] ? ctx.opts.packLeaveCost / 3 : 0)) : 0)
+        + (ctx.cooled[i] ? ctx.opts.cooledCost : 0);
 }
 
 // a bond is broken when one of the two moved and they live apart
@@ -1092,6 +1125,57 @@ function bondBroken(ctx, b, at) {
     if (bond.b < 0) return pa !== ctx.home[bond.a] && pa !== bond.ext;
     const pb = at(bond.b);
     return (pa !== ctx.home[bond.a] || pb !== ctx.home[bond.b]) && pa !== pb;
+}
+
+// A pack's breeding pair (breedingPairs) at place p with these breeders,
+// cached by who is there as placeScore is: [value, male, female] or null.
+function packPair(ctx, p, list) {
+    let ha = ctx.zpA[p], hb = ctx.zpB[p];
+    for (const i of list) {
+        ha ^= ctx.zA[i];
+        hb ^= ctx.zB[i];
+    }
+    const key = hb * 4294967296 + (ha >>> 0);
+    let pair = ctx.pairMemo.get(key);
+    if (pair === undefined) {
+        pair = breedingPairs(ctx, list, p)[0] || null;
+        if (ctx.pairMemo.size > 200000) ctx.pairMemo.clear();
+        ctx.pairMemo.set(key, pair);
+    }
+    return pair;
+}
+
+// What a broken bond costs: bondBreakCost, or in a pack (ctx.packMourn) the
+// litters the mate that mourns loses while it leads a pack in the plan (its
+// pair's value x mournFactor; nothing when it retires, goes to the trade
+// centre or does not lead). A pack's bond is its leader pair's, and
+// leadership stays behind: either of the two moving ends it, even both to
+// the same habitat. at(i): breeder i's place; membersOf(p): who is there.
+// So when a leader pair must change, the one that keeps breeding moves and
+// the one left behind mourns.
+function bondCost(ctx, b, at, membersOf) {
+    if (!ctx.packMourn) return bondBroken(ctx, b, at) ? ctx.opts.bondBreakCost : 0;
+    const bond = ctx.bonds[b];
+    const loss = i => {
+        if (i < 0) return 0;
+        const p = at(i);
+        if (!ctx.groupPlace[p]) return 0;
+        const pair = packPair(ctx, p, membersOf(p));
+        return pair && pair[0] > 0 && (pair[1] === i || pair[2] === i) ? pair[0] : 0;
+    };
+    const movedA = at(bond.a) !== ctx.home[bond.a];
+    const movedB = bond.b >= 0 && at(bond.b) !== ctx.home[bond.b];
+    if (!movedA && !movedB) return 0;
+    let v;
+    if (ctx.opts.mourner === 'both') v = loss(bond.a) + loss(bond.b);
+    else if (movedA && movedB) {
+        // both leave: the one moved second mourns. Auto mode moves the one
+        // that leads first (kinautocore.js waitForMates); two leaders: either
+        const la = loss(bond.a), lb = loss(bond.b);
+        v = la > 0 && lb > 0 ? (la + lb) / 2 : 0;
+    }
+    else v = movedA ? loss(bond.b) : loss(bond.a);
+    return v * ctx.mournFactor;
 }
 
 function makeState(ctx, place) {
@@ -1105,8 +1189,14 @@ function makeState(ctx, place) {
     }
     for (let i = 0; i < ctx.n; i++) total -= moveCost(ctx, i, place[i]);
     const at = i => place[i];
-    for (let b = 0; b < ctx.bonds.length; b++) if (bondBroken(ctx, b, at)) total -= ctx.opts.bondBreakCost;
-    return { place, members, hs, total };
+    const membersOf = p => members[p];
+    // (packMourn: each bond's cost, as it changes with its packs)
+    const bc = new Float64Array(ctx.bonds.length);
+    for (let b = 0; b < ctx.bonds.length; b++) {
+        bc[b] = bondCost(ctx, b, at, membersOf);
+        total -= bc[b];
+    }
+    return { place, members, hs, total, bc };
 }
 
 function restore(ctx, st, place) {
@@ -1143,7 +1233,29 @@ function evaluate(ctx, st, changes) {
         d += s - st.hs[p];
     }
     for (const [i, q] of moved) d -= moveCost(ctx, i, q) - moveCost(ctx, i, st.place[i]);
-    if (ctx.bonds.length) {
+    if (ctx.packMourn) {
+        // a mourning mate's loss also changes with who joins or leaves its
+        // pack: every bond of a breeder in a changed place
+        const after = i => (moved.has(i) ? moved.get(i) : st.place[i]);
+        const membersAfter = p => (lists.has(p) ? lists.get(p) : st.members[p]);
+        const bc = new Map();
+        for (const [p, list] of lists) {
+            for (const group of [list, st.members[p]]) {
+                for (let k = 0; k < group.length; k++) {
+                    const of = ctx.bondsOf[group[k]];
+                    for (let x = 0; x < of.length; x++) {
+                        const b = of[x];
+                        if (bc.has(b)) continue;
+                        const c = bondCost(ctx, b, after, membersAfter);
+                        bc.set(b, c);
+                        d -= c - st.bc[b];
+                    }
+                }
+            }
+        }
+        return { d, moved, lists, scores, bc };
+    }
+    else if (ctx.bonds.length) {
         const after = i => (moved.has(i) ? moved.get(i) : st.place[i]);
         const before = i => st.place[i];
         const seen = new Set();
@@ -1165,6 +1277,7 @@ function apply(st, ev) {
         st.members[p] = list;
         st.hs[p] = ev.scores.get(p);
     }
+    if (ev.bc) for (const [b, c] of ev.bc) st.bc[b] = c;
     st.total += ev.d;
 }
 
@@ -2353,7 +2466,9 @@ function problemSig(ctx) {
     const places = ctx.placeKeys.map((k, p) => `${k}:${room(k, p)}:${ctx.fixed[p]}:${ctx.allowedPlace[p] ? 1 : 0}${leads(p)}`).sort();
     const r = ctx.rule;
     const facts = [ratioKey(r) + (r.pack ? ' pack' : ''), r.maxMales, r.maxFemales, r.system, JSON.stringify(ctx.info.fertilityAges || null), JSON.stringify(ctx.info.conception || null)].join('|')
-        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '');
+        + (ctx.opts.goal === 'ceiling' ? '|ceiling' : '') + (ctx.opts.kinRule === 'genes' ? `|genes:${ctx.opts.kinFloor}` : '')
+        + (ctx.packMourn ? `|mourn:${ctx.opts.mourner}:${ctx.mournFactor}` : '')
+        + (ctx.cooled.some(x => x) ? `|cooled:${ctx.opts.cooledCost}:${ctx.B.map((a, i) => (ctx.cooled[i] ? a.id + '/' + Array.from(ctx.noBack[i] || []).join('/') : '')).filter(Boolean).sort().join('+')}` : '');
     const spares = (ctx.spares || []).map(a => `${a.id}@${a.hab}:${a.sex}:${a.contra ? 1 : 0}`).sort();
     return `${rows.join(';')}#${places.join(';')}#${facts}#${spares.join(';')}`;
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { buildKinModel, Sex } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kincore.js';
 import { TRADE, simulatePlan } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinboardcore.js';
 import {
-    planProgramme, isBreeder, conceptionChance, youngQuality, habitatCapacity, estimateSpacePerAdult,
+    planProgramme, isBreeder, conceptionChance, youngQuality, longevityWeight, habitatCapacity, estimateSpacePerAdult,
     groupRule, parseRatio, reduceRatio, ratioKey, groupTarget, maxWeightPairs, scoreLayout, planProgrammeAsync, RATIO_CHOICES,
     unknownMakeupText, makeupDbNote, contraceptionAdvice, ownGeneScore, CONTRA_ADVICE, programmeProblemSig, withFreshYoung,
 } from '../mods/PZ2QoL/UI/UIGameface/js/mods/pz2qol/kinprogramme.js';
@@ -999,4 +999,125 @@ test('packs: a leader that cannot breed blocks its pack; the plan does not count
     assert.equal(plan.after.breedingPairs, 0);
     assert.ok(!plan.moves.some(m => m.id === 'old'), 'not a breeder: the programme does not move it (Auto mode: leaderBlockers)');
     assert.ok(!plan.moves.some(m => m.to === TRADE && m.spare), 'no make-up places in a pack: nobody leaves as a spare');
+});
+
+// Packs and mourning (Auto mode's packMourn, 2026-10-28): a leader pair's
+// bond ends when either of the two moves, and the mate left behind mourns
+// (4 seasons for an African wild dog) and can't breed. Cradle #2's case: the
+// programme would split Mosi x Chibeka to give Chibeka to Matla, a better
+// male; which of them moves decides who mourns.
+const MOURN_ZOO = () => [
+    an('Mosi', M, '1', [], { age: 7.7, alpha: true, mates: ['Chibeka'], genes: { F: 'BABBBBBBABBB', I: 'BBBBBBHHHHHH', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
+    an('Chibeka', F, '1', [], { age: 3.9, alpha: true, mates: ['Mosi'], genes: { F: 'BBABBBABBAAA', I: 'HHHHHHBBBBBB', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
+    an('Amare', M, '2', [], { age: 5.9, alpha: true, genes: { F: 'ABABABABAABA', I: 'HHHHHHAAAAAA', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
+    an('Thembile', F, '2', [], { age: 3.6, alpha: true, genes: { F: 'BBBABAAAABBB', I: 'EEEEEECCCCCC', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
+    an('Matla', M, '', [], { age: 2.6, lt: 'trade', loc: 'Trade Centre', genes: { F: 'ABAAAABABABB', I: 'EEEEEECCCCCC', S: 'AAAAAACCCCCC', L: 'AAAAAACCCCCC' } }),
+];
+const PACK_AGES = Object.assign({ fertilityAges: { maturity: 1.5, infertility: 10 } }, PACK);
+const FREE = { moveCost: 0, outsiderCost: 0 };
+
+test('packs: a broken bond costs the litters of the mate left behind while it leads (packMourn)', () => {
+    const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
+    const d = DEST(['1', '2']);
+    const score = (options, moves) => scoreLayout(model, 'Lion', PACK_AGES, d, { options: Object.assign({}, FREE, options) }, moves);
+    const none = score({ packMourn: true }, []);
+    // Matla in, Mosi out: Chibeka stays, mourns and leads with Matla
+    const stays = [{ id: 'Matla', to: '1' }, { id: 'Mosi', to: '2' }];
+    // Chibeka goes to lead with Matla: Mosi stays and mourns, leading Thembile
+    const goes = [{ id: 'Chibeka', to: '2' }, { id: 'Matla', to: '2' }, { id: 'Amare', to: '1' }, { id: 'Thembile', to: '1' }];
+    // ... and Mosi to the trade centre after her: he leads nothing, nobody's litter is lost
+    const retires = goes.concat([{ id: 'Mosi', to: TRADE }]);
+    const flat = m => score({}, m) - score({ bondBreakCost: 0 }, m);
+    const mourn = m => score({ packMourn: true }, m) - score({ packMourn: true, mournWeight: 0 }, m);
+    // the board's flat cost, whoever moves
+    for (const m of [stays, goes, retires]) assert.ok(Math.abs(flat(m) + 0.15) < 1e-9, JSON.stringify(m));
+    assert.ok(Math.abs(score({}, []) - none) < 1e-9, 'nothing moved: nothing to mourn');
+    // packMourn: half a year of the mourner's pack (mournWeight 0.5, 4 seasons)
+    const pv = (m, f) => {
+        const [a, b] = [model.animals.get(m), model.animals.get(f)];
+        return youngQuality(a, b) * conceptionChance(a, b, PACK_AGES) * longevityWeight(a, b, PACK_AGES);
+    };
+    assert.ok(Math.abs(mourn(stays) + 0.5 * pv('Matla', 'Chibeka')) < 1e-9, `${mourn(stays)}`);
+    assert.ok(Math.abs(mourn(goes) + 0.5 * pv('Mosi', 'Thembile')) < 1e-9, `${mourn(goes)}`);
+    assert.ok(Math.abs(mourn(retires)) < 1e-9, 'the one that leads moves first, the other mourns but leads nothing');
+    // 'both' (the one that moves mourns too): Chibeka's litter is lost either way
+    assert.ok(score({ packMourn: true, mourner: 'both' }, retires) < score({ packMourn: true }, retires) - 0.1);
+});
+
+test('packs: with packMourn the mate that keeps breeding moves; the board plans as before', () => {
+    const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
+    const leadsWith = (plan, id) => (plan.groups.find(g => (g.leaders || []).includes(id)) || {}).leaders || [];
+    for (const exactLimit of [0, 20000]) {
+        const board = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit }, FREE) });
+        assert.deepEqual(leadsWith(board, 'Chibeka').sort(), ['Chibeka', 'Matla'], JSON.stringify(board.moves));
+        assert.equal(where(model, board, 'Chibeka'), '1', 'the board: Matla joins her, she stays and mourns');
+        const auto = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ exactLimit, packMourn: true }, FREE) });
+        assert.deepEqual(leadsWith(auto, 'Chibeka').sort(), ['Chibeka', 'Matla'], JSON.stringify(auto.moves));
+        assert.notEqual(where(model, auto, 'Chibeka'), '1', `she moves to lead with him: ${JSON.stringify(auto.moves)}`);
+        assert.equal(leadsWith(auto, 'Mosi').length, 0, 'the mate left behind leads nothing');
+        assert.ok(auto.score > board.score - 0.5, 'about as good a layout');
+    }
+});
+
+test('packs: an animal in its cooldown moves only for cooledCost, never back where it came from', () => {
+    // Auto mode moved Matla from habitat 2 to the trade centre lately (cooled):
+    // with no cost he goes to lead with Chibeka; with a high one he stays
+    const model = buildKinModel(snap(MOURN_ZOO(), ['1', '2']));
+    const plan = cost => planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ cooled: { Matla: ['2'] }, cooledCost: cost, packMourn: true }, FREE) });
+    const cheap = plan(0);
+    assert.ok(cheap.moves.some(m => m.id === 'Matla'), JSON.stringify(cheap.moves));
+    assert.notEqual(where(model, cheap, 'Matla'), '2', 'never back to habitat 2');
+    assert.ok(!plan(5).moves.some(m => m.id === 'Matla'), 'a gain under the cost: he stays');
+    // the same plan as pinned when no move gains enough
+    const pinned = planProgramme(model, 'Lion', PACK_AGES, DEST(['1', '2']), { options: Object.assign({ pinIds: ['Matla'], packMourn: true }, FREE) });
+    assert.deepEqual(plan(5).moves, pinned.moves);
+});
+
+test('packs: packMourn scores every layout as from scratch (exhaustive, search; both mourning rules)', () => {
+    for (let seed = 1; seed <= 12; seed++) {
+        const r = rng(seed * 31);
+        const L = 'ABCDEFGH';
+        const strand = () => Array.from({ length: 6 }, () => L[Math.floor(r() * 8)]).join('');
+        const habs = ['1', '2', '3'].slice(0, 2 + Math.floor(r() * 2));
+        const animals = [];
+        for (let i = 0; i < 6 + Math.floor(r() * 2); i++) {
+            const trade = r() < 0.15;
+            animals.push(an('a' + i, i % 2 ? M : F, trade ? '' : habs[Math.floor(r() * habs.length)], [], {
+                lt: trade ? 'trade' : 'habitat', age: 2 + Math.floor(r() * 70) / 10,
+                genes: { F: strand() + strand(), I: strand() + strand(), S: strand() + strand(), L: strand() + strand() },
+            }));
+        }
+        // each habitat's eldest of each sex leads; the two leaders are mates
+        for (const h of habs) {
+            const lead = s => animals.filter(a => a.hab === h && a.sex === s).sort((x, y) => y.age - x.age)[0];
+            const [m, f] = [lead(M), lead(F)];
+            for (const a of [m, f]) if (a) a.alpha = true;
+            if (m && f && r() < 0.8) {
+                m.mates = [f.id];
+                f.mates = [m.id];
+            }
+        }
+        const model = buildKinModel(snap(animals, habs));
+        const dest = DEST(habs);
+        const options = { packMourn: true, mourner: seed % 2 ? 'both' : 'stayer', moveCost: 0.02 };
+        const plan = planProgramme(model, 'Lion', PACK_AGES, dest, { options });
+        assert.equal(plan.exact, true);
+        const ids = animals.map(a => a.id);
+        const places = habs.concat([TRADE]);
+        let best = -Infinity;
+        for (let k = 0; k < places.length ** ids.length; k++) {
+            let x = k;
+            const moves = [];
+            for (const id of ids) {
+                const to = places[x % places.length];
+                x = Math.floor(x / places.length);
+                if (to !== (model.animals.get(id).hab || TRADE)) moves.push({ id, to });
+            }
+            const s = scoreLayout(model, 'Lion', PACK_AGES, dest, { options }, moves);
+            if (s != null && s > best) best = s;
+        }
+        assert.ok(Math.abs(plan.score - best) < 1e-6, `seed ${seed}: plan ${plan.score}, best ${best}`);
+        const heur = planProgramme(model, 'Lion', PACK_AGES, dest, { options: Object.assign({ exactLimit: 0 }, options) });
+        assert.ok(Math.abs(scoreLayout(model, 'Lion', PACK_AGES, dest, { options }, heur.moves) - heur.score) < 1e-6, `seed ${seed}`);
+    }
 });

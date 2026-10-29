@@ -20,7 +20,7 @@ import { TRADE, canMove, isPinned, moveText, simulatePlan } from './kinboardcore
 import { PROGRAMME_DEFAULT_STEP, PROGRAMME_STEPS, groupRule, isBreeder, planProgramme } from './kinprogramme.js';
 import { FILL_STEPS, breedsNow, cullPlan, sexLimit } from './kincull.js';
 import { Sex, buildKinModel } from './kincore.js';
-import { applyTuning, tuningCull, tuningGoal } from './kinprogtune.js';
+import { applyTuning, normalizeTuning, tuningCull, tuningGoal } from './kinprogtune.js';
 import { carrierKeepers, lastCarrier, speciesStrands } from './kinstrands.js';
 
 // How often a species' run comes round, in months of the park's calendar
@@ -45,6 +45,10 @@ export const AUTO_LIMITS = Object.freeze({
     cooldownYears: 1,           // an animal Auto mode moved stays put this long: as births and
                                 // ageing change the zoo, the programme's best layout shifts, and
                                 // without this it would move some animals back and forth
+    waiveGain: 0.1,             // ... unless it moved only once in that time and moving it again
+                                // gains this much (pair-value units: a young better pair taking
+                                // over a pack from an older one), never back where it came from.
+                                // null: off
     growUpYears: 0.5,           // young this close to growing up count as breeders. 0: off;
                                 // youth is left alone until it is grown (the developer,
                                 // 2026-10-19: young were sent to the trade centre)
@@ -71,12 +75,17 @@ export function normalizeSpecies(raw) {
 
 // The programme's options for these settings (the board's programmeOptions
 // with the same slider step, trade switch and make-up, and the player's
-// fine tuning, kinprogtune.js).
-export function programmeOptionsFor(settings, ratio = 'auto', pinIds = null, tune = null) {
+// fine tuning, kinprogtune.js). Auto mode's own: in a pack a broken bond
+// costs the litters its mourning loses (packMourn; the player's "Splitting
+// a bonded pair" keeps the flat cost), and the animals in their cooldown
+// that may move once more (cooled: locksOf's waive, AUTO_LIMITS.waiveGain).
+export function programmeOptionsFor(settings, ratio = 'auto', pinIds = null, tune = null, cooled = null) {
     const st = PROGRAMME_STEPS[settings.step] || PROGRAMME_STEPS[PROGRAMME_DEFAULT_STEP];
     const o = { moveCost: st.cost, useTradeCentre: settings.trade !== false, ratio: ratio || 'auto' };
     if (st.outsider != null) o.outsiderCost = st.outsider;
     if (pinIds && pinIds.size) o.pinIds = pinIds;
+    if (cooled && cooled.size) Object.assign(o, { cooled, cooledCost: AUTO_LIMITS.waiveGain });
+    if (!normalizeTuning(tune).bondBreakCost) o.packMourn = true;
     return applyTuning(Object.assign(o, AUTO_SEARCH), tune);
 }
 
@@ -91,32 +100,38 @@ function homeOf(a) {
     return a.hab || (a.lt === 'trade' ? TRADE : '');
 }
 
-// The ledger's view for this load, checked: { pinned, cooled, leaving,
-// recentFrom: Map(id -> Set(hab)), blocked: Set('id>to') }.
+// The ledger's view for this load, checked: { pinned, cooled, once (cooled,
+// moved once in the cooldown), leaving, recentFrom: Map(id -> Set(hab)),
+// blocked: Set('id>to') }.
 function viewOf(v) {
     const o = v || {};
     const recent = new Map();
     const src = o.recentFrom instanceof Map ? o.recentFrom : new Map(Object.entries(o.recentFrom || {}));
     for (const [k, s] of src) recent.set(String(k), asSet(s));
-    return { pinned: asSet(o.pinned), cooled: asSet(o.cooled), leaving: asSet(o.leaving), recentFrom: recent, blocked: asSet(o.blocked) };
+    return { pinned: asSet(o.pinned), cooled: asSet(o.cooled), once: asSet(o.once), leaving: asSet(o.leaving), recentFrom: recent, blocked: asSet(o.blocked) };
 }
 
 // The animals Auto mode leaves where they are (hands off, moved by Auto
 // mode itself lately), and those the programme treats as fixed (also the
-// ones it sent away, which stay away).
+// ones it sent away, which stay away). waive: the ones in their cooldown
+// that moved once in it, not hands off: the programme may move them once
+// more for a large gain (AUTO_LIMITS.waiveGain), never back to a habitat
+// they left (Map(id -> [habitat])). So none moves more than twice a year.
 export function locksOf(model, species, view) {
     const v = viewOf(view);
     const locked = new Set();
+    const waive = new Map();
     for (const a of model.animals.values()) {
         if (a.species !== species) continue;
-        if (v.pinned.has(a.id) || v.cooled.has(a.id)) locked.add(a.id);
+        if (AUTO_LIMITS.waiveGain != null && v.cooled.has(a.id) && v.once.has(a.id) && !v.pinned.has(a.id) && !v.leaving.has(a.id)) waive.set(a.id, Array.from(v.recentFrom.get(a.id) || []));
+        else if (v.pinned.has(a.id) || v.cooled.has(a.id)) locked.add(a.id);
     }
     const pins = new Set(locked);
     for (const id of v.leaving) {
         const a = model.animals.get(id);
         if (a && a.species === species && homeOf(a) === TRADE) pins.add(id);
     }
-    return { locked, pins, view: v };
+    return { locked, pins, view: v, waive };
 }
 
 // One run, in two halves around the Breeding programme (the runtime runs
@@ -146,15 +161,16 @@ export function prepareAutoRun(input) {
     const { model, species, info = null, destinations = null } = input;
     const settings = normalizeSpecies(Object.assign({}, input.settings, { on: true }));
     const out = { species, moves: [], programme: null, thin: null, notes: [], held: [] };
-    const prep = { out, settings, model, pins: new Set(), locked: new Set(), view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity };
+    const prep = { out, settings, model, pins: new Set(), locked: new Set(), waive: new Map(), view: viewOf(input.view), taken: new Set(), tradeLeft: Infinity };
     if (!model || !species) return prep;
-    const { locked, pins, view } = locksOf(model, species, input.view);
-    Object.assign(prep, { locked, pins, view, tradeLeft: input.tradeFree == null ? Infinity : Math.max(0, input.tradeFree) });
+    const { locked, pins, view, waive } = locksOf(model, species, input.view);
+    Object.assign(prep, { locked, pins, view, waive, tradeLeft: input.tradeFree == null ? Infinity : Math.max(0, input.tradeFree) });
     if (settings.thin) {
         // animals Auto mode placed lately stay (Thin out does not undo the
         // programme's last runs), and so does what it must not touch
         const keepIds = new Set(locked);
         for (const id of view.recentFrom.keys()) keepIds.add(id);
+        for (const id of waive.keys()) keepIds.add(id);
         // the game's own most per sex outranks Auto mode's own cooldown (it
         // put the second male there), never the player's hands off
         const limitKeepIds = new Set(Array.from(locked).filter(id => view.pinned.has(id)));
@@ -242,6 +258,11 @@ function addMove(prep, a, to, reason, stage, { overCooldown = false, limit = fal
     if (!a || !canMove(a) || isPinned(a) || taken.has(a.id)) return false;
     if (locked.has(a.id) && !(overCooldown && !view.pinned.has(a.id))) return false;
     if (String(to) === homeOf(a)) return false;
+    // in its cooldown (locksOf's waive): never back where it came from
+    if (prep.waive && prep.waive.has(a.id) && view.recentFrom.has(a.id) && view.recentFrom.get(a.id).has(String(to))) {
+        out.held.push({ id: a.id, why: 'it left there lately' });
+        return false;
+    }
     if (view.blocked.has(`${a.id}>${to}`)) {
         out.held.push({ id: a.id, why: 'the game refused this move recently' });
         return false;
@@ -281,6 +302,7 @@ export function finishAutoRun(input, prep, programme) {
     keepGameLimits(input, out);
     waitForLeavingMales(input, out);
     waitForNewLeaders(input, out);
+    waitForMates(input, out);
     if (out.held.some(x => x.why === 'the trade centre is full')) out.notes.push('The trade centre is full: some animals stay until there is room (sell or release the ones waiting there).');
     overLimitNotes(input, out);
     const idle = programme && programme.after ? programme.after.idle || 0 : 0;
@@ -536,6 +558,50 @@ function waitForNewLeaders(input, out) {
     }
 }
 
+// Packs: a leader pair the run moves apart, both of them. The one left
+// behind mourns (4 seasons for an African wild dog) and can't breed, so the
+// one that leads a pack after the plan goes first and its mate, which won't
+// lead, waits until it has left (kinprogramme.js bondCost counts on this).
+// The waits carry kind 'leader'; one already waiting for newcomers also
+// waits for its mate.
+function waitForMates(input, out) {
+    const { model } = input;
+    const leads = new Set(((out.programme && out.programme.groups) || []).flatMap(g => g.leaders || []).map(String));
+    if (!model || !leads.size || !(out.moves.length + out.waits.length)) return;
+    if (!groupRule(input.info || {}, input.ratio || 'auto').pack) return;
+    const going = new Set(out.moves.concat(out.waits).map(m => String(m.id)));
+    const firstOf = a => {
+        for (const id of a.mates || []) {
+            const b = model.animals.get(String(id));
+            if (b && b.hab === a.hab && leads.has(String(b.id)) && going.has(String(b.id))) return b;
+        }
+        return null;
+    };
+    const waiting = [];
+    for (const m of out.moves.concat(out.waits)) {
+        const a = model.animals.get(String(m.id));
+        if (!a || !a.hab || leads.has(String(a.id))) continue;
+        const b = firstOf(a);
+        if (!b) continue;
+        let w = out.waits.find(x => String(x.id) === String(a.id));
+        if (!w) {
+            out.moves.splice(out.moves.indexOf(m), 1);
+            w = Object.assign({}, m, { kind: 'leader', from: homeOf(a), hab: String(m.to), at: a.hab, arrive: [], after: [], names: [], arriveNames: [], afterNames: [] });
+            out.waits.push(w);
+        }
+        if (w.kind !== 'leader' || w.after.includes(String(b.id))) continue;
+        w.after = w.after.concat([String(b.id)]);
+        w.afterNames = w.afterNames.concat([b.name]);
+        w.names = w.names.concat([b.name]);
+        waiting.push(w);
+    }
+    // the waits in order (the mate after the one it waits for)
+    for (const w of waiting) {
+        const i = out.waits.indexOf(w);
+        if (out.waits.slice(i + 1).some(x => w.after.includes(String(x.id)))) out.waits.push(out.waits.splice(i, 1)[0]);
+    }
+}
+
 // A waiting move in words: what it waits for ('Kito and Zuri have left',
 // 'Abeo has arrived and Kito has left').
 export function waitText(w) {
@@ -594,7 +660,7 @@ export function planAutoRun(input) {
     if (!input.model || !input.species) return prep.out;
     const r = planProgramme(prep.model, input.species, input.info || {}, input.destinations || null, {
         assignments: input.assignments || null,
-        options: programmeOptionsFor(prep.settings, input.ratio || 'auto', prep.pins, input.tune || null),
+        options: programmeOptionsFor(prep.settings, input.ratio || 'auto', prep.pins, input.tune || null, prep.waive),
     });
     return finishAutoRun(input, prep, r);
 }
