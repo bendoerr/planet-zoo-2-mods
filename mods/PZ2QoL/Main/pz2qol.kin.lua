@@ -2111,10 +2111,11 @@ end
 -- read went ("ok", or what failed), for the Breeding programme's notes.
 -- The space rule comes the same way (GetAnimalSpaceRequirements,
 -- Requirements_HabitatSpace): the Lua API gives only the requirement for the
--- animals there now.
+-- animals there now. And the wait between a mother's litters (GetFertilityData,
+-- Lifecycle_FertilityData InterBirthYears: no Lua call known).
 -- -> species -> { nMaxMixedMale, nMaxMixedFemale, nMaxBachelorMale,
 --    nMaxBachelorFemale, bLeaderMale, bLeaderFemale,
---    tSpace = { land = { base, per }, ... } }
+--    tSpace = { land = { base, per }, ... }, nInterBirth }
 Kin.tSpeciesDb = nil
 Kin.sDbStatus = nil
 Kin._SpeciesDb = function(self)
@@ -2229,6 +2230,15 @@ Kin._SpeciesDb = function(self)
 				end
 			end
 		end
+		-- AnimalType, FertilityValue, ElderlyAge, InfertileWhenElderly,
+		-- GestationYears, InterBirthYears, MinLitterSize, MaxLitterSize
+		for _, r in ipairs(rows("GetFertilityData", 8)) do
+			local e = entry(r)
+			local n = e ~= nil and tonumber(r[6]) or nil
+			if n ~= nil and n > 0 then
+				e.nInterBirth = n
+			end
+		end
 	end
 	if next(t) ~= nil then
 		mark("kin_db_found")
@@ -2261,6 +2271,25 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	if type(nMat) == "number" then
 		tOut.fertilityAges = { maturity = nMat, infertility = nInfert }
 	end
+	-- the breeding seasons: one flag per season of the calendar year, in the
+	-- order of TimeOfMonth:Season() (the info panel reads
+	-- tMatingSeasons[Season() + 1], AnimalInfoPopUp, offline 1.0.5). Auto mode
+	-- keeps a seasonal breeder's pairs together before and through it.
+	-- Anything but four flags sends nothing
+	pcall(function()
+		local tSeasons = call(animals, "GetSpeciesBreedingSeasons", sSpecies)
+		if type(tSeasons) ~= "table" or tSeasons[5] ~= nil then
+			return
+		end
+		local tFlags = array()
+		for i = 1, 4 do
+			if type(tSeasons[i]) ~= "boolean" then
+				return
+			end
+			tFlags[i] = tSeasons[i]
+		end
+		tOut.breedingSeasons = tFlags
+	end)
 	tOut.mating, tOut.matingRaw = self:_MatingSystem(animals, sSpecies)
 	-- group make-up (males per female): the game's own social groups
 	local bGroups, tGroups = pcall(socialGroups, tAPIs, sSpecies)
@@ -2314,6 +2343,11 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	if tDb ~= nil and tDb.tSpace ~= nil then
 		tOut.space = tDb.tSpace
 	end
+	-- the wait between a mother's litters, in years from the birth (Auto
+	-- mode: a mother with young of the last season does not breed in this one)
+	if tDb ~= nil and tDb.nInterBirth ~= nil then
+		tOut.interBirthYears = tDb.nInterBirth
+	end
 	-- the game's conception chance by fertility grades (0..6 x 0..6), at full welfare
 	local nSpeciesFert = call(animals, "GetAnimalSpeciesFertility", sSpecies)
 	local nBonus = call(animals, "GetMatingResearchBonus", sSpecies) or 0
@@ -2359,12 +2393,19 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 			for _ in pairs(tOut.habitats) do
 				nHabs = nHabs + 1
 			end
+			local sSeasons = nil
+			if tOut.breedingSeasons ~= nil then
+				sSeasons = ""
+				for i = 1, 4 do
+					sSeasons = sSeasons .. (tOut.breedingSeasons[i] and "1" or "0")
+				end
+			end
 			Core:Log("kin", "species_info", {
 				species = sSpecies, mating = tOut.mating, matingRaw = tOut.matingRaw,
 				socialMin = tOut.social and tOut.social.min, socialMax = tOut.social and tOut.social.max,
 				sexMaxMale = tOut.sexMax and tOut.sexMax.male, sexMaxFemale = tOut.sexMax and tOut.sexMax.female, sexMaxFrom = tOut.sexMaxFrom,
 				leaderMale = tOut.leaderMale, leaderFemale = tOut.leaderFemale,
-				groups = table.concat(tG, ","), habitats = nHabs,
+				groups = table.concat(tG, ","), habitats = nHabs, seasons = sSeasons,
 			})
 		end
 	end)

@@ -1412,6 +1412,9 @@ do
 			elseif inst.sSt == "GetAnimalSpaceRequirements" then
 				-- Greater flamingo's row (animals.fdb): land, water, deep swim, shelter, climb, flight
 				return { { "Zebra_Plains", 400, 40, 0, 0, 0, 0, 2, 0, 0, 0, 0 }, { "Flamingo_Greater", 100, 6, 80, 3, 0, 0, 2, 0, 0, 60, 2 } }
+			elseif inst.sSt == "GetFertilityData" then
+				-- FertilityValue, ElderlyAge, InfertileWhenElderly, GestationYears, InterBirthYears, litter sizes
+				return { { "Zebra_Plains", 0.5, 18, 1, 1.083, 0.917, 1, 1 }, { "Flamingo_Greater", 0.5, 30, 1, 0.08, 0, 1, 3 } }
 			end
 			return {}
 		end,
@@ -1431,10 +1434,12 @@ do
 	check(t.bachelorMax and t.bachelorMax.male == 6 and t.bachelorMax.female == 6, "db: the one-sex (bachelor) group limits too")
 	check(tStatements[1] == "Animals/GetDesiredPopulationSizes" and tStatements[2] == "Animals/GetMatingRules" and tStatements[3] == "Animals/GetAnimalSpaceRequirements", "db: the game's own statements")
 	check(t.space and t.space.land and t.space.land.base == 400 and t.space.land.per == 40 and t.space.water == nil, "db: the space rule, no area type without a per-animal part")
+	check(t.interBirthYears and math.abs(t.interBirthYears - 0.917) < 1e-6 and tStatements[4] == "Animals/GetFertilityData", "db: the wait between litters (InterBirthYears)")
 	local nRead = #tStatements
 	t = ask("d2", "Lion")
 	check(#tStatements == nRead, "db: read once per session")
 	check(t.space == nil, "db: no space row, no rule sent")
+	check(t.interBirthYears == nil, "db: no fertility row, no wait between litters sent")
 	check(t.sexMax and t.sexMax.male == 2 and t.sexMax.female == 7 and t.leaderMale == true, "db: a boolean flag read as well")
 	check(t.bachelorMax and t.bachelorMax.male == 4 and t.bachelorMax.female == nil, "db: no bachelor females (0) is no limit sent")
 	check(t.dbStatus == nil, "db: no status when the species was read")
@@ -1509,6 +1514,35 @@ do
 	-- the enum fields missing from the API: a number can't be read
 	s, r = sys(1, { Monogamy = false, Polygyny = false, Polyandre = false, Polygyandry = false })
 	check(s == nil and r == "1", "enum fields missing: unread, sent raw")
+end
+-- the breeding seasons (Auto mode keeps a seasonal breeder's pairs together):
+-- four flags sent as they are; no call, an error or anything but four flags
+-- sends nothing, and the rest is answered as before
+do
+	local fnOld = animalsAPI.GetSpeciesBreedingSeasons
+	local function ask(fn)
+		animalsAPI.GetSpeciesBreedingSeasons = fn
+		tCalls = {}
+		fireUI(oHUD, "PZ2QoL_KinSpecies", "bs", "Lion", "101")
+		local c = calls("Trigger")[1]
+		return c and jsonDecode(c.tArgs[3]) or {}
+	end
+	local sAsked = nil
+	local t = ask(function(self, sp) sAsked = sp; return { false, true, false, false } end)
+	local b = t.breedingSeasons
+	check(sAsked == "Lion" and type(b) == "table" and #b == 4 and b[1] == false and b[2] == true and b[3] == false and b[4] == false, "breeding seasons: four flags, in calendar order")
+	check(t.social and t.social.max == 9 and t.fertilityAges and t.fertilityAges.maturity == 3, "breeding seasons: the rest answered as before")
+	t = ask(function(self, sp) return { true, true, true, true } end)
+	check(t.breedingSeasons and #t.breedingSeasons == 4 and t.breedingSeasons[3] == true, "breeding seasons: all year sent as it is")
+	t = ask(nil)
+	check(t.breedingSeasons == nil and t.species == "Lion" and t.social ~= nil, "breeding seasons: no call, nothing sent")
+	t = ask(function(self, sp) error("bad species") end)
+	check(t.breedingSeasons == nil and t.species == "Lion" and t.social ~= nil, "breeding seasons: an error sends nothing")
+	for _, v in ipairs({ { true, false, false }, { 0, 1, 0, 0 }, { true, false, false, false, true }, "summer" }) do
+		t = ask(function(self, sp) return v end)
+		check(t.breedingSeasons == nil and t.species == "Lion", "breeding seasons: an odd answer sends nothing (" .. (type(v) == "table" and #v .. " entries" or tostring(v)) .. ")")
+	end
+	animalsAPI.GetSpeciesBreedingSeasons = fnOld
 end
 
 -- Find a mate: the player's stored adults of a species (Franchise only, as

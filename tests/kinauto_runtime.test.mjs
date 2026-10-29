@@ -54,8 +54,9 @@ globalThis.engine = {
             fire('PZ2QoL_StoreSaved', args[0], true);
         }
         else if (name === 'PZ2QoL_KinScan') setTimeout(publish, 5);
-        else if (name === 'PZ2QoL_KinDestinations') fire('PZ2QoL_KinDestinationsResult', args[0], JSON.stringify({ bySpecies: { Lion: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Zebra: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Sable: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } } }, habitats: [{ id: '1', name: 'H1' }, { id: '2', name: 'H2' }, { id: '3', name: 'H3' }], tradeCentre: { id: '99', name: 'Trade Centre' } }));
-        else if (name === 'PZ2QoL_KinSpecies') fire('PZ2QoL_KinSpeciesResult', args[0], JSON.stringify({ social: { min: 2, max: 6 }, mating: 'polygyny', habitats: { 1: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 2: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 3: { available: { land: 4000 }, required: { land: 1000 }, adults: 0 } } }));
+        else if (name === 'PZ2QoL_KinDestinations') fire('PZ2QoL_KinDestinationsResult', args[0], JSON.stringify({ bySpecies: { Lion: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Zebra: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Sable: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } }, Dog: { 1: { ok: true }, 2: { ok: true }, 3: { ok: true } } }, habitats: [{ id: '1', name: 'H1' }, { id: '2', name: 'H2' }, { id: '3', name: 'H3' }], tradeCentre: { id: '99', name: 'Trade Centre' } }));
+        // (fake.speciesInfo: a species' own facts on top)
+        else if (name === 'PZ2QoL_KinSpecies') fire('PZ2QoL_KinSpeciesResult', args[0], JSON.stringify(Object.assign({ social: { min: 2, max: 6 }, mating: 'polygyny', habitats: { 1: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 2: { available: { land: 4000 }, required: { land: 1000 }, adults: 2 }, 3: { available: { land: 4000 }, required: { land: 1000 }, adults: 0 } } }, (fake.speciesInfo || {})[args[1]] || {})));
         else if (name === 'PZ2QoL_AutoGate') fire('PZ2QoL_AutoGateResult', args[0], JSON.stringify(Object.assign({ gameMode: fake.mode, hubTypeKnown: true, franchiseZoo: fake.mode === 'franchise', monthSec: fake.monthSec }, fake.date, fake.gate)));
         else if (name === 'PZ2QoL_KinMove') {
             const [req, id, to] = args;
@@ -481,6 +482,41 @@ test('one male per group: a male moves in only after the male leaving has gone; 
     assert.ok((auto.getSpeciesAuto('Sable').last.notes || []).some(t => /stayed where he was/.test(t) && /did not leave/.test(t)), JSON.stringify(auto.getSpeciesAuto('Sable').last));
     auto.setSpeciesAuto('Sable', { on: false });
     fake.slow = false;
+});
+
+// A seasonal breeder (African wild dogs: summer, the park's months 4-6): the
+// game's breeding seasons and the park's calendar reach Auto mode's run, so a
+// pack keeps its breeding pair through the season; the change comes after it.
+test('a seasonal breeder: a pack keeps its breeding pair through the breeding season, then changes', async () => {
+    const A = auto._autopilotInternals();
+    const D = (id, sex, hab, over) => an(id, sex, hab, [], Object.assign({ species: 'Dog', age: 5 }, over));
+    fake.speciesInfo = { Dog: { mating: 'monogamy', leaderMale: true, leaderFemale: true, fertilityAges: { maturity: 1.5, infertility: 10 }, interBirthYears: 1, breedingSeasons: [false, true, false, false] } };
+    // the leaders share their strands; a strong female waits at the trade centre
+    fake.animals.push(D('dm', M, '3', { alpha: true, genes: G('A', 'B') }), D('df', F, '3', { alpha: true, genes: G('A', 'B') }),
+        D('dk', F, '3', { age: 3.5, genes: G('A', 'B') }), D('ds', F, '', { genes: G('E', 'F') }));
+    const dogMoves = () => fake.moved.filter(([id]) => /^d[a-z]$/.test(id)).map(([id]) => id);
+    const runAt = async date => {
+        fake.date = date;
+        fake.moved = [];
+        const before = (auto.getSpeciesAuto('Dog').last || {}).real || 0;
+        assert.equal(auto.setSpeciesAuto('Dog', { on: true, thin: false, every: 3 }), true);
+        A.ledger.sp.Dog.next = 0;
+        A.pausedUntil.clear();
+        publish();
+        await sleep(50);
+        settle();
+        assert.ok(await until(() => ((auto.getSpeciesAuto('Dog').last || {}).real || 0) > before && !A.acting && !A.planning, 40000), JSON.stringify(auto.getSpeciesAuto('Dog')));
+        return auto.getSpeciesAuto('Dog');
+    };
+    // summer of year 6: the newcomer comes, the leader female stays
+    const summer = await runAt({ year: 6, month: 5, monthProp: 0.2 });
+    assert.deepEqual(dogMoves(), ['ds'], JSON.stringify(summer.last));
+    assert.ok((summer.last.notes || []).includes('The breeding season is on: H3 keeps its breeding pair until it is over.'), JSON.stringify(summer.last));
+    // the autumn: the better pair leads (the old leader female goes)
+    await runAt({ year: 6, month: 8, monthProp: 0.2 });
+    assert.ok(dogMoves().includes('df'), JSON.stringify(fake.moved));
+    auto.setSpeciesAuto('Dog', { on: false });
+    fake.speciesInfo = null;
 });
 
 // the mod's own modules keep timers of their own (the scan, the board):
