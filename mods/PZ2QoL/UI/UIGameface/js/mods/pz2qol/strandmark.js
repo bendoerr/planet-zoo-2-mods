@@ -10,23 +10,34 @@
 // Hub (Frontend page): badges.js asks rowEdge for each market and storage
 // row. The row's genetic identity (geneticIdentities.<gene>.genes.gene0-5,
 // the strands letter by letter, as the game's Genealogy popup shows them)
-// gives the strands; without it the grade gives a lower bound. Whether the
-// game fills the identity on market rows is not known yet: the debug log
-// says once per session (strand identity present / absent).
+// gives the strands; without it the grade gives a lower bound. The game
+// fills the identity on market rows (all 24 rows of Helix's market copy, in
+// game, 2026-10-20); the debug log says once per session (strand identity
+// present / absent).
+//
+// Market picks (experimental, Kin setting marketPicks; marketpickcore.js):
+// while it is on, the park page also keeps each herd's best mates and its
+// pairs' young in the same setting (field mk, at most PICK_MAX_CHARS), and
+// reads the settings again every 2 minutes, so turning picks on in the hub
+// reaches it. Off, the setting holds what it always did.
 import { getPref, rereadPrefs, setPref } from '/js/mods/pz2qol/prefs.js';
-import { getKinModel, onKin } from '/js/mods/pz2qol/kin.js';
+import { getKinModel, getKinSettings, onKin, onKinSettings } from '/js/mods/pz2qol/kin.js';
 import { get } from '/js/mods/pz2qol/game.js';
 import { dlog } from '/js/mods/pz2qol/debuglog.js';
 import { decodeHerdBest, encodeHerdBest, herdBest, strandEdge, strandsFromLoci } from '/js/mods/pz2qol/kinstrands.js';
+import { decodeMarketFacts, encodeMarketFacts, herdMarketFacts } from '/js/mods/pz2qol/marketpickcore.js';
 import { speciesId } from '/js/mods/pz2qol/speciesnamecore.js';
 import { reportError } from '/js/mods/pz2qol/errors.js';
 
 export const HERD_PREF = 'herdStrands';
 const REREAD_MS = 30000;
+// the park page: how often it reads the settings again (market picks)
+const PARK_REREAD_MS = 120000;
 
 let lastPublished = null;
-let decoded = { raw: null, zoo: '', best: new Map() };
+let decoded = { raw: null, zoo: '', best: new Map(), mk: null, facts: new Map() };
 let lastReread = 0;
+let lastParkReread = 0;
 let identitySeen = null;
 
 // Park: the herd's best strands into the player-wide setting, when they
@@ -36,12 +47,23 @@ function publish(model) {
     const sp = encodeHerdBest(herdBest(model));
     if (!sp) return;
     const z = String((model.snapshot && model.snapshot.park) || '').slice(0, 60);
-    const key = `${z}|${sp}`;
+    const mk = getKinSettings().marketPicks === true ? encodeMarketFacts(herdMarketFacts(model)) : '';
+    const key = `${z}|${sp}|${mk}`;
     if (key === lastPublished) return;
     const now = getPref(HERD_PREF);
     lastPublished = key;
-    if (now && now.z === z && now.sp === sp) return;
-    setPref(HERD_PREF, { z, sp });
+    if (now && now.z === z && now.sp === sp && (now.mk || '') === mk) return;
+    setPref(HERD_PREF, mk ? { z, sp, mk } : { z, sp });
+    if (mk) dlog('kin', 'picks_herd', { zoo: z, species: mk.split(',').length, chars: mk.length });
+}
+
+// The park page reads the settings again now and then: a Kin setting turned
+// on in the hub (market picks) reaches it.
+function parkReread() {
+    const now = Date.now();
+    if (now - lastParkReread < PARK_REREAD_MS) return;
+    lastParkReread = now;
+    rereadPrefs();
 }
 
 export function installStrandMarks() {
@@ -51,20 +73,29 @@ export function installStrandMarks() {
     onKin((model, scope) => {
         if (scope && scope !== 'park') return;
         try {
+            parkReread();
             publish(model);
         }
         catch (e) {
             reportError('mod', 'Better strands: the herd could not be kept for the hub', e, { silent: true });
         }
     });
+    onKinSettings(() => {
+        try {
+            publish(getKinModel());
+        }
+        catch (e) {
+            reportError('mod', 'Market picks: the herd could not be kept for the hub', e, { silent: true });
+        }
+    });
     publish(getKinModel());
     return true;
 }
 
-// The herd's best for a species, as the park last kept it: { best: { S, L },
-// zoo } or null. Read again from the store now and then (the park page may
-// have changed it since this page read it).
-export function herdBestFor(species) {
+// The setting as the park last kept it, decoded once per change. Read again
+// from the store now and then (the park page may have changed it since this
+// page read it).
+function herdPref() {
     const now = Date.now();
     if (now - lastReread > REREAD_MS) {
         lastReread = now;
@@ -72,9 +103,32 @@ export function herdBestFor(species) {
     }
     const v = getPref(HERD_PREF);
     const raw = v && typeof v === 'object' ? `${v.z}|${v.sp}` : '';
-    if (raw !== decoded.raw) decoded = { raw, zoo: v && v.z ? String(v.z) : '', best: decodeHerdBest(v && v.sp) };
-    const best = decoded.best.get(speciesId(species));
-    return best ? { best, zoo: decoded.zoo } : null;
+    if (raw !== decoded.raw) decoded = Object.assign(decoded, { raw, zoo: v && v.z ? String(v.z) : '', best: decodeHerdBest(v && v.sp) });
+    const mk = v && typeof v === 'object' && typeof v.mk === 'string' ? v.mk : '';
+    if (mk !== decoded.mk) Object.assign(decoded, { mk, facts: decodeMarketFacts(mk) });
+    return decoded;
+}
+
+// The herd's best for a species: { best: { S, L }, zoo } or null.
+export function herdBestFor(species) {
+    const d = herdPref();
+    const best = d.best.get(speciesId(species));
+    return best ? { best, zoo: d.zoo } : null;
+}
+
+// Market picks: the herd's facts for a species (marketpickcore.js
+// decodeMarketFacts), as the park last kept them: { facts, zoo } or null
+// (picks off there, or no herd of it).
+export function herdFactsFor(species) {
+    const d = herdPref();
+    const facts = d.facts.get(speciesId(species));
+    return facts ? { facts, zoo: d.zoo } : null;
+}
+
+// Whether the park kept any herd facts (market picks on there).
+export function herdFactsKept() {
+    const d = herdPref();
+    return { any: d.facts.size > 0, zoo: d.zoo };
 }
 
 // A market or storage row's strands from its genetic identity:

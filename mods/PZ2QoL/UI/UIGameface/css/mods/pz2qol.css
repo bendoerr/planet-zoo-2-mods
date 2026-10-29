@@ -754,3 +754,25 @@
   color: #FFFFFF;
   font-weight: bold;
 }
+/* a market pick (experimental; marketpicks.js): its gain, then why */
+.PZ2QoL_badge.pick { border-color: var(--qol-great); }
+.PZ2QoL_badgePick {
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 0.5rem;
+  background-color: var(--qol-great);
+  color: #FFFFFF;
+  font-weight: bold;
+}
+.PZ2QoL_badgePickWhy {
+  max-width: 30rem;
+  margin-left: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--qol-ink-soft);
+}
+/* the market toolbar's picks: the switch above the prices, how to show them */
+.PZ2QoL_pickGroup { flex-direction: row; align-items: center; }
+.PZ2QoL_pickGroup > .PZ2QoL_pill { margin-left: 0.4rem; }
+.PZ2QoL_statsCol > .PZ2QoL_pickSwitch { margin-bottom: 0.1rem; }
+.PZ2QoL_pickSwitch .PZ2QoL_switchLabel { font-size: 0.78rem; }

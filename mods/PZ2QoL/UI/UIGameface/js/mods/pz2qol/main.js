@@ -5,6 +5,7 @@ import { breadcrumb, installErrorCapture, reportError } from '/js/mods/pz2qol/er
 import { installDebugLog } from '/js/mods/pz2qol/debuglog.js';
 import { installListFilter, installSelectAllGuard } from '/js/mods/pz2qol/listfilter.js';
 import { installBadges } from '/js/mods/pz2qol/badges.js';
+import { installMarketPicks } from '/js/mods/pz2qol/marketpicks.js';
 import { installBars } from '/js/mods/pz2qol/bars.js';
 import { installPriceBook } from '/js/mods/pz2qol/pricebook.js';
 import { installLister } from '/js/mods/pz2qol/lister.js';
@@ -63,6 +64,8 @@ step('Styles', () => {
 step('Storage filters', installListFilter);
 step('Select-all guard', installSelectAllGuard);
 step('Score badges', installBadges);
+// Market picks (experimental, off by default): the market list's picks first or only
+step('Market picks', installMarketPicks);
 step('Toolbars', installBars);
 step('Price book', installPriceBook);
 step('Market lister', installLister);

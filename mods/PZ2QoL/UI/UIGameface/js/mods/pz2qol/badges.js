@@ -11,6 +11,7 @@ import { contextKey, MARKET_LIST_KEY, readAnimal, STORAGE_LIST_KEY } from '/js/m
 import { reportError } from '/js/mods/pz2qol/errors.js';
 import { rowEdge } from '/js/mods/pz2qol/strandmark.js';
 import { strandEdgeText, strandEdgeWords } from '/js/mods/pz2qol/kinstrands.js';
+import { logPage, picksOn, rowPick } from '/js/mods/pz2qol/marketpicks.js';
 
 const ROW_SELECTOR = '.MarketAnimalListItem_root';
 let marketDimBelow = 0;
@@ -90,6 +91,7 @@ function applyToRow(rowEl, bestId) {
         return null;
     }
     const a = readAnimal(ctx);
+    const out = { a, screen, p: null };
     const g = geneScore(a);
     const b = breederScore(a);
     const v = screen == 'market' ? valueIndex(a) : null;
@@ -105,10 +107,21 @@ function applyToRow(rowEl, bestId) {
     catch (e) {
         // no mark; the badge as before
     }
+    // a market pick (experimental, off by default; marketpicks.js)
+    let pick = null;
+    if (screen == 'market') {
+        try {
+            out.p = rowPick(ctx, a);
+            if (out.p && out.p.pick) pick = out.p;
+        }
+        catch (e) {
+            // no pick; the badge as before
+        }
+    }
     // Rebuild only when something visible changed (rows re-render often).
-    const key = [screen, g, b, v, isBest, strand ? strand.text : '', ...GENES.map(x => a.genes[x.id])].join('|');
+    const key = [screen, g, b, v, isBest, strand ? strand.text : '', pick ? `${pick.text}|${pick.why}` : '', ...GENES.map(x => a.genes[x.id])].join('|');
     if (!badge || badge.__key != key) {
-        const fresh = buildBadge(a, screen, g, b, v, isBest, strand);
+        const fresh = buildBadge(a, screen, g, b, v, isBest, strand, pick);
         fresh.__key = key;
         if (badge) host.replaceChild(fresh, badge);
         else host.appendChild(fresh);
@@ -123,23 +136,26 @@ function applyToRow(rowEl, bestId) {
     else if (!shouldDim && dim) {
         host.removeChild(dim);
     }
-    return a;
+    return out;
 }
 
 // strand: { text ('Long6', 'Vit6 Long5+'), words } when it carries a better strand
-// than the herd's, else null
-function buildBadge(a, screen, g, b, v, isBest, strand = null) {
+// than the herd's, else null; pick: a market pick (marketpicks.js rowPick) or null
+function buildBadge(a, screen, g, b, v, isBest, strand = null, pick = null) {
     const tips = [`Gene score ${fmt(g)} (average of ${relevantGenes(a).join(', ') || 'no genes'})`, `Breeder score ${fmt(b)} (fertility-weighted)`];
     if (v != null) tips.push(`Value ${v}: gene score per ${a.isCC ? '100 CC' : '1,000 cash'}`);
     if (isBest) tips.push('Best value on this page');
     if (strand) tips.push(strand.words);
-    return h(`div.PZ2QoL_badge.${scoreTier(g) == 'none' ? 'tier_none' : 'tier_' + scoreTier(g)}.${screen}${isBest ? '.best' : ''}${strand ? '.strand' : ''}`, { title: tips.join(String.fromCharCode(10)) },
+    if (pick) tips.push(pick.words);
+    return h(`div.PZ2QoL_badge.${scoreTier(g) == 'none' ? 'tier_none' : 'tier_' + scoreTier(g)}.${screen}${isBest ? '.best' : ''}${strand ? '.strand' : ''}${pick ? '.pick' : ''}`, { title: tips.join(String.fromCharCode(10)) },
         h('div.PZ2QoL_badgeScore', { text: fmt(g) }),
         geneBars(a.genes, relevantGenes(a)),
         h('div.PZ2QoL_badgeStat', null, h('span.PZ2QoL_badgeKey', { text: 'B' }), h('span', { text: fmt(b) })),
         v != null && h('div.PZ2QoL_badgeStat.value', null, h('span.PZ2QoL_badgeKey', { text: 'V' }), h('span', { text: String(v) })),
         strand && h('div.PZ2QoL_badgeStrand', { text: `▲${strand.text}` }),
-        isBest && h('div.PZ2QoL_badgeStar', { text: '★' }));
+        isBest && h('div.PZ2QoL_badgeStar', { text: '★' }),
+        pick && h('div.PZ2QoL_badgePick', { text: pick.text }),
+        pick && h('div.PZ2QoL_badgePickWhy', { text: pick.why }));
 }
 
 function bestValueId(rows) {
@@ -164,9 +180,12 @@ export function refreshBadges() {
     try {
         const rows = Array.from(document.querySelectorAll(ROW_SELECTOR));
         cachedBestId = bestValueId(rows);
+        const market = [];
         for (const rowEl of rows) {
-            applyToRow(rowEl, cachedBestId);
+            const r = applyToRow(rowEl, cachedBestId);
+            if (r && r.screen == 'market') market.push(r);
         }
+        if (market.length && picksOn()) logPage(market);
         failures = 0;
     }
     catch (e) {
