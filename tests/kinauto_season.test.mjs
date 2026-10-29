@@ -33,9 +33,9 @@ const PACK = (seasons = SUMMER) => Object.assign({
 // the park's calendar: year 48, the month of the year (0-based) and part of it
 const at = monthOfYear => 48 * 12 + monthOfYear;
 // one run with the programme's moves given (finishAutoRun's guards on them)
-const runWith = (animals, moves, { months = null, info = PACK() } = {}) => {
+const runWith = (animals, moves, { months = null, info = PACK(), settings = { thin: false } } = {}) => {
     const model = buildKinModel(snap(animals));
-    const input = { model, species: 'Dog', info, destinations: DEST, assignments: null, settings: { thin: false }, view: {}, tradeFree: null, months };
+    const input = { model, species: 'Dog', info, destinations: DEST, assignments: null, settings, view: {}, tradeFree: null, months };
     return finishAutoRun(input, prepareAutoRun(input), { moves });
 };
 // what the run moves, now or once its new leaders are there
@@ -120,6 +120,9 @@ test('before the season: a pair stays where its new leader would not be of age f
     assert.ok(spring.notes.some(t => t === 'Wild Dog 01 keeps its breeding pair until the breeding season is over: Ny1 would not be of age for it.'), JSON.stringify(spring.notes));
     // in winter she is of age (1.55) by the time summer starts
     assert.deepEqual(ids(runWith(PACK1(), alone, { months: at(9.6) })), ['f1']);
+    // one too young for next summer holds the pair from the autumn on too
+    const younger = PACK1().map(a => (a.id === 'y1' ? Object.assign(a, { age: 0.6 }) : a));
+    assert.deepEqual(ids(runWith(younger, alone, { months: at(7) })), []);
     // a female of age replacing her: the pair changes (the staying male's
     // mourning is the same whenever it comes)
     assert.deepEqual(ids(runWith(PACK1(), REPLACE, { months: at(0.5) })), ['f1', 's']);
@@ -139,6 +142,12 @@ test('a pack left without a breeding pair holds the leaders it would lose, in tu
     assert.deepEqual(ids(r), [], JSON.stringify(r.moves));
     assert.equal(r.held.length, 4);
     assert.ok(r.notes.some(t => /^Wild Dog 01 and Wild Dog 02 keep their breeding pairs until the breeding season is over/.test(t)), JSON.stringify(r.notes));
+    // in winter too (the season starts in 5 months); a pack left with nobody
+    // to lead is not held right after the season, so it never waits a year
+    assert.deepEqual(ids(runWith(animals, moves, { months: at(10) })), []);
+    assert.deepEqual(ids(runWith(animals, moves, { months: at(6.5) })), ['f1', 'f2', 'm1', 'm2']);
+    // a run once a year has no run to wait for
+    assert.equal(ids(runWith(animals, moves, { months: at(1), settings: { thin: false, every: 12 } })).length, 4);
 });
 
 test('species without season data, all-year breeders, no calendar, no leader rule: as before', () => {

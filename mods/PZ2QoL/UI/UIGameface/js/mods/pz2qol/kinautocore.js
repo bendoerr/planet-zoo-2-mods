@@ -528,8 +528,14 @@ function placesText(model, habs) {
 // leader's old bond lets it breed there is not known, and moving a pair
 // together cost it the season in the simulation (2026-10-28: 2.8 first-summer
 // litters kept against 1.7 with that exception). Those moves wait until the
-// season has passed (the next run plans again); the rest of the run (Thin
-// out, the young, the others) goes as planned.
+// season has passed (the next run plans again). A group left with nobody of
+// a leading sex is held only from 12 months less the season and one run's
+// interval before it (wild dogs on a run a season: 6 months), so the run
+// right after a season is free and such a change waits a season, never for
+// good (a new pen a pair is to move to stays empty a season at most); a new
+// leader not of age or a mother still in her wait is over by the next
+// season anyway. The rest of the run (Thin out, the young, the others) goes
+// as planned.
 function seasonHold(input, out) {
     const { model, species } = input;
     const win = breedingWindow(input.info, input.months);
@@ -538,6 +544,9 @@ function seasonHold(input, out) {
     const ages = fertilityAgesOf(input);
     const when = { from: win.startsIn, to: win.endsIn };
     const near = win.inSeason || win.startsIn <= AUTO_LIMITS.seasonLeadMonths;
+    // close enough to the season to hold a group left with nobody to lead
+    const every = input.settings && EVERY_CHOICES.includes(Number(input.settings.every)) ? Number(input.settings.every) : SPECIES_DEFAULTS.every;
+    const soon = win.startsIn <= 12 - (win.endsIn - win.startsIn) - every;
     const breeds = group => !!group && !!breedingLeaders(group, sexes, ages, when, false);
     const held = { season: [], young: [] };
     const late = [];
@@ -549,7 +558,10 @@ function seasonHold(input, out) {
                 const mothers = sexes.includes(Sex.Female) ? b.leaders.filter(a => a.sex === Sex.Female) : b.group.filter(a => a.sex === Sex.Female && breedsBy(a, ages, when));
                 return !(mothers.length && mothers.every(a => a.preg));
             }
-            return !breeds(after.get(b.hab));
+            const there = after.get(b.hab) || [];
+            if (breeds(there)) return false;
+            // nobody of a leading sex left: only that close to the season
+            return soon || sexes.every(sex => !!packLeaderOf(there, sex));
         });
         if (!g) break;
         if (near) {
