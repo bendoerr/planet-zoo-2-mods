@@ -1183,7 +1183,7 @@ pair litter every summer at (fM+fF)/12, so their gains were too high.
   (`Kin._GameMode` says offline whenever the hub type is not the Franchise constant, also when the
   constant is missing). Auto mode also needs `PZ2QoL_AutoGate`'s `hubTypeKnown` and
   `franchiseZoo === false` (`franchise:GetCurrentZooGUID()` is nil outside Franchise).
-- **The breeder build** (2026-10-29, branch `feat/best-breeder`; **offline**: Node, harness and
+- **The breeder build** (2026-10-29, branch `feat/ceiling-goal`; **offline**: Node, harness and
   simulator, not yet in game; design `docs/DESIGN-autopilot.md` 16, results
   `docs/PLAN-best-breeder.md` 14). Auto mode only; the board's panels answer as before.
   - **Thin out across the herd** (`kincull.js` option `herd`, Auto mode's `AUTO_CULL`): after the

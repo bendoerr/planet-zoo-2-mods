@@ -1,7 +1,7 @@
 # Plan: the best auto breeder (2026-10-28)
 
-Status: **built and measured 2026-10-29** (branch `feat/best-breeder`, head `9a534ff`; not pushed,
-not installed). Build 1 (frictions) is on in Auto mode; Build 2 (strand bonus) is built and off; Build
+Status: **built and measured 2026-10-29** (branch `feat/ceiling-goal`, head `9a534ff`; on the fork,
+installed). Build 1 (frictions) is on in Auto mode; Build 2 (strand bonus) is built and off; Build
 3 is an opt-in experiment, "Market picks", off. Owner's goal: "the best freaking auto breeder on the
 market": Auto mode should set herds up better than the player, without hands-off marks. Results:
 section 14. Sections 2–13 are the research of 2026-10-28; where the measurements overturned them,
@@ -381,15 +381,14 @@ State on 2026-10-29 (the in-game checks: 14.10):
 ## 13. Where everything is
 
 13.1. Repo: the owner's fork bendoerr/planet-zoo-2-mods, branch `feat/ceiling-goal`, cloned in the
-session scratchpad (`.../scratchpad/pz2`). Commits of 2026-10-28, **not pushed**: `13c8985` packs,
-`c7733f8` strand marks, `cc95e1b` pack leadership docs, `73cfaef` Auto log kept, `a5b611f` batch quick
-runs, `033b229` line endings. Installed: `c7733f8` (backups in
-`C:\Users\Rowl\Projects\Helix\cache\removed-mods`); `033b229` built and verified
-(`cache\pz2qol-build-033b229`), install not yet approved. Upstream PR on hold.
-The build of 2026-10-29: branch `feat/best-breeder` (from `7dc2522`, code head `9a534ff`), in the
-scratchpad's `wt-int`; **not pushed, not installed**. `9a534ff` built and verified
-(`cache\pz2qol-build-9a534ff`, no debug trace; report `best-breeder/reports/build.md`); install not
-yet approved (the installed build is still `c7733f8`).
+session scratchpad (`.../scratchpad/pz2`); pushed to the fork 2026-10-29. Commits of 2026-10-28:
+`13c8985` packs, `c7733f8` strand marks, `cc95e1b` pack leadership docs, `73cfaef` Auto log kept,
+`a5b611f` batch quick runs, `033b229` line endings. The build of 2026-10-29 (from `7dc2522`, code
+head `9a534ff`) was made on a side branch, `feat/best-breeder`, and folded into `feat/ceiling-goal`.
+Installed: `9a534ff` (2026-10-29; `cache\pz2qol-build-9a534ff`, no debug trace; report
+`best-breeder/reports/build.md`). The build before it, `c7733f8`, is backed up in
+`C:\Users\Rowl\Projects\Helix\cache\removed-mods\PZ2QoL-c7733f8-before-9a534ff`. Upstream PR on
+hold.
 
 13.2. Scratchpad (session-specific; copy what must survive):
 
