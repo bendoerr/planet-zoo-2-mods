@@ -52,6 +52,10 @@ export const DEFAULT_KIN_SETTINGS = Object.freeze({
     // a sick or injured animal the mod sends to the trade centre goes to a
     // quarantine first (the market refuses it); kinmoves.js, kinquarantine.js
     quarantineSick: true,
+    // Market picks (experimental; marketpicks.js, the market toolbar): the
+    // park page keeps each herd's best mates for the hub, and the market
+    // marks the animals whose young would beat the herd's pairs' young
+    marketPicks: false,
 });
 // Kept in the player's settings (prefs.js: the player save on this device,
 // every zoo, Franchise included), as the changes from the defaults only, so

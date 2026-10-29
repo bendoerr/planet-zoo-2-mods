@@ -14,6 +14,8 @@ import { getPriceBook } from '/js/mods/pz2qol/pricebook.js';
 import { fmtInt, h, icon, setClass, setText, tierOf } from '/js/mods/pz2qol/ui.js';
 import { panelApi, speciesName, trunc } from '/js/mods/pz2qol/kinpanel.js';
 import { toggleGeneNames } from '/js/mods/pz2qol/renamer.js';
+import { onKinSettings } from '/js/mods/pz2qol/kin.js';
+import { onPicksChanged, pageSummary, picksMode, picksOn, setPicksMode, setPicksOn } from '/js/mods/pz2qol/marketpicks.js';
 
 const SCORE_STEPS = [0, 50, 60, 70, 80, 90];
 const KEEP_STEPS = [1, 2, 3, 4];
@@ -130,13 +132,39 @@ function buildMarketBar() {
     });
     dim.__set(getMarketDimBelow());
     const prices = h('div.PZ2QoL_pill.subtle.prices');
+    // Market picks (experimental, off by default; marketpicks.js): the
+    // switch, and while it is on how to show this page's picks
+    const pickSeg = segmented('Picks', [
+        { value: 'mark', label: 'Mark', tooltip: 'Mark the picks on their rows' },
+        { value: 'first', label: 'First', tooltip: "This page's picks first, the best first" },
+        { value: 'only', label: 'Only', tooltip: "Only this page's picks (the market comes in pages: turn the page for more)" },
+    ], v => setPicksMode(v));
+    const pickCount = h('div.PZ2QoL_pill.subtle.picks');
+    const pickGroup = h('div.PZ2QoL_pickGroup', null, h('div.PZ2QoL_divider'), pickSeg, pickCount);
+    const pickSwitch = h('div.PZ2QoL_switch.PZ2QoL_pickSwitch', {
+        title: "Market picks (experimental): marks the listings whose young with your herd's best mate for them would beat your herd's own pairs' young, for the species in the zoo you last played, and says why. While it is on, that zoo keeps its herds' best mates for the market. The mod never buys: buying stays the game's own button.",
+        onClick: safe('Market picks', () => setPicksOn(!picksOn())),
+    }, h('div.PZ2QoL_switchTrack', null, h('div.PZ2QoL_switchKnob')), h('div.PZ2QoL_switchLabel', { text: 'Market picks (experimental)' }));
+    const syncPicks = () => {
+        setClass(pickSwitch, 'on', picksOn());
+        pickGroup.style.display = picksOn() ? '' : 'none';
+        pickSeg.__set(picksMode());
+    };
+    onKinSettings(syncPicks);
+    onPicksChanged(syncPicks);
+    syncPicks();
     const bar = h('div.PZ2QoL_bar.PZ2QoL_card.market');
     bar.appendChild(collapser(bar, 'market', 'Quick filters'));
-    bar.appendChild(h('div.PZ2QoL_expandOnly', null, presets, reset, h('div.PZ2QoL_divider'), dim));
+    bar.appendChild(h('div.PZ2QoL_expandOnly', null, presets, reset, h('div.PZ2QoL_divider'), dim, pickGroup));
     bar.appendChild(h('div.PZ2QoL_flex1'));
-    bar.appendChild(prices);
+    bar.appendChild(h('div.PZ2QoL_statsCol', null, pickSwitch, prices));
     let lastCount = -1;
     bar.__updateSummary = () => {
+        if (picksOn()) {
+            const ps = pageSummary();
+            setText(pickCount, !ps.herd ? "Waiting for your zoo's herds (up to 2 minutes in a zoo)" : !ps.scored ? 'Nothing to score on this page' : ps.picks ? `${ps.picks} on this page, best ${ps.best}` : 'None on this page');
+            pickCount.title = ps.herd ? `Herds kept by ${ps.herd}. Scored ${ps.scored} of ${ps.rows} rows on this page; ${ps.identity} showed their strands.` : "Your zoo keeps its herds' best mates for the market while picks are on (it checks every 2 minutes).";
+        }
         const total = getPriceBook().filter(l => l.isCC).length;
         setText(prices, `${fmtInt(total)} prices recorded`);
         if (lastCount >= 0 && total > lastCount) {
