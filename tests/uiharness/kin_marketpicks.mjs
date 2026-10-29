@@ -8,8 +8,9 @@
 //   poor:    a male, V/L 2, F/I strands like the female's  -> no pick
 //   old:     an infertile elderly female                    -> no pick
 // Off: no pick marks, the page's order as the game's, only the switch on the
-// toolbar. On: the marks, inside their rows; First puts the two first; Only
-// shows only them; off again restores the page.
+// toolbar. On: the marks, inside their rows; First puts the two first, the
+// best first (they are seeded after poor and old, grades before strands);
+// Only shows only them; off again restores the page.
 // Park (HUD page): the herd's facts go into herdStrands (field mk) only
 // while the setting is on.
 export const name = 'marketpicks';
@@ -72,11 +73,13 @@ export async function hud(page, ctx) {
 
 // six loci, each strand A's letter then strand B's
 const pairs = (a, b) => [0, 1, 2, 3, 4, 5].map(i => a[i] + b[i]);
+// the page's first rows in this order: the two picks below the others and
+// the lesser first, so First has to move both and swap them
 const ROWS = [
-    { tag: 'strands', gender: 0, maturity: 2, age: 4, grades: [0.5, 0.5, 1, 1], id: { size: pairs('AAACCC', 'AAACCC'), longevity: pairs('AAACCC', 'AAACCC'), fertility: pairs('CCCCCC', 'DDDDDD'), immunity: pairs('CCCCCC', 'DDDDDD') } },
-    { tag: 'grades', gender: 1, maturity: 2, age: 4, grades: [1, 0.92, 0.5, 0.5], id: null },
     { tag: 'poor', gender: 0, maturity: 2, age: 4, grades: [1 / 6, 1 / 6, 0, 0], id: { size: pairs('ACCCCC', 'ACCCCC'), longevity: pairs('ACCCCC', 'ACCCCC'), fertility: pairs('AAAAAA', 'AAAAAA'), immunity: pairs('BBBBBB', 'BBBBBB') } },
     { tag: 'old', gender: 1, maturity: 6, age: 13, grades: [0.5, 0.5, 1, 1], id: { size: pairs('AAACCC', 'AAACCC'), longevity: pairs('AAACCC', 'AAACCC'), fertility: pairs('CCCCCC', 'DDDDDD'), immunity: pairs('CCCCCC', 'DDDDDD') } },
+    { tag: 'grades', gender: 1, maturity: 2, age: 4, grades: [1, 0.92, 0.5, 0.5], id: null },
+    { tag: 'strands', gender: 0, maturity: 2, age: 4, grades: [0.5, 0.5, 1, 1], id: { size: pairs('AAACCC', 'AAACCC'), longevity: pairs('AAACCC', 'AAACCC'), fertility: pairs('CCCCCC', 'DDDDDD'), immunity: pairs('CCCCCC', 'DDDDDD') } },
 ];
 
 // What the page shows: per seeded row its pick and why, the badge inside
@@ -180,6 +183,7 @@ export async function frontend(page, ctx) {
     if (noBadge.length) problems.push(`off: no score badge on ${noBadge.join(', ')}`);
     if (facts.off.switchOn || !facts.off.switchShown) problems.push('off: the switch ' + JSON.stringify({ on: facts.off.switchOn, shown: facts.off.switchShown }));
     if (facts.off.groupShown) problems.push('off: the picks controls are shown');
+    if (facts.off.order.slice(0, ROWS.length).join(',') !== ROWS.map(r => r.tag).join(',')) problems.push('off: the seeded rows are not first in order: ' + facts.off.order.join(','));
     await ctx.shot(page, 'marketpicks_off');
 
     // on, from the toolbar's switch
@@ -206,6 +210,7 @@ export async function frontend(page, ctx) {
     if (facts.on.marks.other) problems.push(`${facts.on.marks.other} picks on rows of species with no herd`);
     if (!facts.on.groupShown || facts.on.count !== '2 on this page, best +27.5') problems.push('on: the toolbar ' + JSON.stringify({ shown: facts.on.groupShown, count: facts.on.count }));
     if (facts.on.barH > facts.off.barH + 2) problems.push(`the toolbar grew from ${facts.off.barH} to ${facts.on.barH} px`);
+    if (facts.on.order.join(',') !== facts.off.order.join(',')) problems.push(`mark: the order ${facts.on.order.join(',')} (was ${facts.off.order.join(',')})`);
     // the debug log: the setting, the page, each pick once
     facts.log = await page.evaluate(async () => (await import('/js/mods/pz2qol/debuglog.js')).getLogLines(2000, 'ui').filter(l => / ui picks?(_setting)? /.test(l)));
     const has = re => facts.log.some(l => re.test(l));
@@ -214,11 +219,11 @@ export async function frontend(page, ctx) {
     if (facts.log.filter(l => / ui pick species=Lion /.test(l)).length !== 2) problems.push('log: pick lines ' + JSON.stringify(facts.log.filter(l => / ui pick /.test(l))));
     await ctx.shot(page, 'marketpicks_on');
 
-    // this page's picks first, the best first
+    // this page's picks first, the best first; the rest in the page's order
     await click(page, ['.PZ2QoL_pickGroup .PZ2QoL_segItem', 'First']);
     facts.first = await read(page, facts.seeded);
-    if (facts.first.order.slice(0, 2).join(',') !== 'strands,grades') problems.push('first: ' + facts.first.order.join(','));
-    if (facts.first.order.length !== facts.on.order.length) problems.push(`first: ${facts.first.order.length} rows (was ${facts.on.order.length})`);
+    const wantFirst = ['strands', 'grades'].concat(facts.on.order.filter(t => t !== 'strands' && t !== 'grades'));
+    if (facts.first.order.join(',') !== wantFirst.join(',')) problems.push(`first: the order ${facts.first.order.join(',')} (want ${wantFirst.join(',')})`);
     await ctx.shot(page, 'marketpicks_first');
 
     // only them

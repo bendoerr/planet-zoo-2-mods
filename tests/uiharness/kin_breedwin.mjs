@@ -204,6 +204,13 @@ export async function hud(page, ctx) {
         await page.waitForTimeout(200);
         await ctx.shot(page, 'bw_5b_options_strands');
         if (!facts.strandRow || facts.strandRow.items.join('|') !== 'Off|Low|Medium|High' || facts.strandRow.on !== 'Off') problems.push(`options: strand bonus row ${JSON.stringify(facts.strandRow)}`);
+        // the options list back at its top (the window keeps its scroll)
+        const optionsTop = () => page.evaluate(() => {
+            const vp = document.querySelector('.PZ2QoL_bwOptions .PZ2QoL_kpViewport');
+            if (vp) vp.scrollTop = 0;
+        });
+        await optionsTop();
+        await page.waitForTimeout(200);
         await click(page.locator('.PZ2QoL_bwSeg[data-relatedPenalty] .PZ2QoL_bwSegItem[data-id="allow"], .PZ2QoL_bwSeg[data-relatedpenalty] .PZ2QoL_bwSegItem[data-id="allow"]'));
         await page.waitForTimeout(300);
         facts.tune = await page.evaluate(async () => (await import('/js/mods/pz2qol/prefs.js')).getPref('progTune'));
@@ -216,6 +223,18 @@ export async function hud(page, ctx) {
         await click(page.locator('.PZ2QoL_bwSeg[data-preset] .PZ2QoL_bwSegItem[data-id="custom"]'));
         await page.waitForTimeout(300);
         facts.steppers = await page.locator('.PZ2QoL_bwStepper').count();
+        // the clicks scroll the list to their rows: the Optimiser and Deep search rows on screen
+        await optionsTop();
+        await page.waitForTimeout(200);
+        facts.deepRowsShown = await page.evaluate(() => {
+            const v = document.querySelector('.PZ2QoL_bwOptions .PZ2QoL_kpViewport').getBoundingClientRect();
+            return ['engine', 'preset'].every(k => {
+                const s = document.querySelector(`.PZ2QoL_bwSeg[data-${k}]`);
+                const r = s && s.getBoundingClientRect();
+                return !!r && r.top >= v.top - 1 && r.bottom <= v.bottom + 1;
+            });
+        });
+        if (!facts.deepRowsShown) problems.push('options: the Optimiser and Deep search rows are not on screen');
         await ctx.shot(page, 'bw_5c_options_deep');
         if (facts.deepPresets < 5) problems.push(`deep presets: ${facts.deepPresets}`);
         if (facts.steppers !== 5) problems.push(`custom deep steppers: ${facts.steppers}`);
