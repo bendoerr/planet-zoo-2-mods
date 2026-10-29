@@ -2200,10 +2200,11 @@ Kin._SpeciesDb = function(self)
 			end
 		end
 		-- AnimalType, MaleHasSingleMate, FemaleHasSingleMate, OnlyLeaderMaleCanMate, OnlyLeaderFemaleCanMate, MourningSeasons
-		for _, r in ipairs(rows("GetMatingRules", 5)) do
+		for _, r in ipairs(rows("GetMatingRules", 6)) do
 			local e = entry(r)
 			if e ~= nil then
 				e.bLeaderMale, e.bLeaderFemale = yes(r[4]), yes(r[5])
+				e.nMourning = tonumber(r[6])
 			end
 		end
 		-- AnimalType, MinimumSpace, SpacePerAdditionalAnimal, MinimumAquaticSpace,
@@ -2337,6 +2338,10 @@ Kin.SpeciesInfo = function(self, oUI, sReq, sSpecies, sHabs)
 	end
 	if tDb ~= nil and tDb.bLeaderFemale then
 		tOut.leaderFemale = true
+	end
+	-- the seasons a monogamous animal mourns its mate (kinprogramme.js packMourn)
+	if tDb ~= nil and tDb.nMourning ~= nil and tDb.nMourning >= 0 then
+		tOut.mourningSeasons = tDb.nMourning
 	end
 	-- the game's space rule: the room left in a habitat (kinprogramme.js
 	-- habitatCapacity; young pile on top of a full habitat otherwise)

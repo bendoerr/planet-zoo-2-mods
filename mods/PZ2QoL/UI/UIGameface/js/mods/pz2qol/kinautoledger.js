@@ -156,13 +156,17 @@ export function ledgerView(l, model, clock, realNow) {
         return out;
     };
     const recentFrom = new Map();
-    const cooled = new Set();
+    const cooled = new Set(), once = new Set();
     for (const [g, list] of Object.entries(l.hist)) {
         const a = byGuid.get(g);
         if (!a || !Array.isArray(list)) continue;
         // moved by Auto mode lately: it stays put for a while
-        // (the same window as a reversal, so no move back counts as one)
-        if (list.some(h => clock - Number(h[2]) <= AUTO_LIMITS.cooldownYears)) cooled.add(a.id);
+        // (the same window as a reversal, so no move back counts as one);
+        // moved once in it: it may move once more for a large gain
+        // (kinautocore.js locksOf)
+        const lately = list.filter(h => clock - Number(h[2]) <= AUTO_LIMITS.cooldownYears).length;
+        if (lately) cooled.add(a.id);
+        if (lately === 1) once.add(a.id);
         const set = new Set();
         for (const [n, hid, t] of list) {
             if (clock - Number(t) > AUTO_LIMITS.reversalYears) continue;
@@ -184,6 +188,7 @@ export function ledgerView(l, model, clock, realNow) {
     return {
         pinned: ids(l.pins),
         cooled,
+        once,
         leaving: ids(l.leave),
         recentFrom,
         blocked,
