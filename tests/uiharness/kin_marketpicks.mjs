@@ -53,7 +53,9 @@ export async function hud(page, ctx) {
         kin.setKinSettings({ marketPicks: false });
         await wait(300);
         const offAgain = prefs.getPref('herdStrands') || null;
+        const log = (await import('/js/mods/pz2qol/debuglog.js')).getLogLines(2000, 'kin').filter(l => / kin picks_herd /.test(l));
         return {
+            log: log.slice(-1)[0] || null,
             off: off ? Object.keys(off).sort().join(',') : null, on: on ? Object.keys(on).sort().join(',') : null, mkChars: on && on.mk ? on.mk.length : 0,
             lion: lion ? { n: lion.n, K: lion.K, mates: lion.mates.length, bench: !!lion.bench } : null, offAgain: offAgain ? Object.keys(offAgain).sort().join(',') : null,
         };
@@ -62,6 +64,7 @@ export async function hud(page, ctx) {
     if (p.off !== 'sp,z') problems.push('off: herdStrands holds ' + p.off);
     if (p.on !== 'mk,sp,z' || !p.lion || !p.lion.mates || !p.lion.bench) problems.push('on: ' + JSON.stringify(p));
     if (p.offAgain !== 'sp,z') problems.push('off again: herdStrands holds ' + p.offAgain);
+    if (!/ kin picks_herd zoo=.*Harness Park.* species=\d+ chars=\d+/.test(p.log || '')) problems.push('debug log: ' + p.log);
     facts.problems = problems;
     if (problems.length) throw new Error('market picks (park): ' + problems.join('; '));
     return facts;
@@ -203,6 +206,12 @@ export async function frontend(page, ctx) {
     if (facts.on.marks.other) problems.push(`${facts.on.marks.other} picks on rows of species with no herd`);
     if (!facts.on.groupShown || facts.on.count !== '2 on this page, best +27.5') problems.push('on: the toolbar ' + JSON.stringify({ shown: facts.on.groupShown, count: facts.on.count }));
     if (facts.on.barH > facts.off.barH + 2) problems.push(`the toolbar grew from ${facts.off.barH} to ${facts.on.barH} px`);
+    // the debug log: the setting, the page, each pick once
+    facts.log = await page.evaluate(async () => (await import('/js/mods/pz2qol/debuglog.js')).getLogLines(2000, 'ui').filter(l => / ui picks?(_setting)? /.test(l)));
+    const has = re => facts.log.some(l => re.test(l));
+    if (!has(/ ui picks_setting on=true mode=mark/)) problems.push('log: no picks_setting');
+    if (!has(/ ui picks species=.*Lion.* rows=\d+ scored=3 identity=3\/4 picks=2 best=\+27\.5 herd=.*Harness Zoo.* mode=mark/)) problems.push('log: no page line ' + JSON.stringify(facts.log.filter(l => / ui picks /.test(l))));
+    if (facts.log.filter(l => / ui pick species=Lion /.test(l)).length !== 2) problems.push('log: pick lines ' + JSON.stringify(facts.log.filter(l => / ui pick /.test(l))));
     await ctx.shot(page, 'marketpicks_on');
 
     // this page's picks first, the best first
