@@ -43,6 +43,10 @@ search was already near-best (its pairs within about 0.01 of the best the herd c
 the in-game checks (14.10), hyena groups with no leader female (17% of group-quarters), and market
 buys for hyenas.
 
+1.7. Two Thin out changes tried after the build both fail (14.11): the herd cull ordered by value as
+a parent (dogs, leopards, secretarybirds, hippos) and pack leaders retired before they turn
+infertile (dogs: costs more young to sell than it saves in old ones). Auto mode stays as installed.
+
 ## 2. The owner's herds (Halcyon Kalahari Cradle #2, saves of 2026-10-28)
 
 | Herd | Animals | Herd average | V / L / F / I | Generations bred in the zoo | Born elsewhere |
@@ -409,6 +413,8 @@ hold.
 | `best-breeder/eval/` | `dog_sim_eval.mjs`, `hyena_sim_eval.mjs`, `esumm.mjs`, `forecast.mjs`; 600 logs of the combined evaluation |
 | `best-breeder/conception/model.mjs` | The measured conception model |
 | `best-breeder/strand/hyena_sim.mjs` | Real-planner hyena simulator (measured conception) |
+| `best-breeder/species/` | `species_sim.mjs` (env `SPECIES`: leopard, secretarybird, hippo, wild dog), `species_sim_age.mjs` (counts the too old), `habmap.mjs`, `ssumm.mjs`, `agesum.mjs`; runs in `runs/`, `agerun/` (14.11) |
+| `best-breeder/cullorder/` | The herd cull order experiment's dog runs (14.11.3) |
 
 13.3. The owner's wild dogs at the 20:14 save: Wild Dog 01 Sibusiso & Sekelaga lead (Asha, Ojore,
 Adejola, 7 pups); 02 Matla (Bertha 0.8 will be his mate), 4 pups; 03 probably Asim & Thembile lead
@@ -610,8 +616,8 @@ litters and 4.6 sends a year either way.
   over the space need until the next run (simulator: 4.1 against 2.8 animal-quarters over room in 15
   years).
 - d. The pairs' expected young barely move (+0.8 / +0.2). The herd cull's own-grade order lowers them
-  slightly (−0.5 to −1.0 on the old rule); if the pups' trend falls, rank by each animal's best
-  expected young with the herd (not tried).
+  slightly (−0.5 to −1.0 on the old rule); ranking by each animal's best expected young with the
+  herd was tried on 2026-10-29 and fails (14.11.3).
 - e. Simulated herds are closed (no buys), with no disease, fights, welfare or player, on a fixed
   layout (5 dog habitats, 4 hyena habitats of 2,000 m²). Hyena adulthood at 3 is a guess. Seeds
   diverge after the first different decision: ± 0.4–1.3 is the honest resolution.
@@ -651,3 +657,62 @@ litters and 4.6 sends a year either way.
   notes. Such a pen is planned like an assigned one (the programme may restructure it; hands off
   keeps a pair).
 - j. Market picks' debug lines (14.7.4 b).
+
+### 14.11. Thin out experiments of 2026-10-29 (both fail, not merged)
+
+14.11.1. Bottom line: neither change passes; Auto mode stays as `9a534ff`. The code of both is kept
+only in bundles (`C:\Users\Rowl\Projects\Helix\cache\pz2qol-backup\`): `best/cullorder` (`af6172a`)
+and `best/retire`.
+
+14.11.2. Method: 24 paired seeds, 25 years, against `4919f5e`, from the 20:14 Cradle #2 save.
+Wild dogs: the REAL=2 dog simulator. Leopards, secretarybirds, hippos: `best-breeder/species/
+species_sim.mjs` (report `best-breeder/reports/species.md`; habitats read from the save's live
+records). Settings: default, and the owner's (step 3; fill Strict for dogs, Balanced for the others;
+Push the ceiling).
+
+14.11.3. **Herd cull ordered by value as a parent** (`herdOrder: 'parent'`: an animal's expected
+young with its best 2 mates replaces its own grades; report `best-breeder/reports/cullorder.md`).
+Need: herd ≥ +0.5 at years 15 and 25, expected young ≥ −0.2, litters not lower, no more herds lost,
+F and I not down more than 2.
+
+| Species | Herd y15 / y25 (default; owner's) | Expected young | Litters | Met |
+|---|---|---|---|---|
+| Wild dog | −0.4 / −0.2; −0.4 / −0.2 | +0.1; +1.4 | +2.8; +2.5 (15 y) | No; owner's Fertility −5 at y15 |
+| Leopard | 0 / 0 (runs identical) | 0 | 0 | No: the herd cull never sends (each habitat is its breeding pair) |
+| Secretarybird | 0 / 0 (runs identical) | 0 | 0 | No: as leopards |
+| Hippo | 0.0 / −0.1; +0.2 / +0.2 | +0.2; +0.3 | −1.0; +1.4 | No |
+
+Why: in packs only the leaders breed, so the members kept matter little to the herd's genes; pair
+species never reach the herd cull.
+
+14.11.4. **Animals sent away too old to sell** (the owner, 2026-10-29: an elderly infertile animal
+earns no CC and can only be rehomed). Sent at or past the species' infertile age, per 25 years,
+today's code:
+
+| Species | Sent away | Too old: default / owner's | Of them leaders | Died at home |
+|---|---|---|---|---|
+| Wild dog | 146 | 3.4 / 9.7 | 3.3 / 7.3 | 0 |
+| Hippo | 149 | 0.5 / 1.6 | (no leaders) | 0 |
+| Leopard | 51 | 1.1 / 2.7 | (no leaders) | 1.4 / 1.1 |
+
+Pack members that do not lead already go in time (Thin out `retireYears` 1.5, since 2026-10-28).
+The owner's 2.4 too-old dog members are probably a best strand's last carriers, kept by Push the
+ceiling (not tried).
+
+14.11.5. **Pack leaders retired before they turn infertile** (`retireLeaders`, Auto mode: a leader
+with under 1.5 breeding years left goes while it can be traded, when the next to lead, the eldest of
+its sex left, can breed for longer). Need: too-old sends halved, herd not down more than 0.5,
+expected young ≥ −0.2, litters not down more than 1 in 25 years. Wild dogs:
+
+| Item | Default | Owner's |
+|---|---|---|
+| Too old sent (25 y) | 3.4 → 2.2 | 9.7 → 7.9 |
+| Herd y15 / y25 | −0.1 ± 0.7 / −0.7 ± 0.8 | −0.7 ± 0.9 / −0.7 ± 1.4 |
+| Expected young | −0.5 ± 0.5 | −0.3 ± 0.5 |
+| Litters (25 y) | −0.6 ± 1.1 | −2.0 ± 1.2 |
+| Sent a year | −0.34 ± 0.18 | −0.38 ± 0.20 |
+| Herds lost | 1 of 24 (today 0) | 1 of 24 (today 0) |
+
+Not met. A new leader pair costs litters: about 9 fewer dogs to sell in 25 years against 1–2 fewer
+sent too old. Leaders stay until they stop breeding (`leaderBlockers`). The JS test "Thin out sends
+no leader" fails with the change, by design.
